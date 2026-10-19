@@ -52,10 +52,6 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
 
     @State private var emoteMatches: [TwitchEmote] = []   // autocomplétion en cours
-    @State private var sentinelVisible = true   // le bas de la liste est-il visible ?
-    @State private var isDragging      = false  // l'utilisateur fait-il défiler à la main ?
-
-    private let bottomAnchor = "chat_bottom_anchor"   // sentinelle de bas de liste
 
     /// Faux aussi en lecture seule (compte banni de ce chat) : plus de champ,
     /// de sélecteur d'emotes, de réponse ni de commandes.
@@ -402,6 +398,34 @@ struct ChatView: View {
             }
             // Toucher une emote ou un badge (messages, épinglé) : sa fiche.
             .environment(\.chatInfoAction, { infoItem = $0 })
+            // Filters or highlight words changed: messages already shown are
+            // decided again (they are no longer re-filtered on every render).
+            .onChange(of: chatFilterKey) { _ in chat.reclassify() }
+            // En mode lecture (remonté), on met en pause la purge des vieux
+            // messages : sinon retirer les plus anciens (en haut) fait « descendre »
+            // la vue pendant qu'on lit l'historique.
+            .onChange(of: autoScroll) { chat.pauseTrim = !$0 }
+    }
+
+    /// Everything the hide/highlight decision of a message depends on.
+    private var chatFilterKey: [String] {
+        [store.twitchLogin ?? "",
+         store.chatHideBots ? "1" : "0",
+         store.chatHideCommands ? "1" : "0",
+         store.chatBlockedUsers.joined(separator: "\u{1}"),
+         store.chatMutedWords.joined(separator: "\u{1}"),
+         store.chatHighlightWords.joined(separator: "\u{1}")]
+    }
+
+    /// Hide/highlight rules handed to ChatService, applied once per message
+    /// when it is inserted. Reads the store at call time, so `reclassify()`
+    /// after a settings change picks up the new values.
+    private func installClassifier() {
+        let appStore = store
+        chat.classify = { m in
+            (hidden: appStore.isChatFiltered(m),
+             mention: m.mentions(login: appStore.twitchLogin, words: appStore.chatHighlightWords))
+        }
     }
 
     private var content: some View {
@@ -422,95 +446,15 @@ struct ChatView: View {
                     removal:   .move(edge: .bottom).combined(with: .opacity)
                 ))
             } else {
-                GeometryReader { geo in
-                    ScrollViewReader { proxy in
-                        ZStack(alignment: .bottomTrailing) {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(chat.messages.reversed().filter { !store.isChatFiltered($0) }) { msg in
-                                        ChatMessageRow(
-                                            message: msg,
-                                            availableWidth: geo.size.width,
-                                            style: style,
-                                            onOpenChannel: onJoinChannel
-                                        )
-                                        .id(msg.id)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            guard msg.userId != "system" else { return }
-                                            threadRoot = msg
-                                        }
-                                    }
-                                    // Sentinelle de bas de liste : visible ⇒ on est en bas.
-                                    Color.clear
-                                        .frame(height: 1)
-                                        .id(bottomAnchor)
-                                        .onAppear {
-                                            sentinelVisible = true
-                                            autoScroll = true    // revenu en bas → on suit
-                                        }
-                                        .onDisappear {
-                                            sentinelVisible = false
-                                            // On NE coupe PAS le suivi ici : sinon une rafale
-                                            // de messages (qui pousse brièvement la sentinelle
-                                            // hors champ) l'activerait à tort. C'est le geste
-                                            // de défilement manuel qui coupe le suivi.
-                                        }
-                                }
-                                .frame(width: geo.size.width, alignment: .leading)
-                                .padding(.vertical, 4)
-                                // Peu de messages : ils se collent en bas comme
-                                // sur Twitch, au lieu de flotter en haut d'un
-                                // grand vide — criant posé sur l'image.
-                                .frame(minHeight: geo.size.height, alignment: .bottom)
-                            }
-                            // Défilement manuel de l'utilisateur → on arrête de le ramener en bas.
-                            .simultaneousGesture(
-                                DragGesture(minimumDistance: 10)
-                                    .onChanged { _ in
-                                        isDragging = true
-                                        if !sentinelVisible { autoScroll = false }
-                                    }
-                                    .onEnded { _ in isDragging = false }
-                            )
-                            .onChange(of: chat.messages.first?.id) { _ in
-                                // Suit les nouveaux messages seulement si en bas et hors défilement
-                                // manuel. Sans animation → re-cale instantané, la sentinelle reste
-                                // visible même en rafale (n'active plus le mode lecture par erreur).
-                                guard autoScroll, !isDragging else { return }
-                                proxy.scrollTo(bottomAnchor, anchor: .bottom)
-                            }
-                            // En mode lecture (remonté), on met en pause la purge des vieux
-                            // messages : sinon retirer les plus anciens (en haut) fait « descendre »
-                            // la vue pendant qu'on lit l'historique.
-                            .onChange(of: autoScroll) { chat.pauseTrim = !$0 }
-                            // La zone du chat change de hauteur (clavier, rotation…) : on
-                            // reste calé en bas si on suivait, sinon
-                            // le bas sort de l'écran et le suivi semble s'arrêter.
-                            .onChange(of: geo.size.height) { _ in
-                                guard autoScroll else { return }
-                                DispatchQueue.main.async { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
-                            }
-
-                            if !autoScroll {
-                                Button {
-                                    autoScroll = true
-                                    proxy.scrollTo(bottomAnchor, anchor: .bottom)
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "arrow.down")
-                                        Text(store.t("chat_follow")).font(.system(size: 11, weight: .bold))
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(Color.tPrimary)
-                                    .cornerRadius(20)
-                                }
-                                .padding(10)
-                            }
-                        }
-                    }
-                }
+                // Its own view observing the message feed: a new message
+                // re-renders the list only, not the bars and banners above.
+                ChatMessageList(feed: chat.feed,
+                                style: style,
+                                lang: store.lang,
+                                followLabel: store.t("chat_follow"),
+                                autoScroll: $autoScroll,
+                                onOpenChannel: onJoinChannel,
+                                onSelect: { threadRoot = $0 })
                 .transition(.asymmetric(
                     insertion: .move(edge: .top).combined(with: .opacity),
                     removal:   .move(edge: .top).combined(with: .opacity)
@@ -657,22 +601,34 @@ struct ChatView: View {
             // Le passage en plein écran (AVPlayerViewController) déclenche un onDisappear
             // transitoire. On NE coupe PAS l'IRC/les points tant qu'on est en plein écran ;
             // le délai + le flag couvrent aussi le PiP / transitions rapides.
-            let work = DispatchWorkItem {
-                guard !PlayerFullscreen.isActive else { return }   // plein écran → on garde tout actif
-                chat.disconnect()
-                pubsub.disconnect()
-                dropsNotice.stop()
-                if let cid = channelId { Task { await BTTVLive.shared.leave(channelId: cid) } }
-                events.stop()
-                raidService.disconnect()
-                pointsService.stopPolling()
-                // Cache emotes/badges : purge en quittant le live (si l'option est active).
-                ImageCache.shared.purgeIfNeeded()
-                isSetup = false
-            }
-            teardownWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+            scheduleTeardown(after: 0.6)
         }
+    }
+
+    /// Stops the chat's connections and pollers once the view is really gone.
+    /// While fullscreen/PiP is active it checks again later: it used to give
+    /// up, leaving the IRC socket and pollers running if the view never came
+    /// back. `onAppear` cancels the pending check.
+    private func scheduleTeardown(after delay: Double) {
+        let work = DispatchWorkItem {
+            guard !PlayerFullscreen.isActive else {   // plein écran → on garde tout actif
+                scheduleTeardown(after: 2)
+                return
+            }
+            chat.disconnect()
+            pubsub.disconnect()
+            dropsNotice.stop()
+            if let cid = channelId { Task { await BTTVLive.shared.leave(channelId: cid) } }
+            events.stop()
+            raidService.disconnect()
+            pointsService.stopPolling()
+            // The image cache is no longer purged here: other chats (multi-live)
+            // still show those emotes, and the purge ran on the main thread.
+            // It is purged at app exit (AppDelegate).
+            isSetup = false
+        }
+        teardownWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     // MARK: – Setup initial
@@ -685,6 +641,7 @@ struct ChatView: View {
         let cid = channelId, name = channelName, tok = token
         // Salon déjà refusé à ce compte pendant la séance : bandeau d'emblée.
         chat.prepare(channel: channelName, login: login)
+        installClassifier()
         let assets = Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await EmoteService.shared.loadGlobals() }
@@ -1096,26 +1053,123 @@ struct ChatView: View {
         store.chatSyncNudge = v
         logger.settingChanged("Retouche de la synchro du chat", value: String(format: "%+.0f s", v))
     }
+}
 
-    /// Transforme les URLs d'un texte en liens tappables (message épinglé).
-    private func linkified(_ s: String) -> AttributedString {
-        var att = AttributedString(s)
-        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
-            let ns = s as NSString
-            for m in detector.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
-                guard let url = m.url,
-                      let r = Range(m.range, in: s),
-                      let attRange = att.range(of: String(s[r])) else { continue }
-                att[attRange].link = url
-                att[attRange].underlineStyle = .single
-                att[attRange].foregroundColor = .tOutplayer
+// MARK: – Message list
+/// The scrolling message list of the live chat. It alone observes the message
+/// feed, so a new message no longer re-renders ChatView's status bar,
+/// banners and input bar. Hidden/mention flags are decided at insert
+/// (ChatService.classify), not here.
+private struct ChatMessageList: View {
+    @ObservedObject var feed: ChatFeed
+    let style: ChatStyle
+    let lang: Lang
+    let followLabel: String
+    @Binding var autoScroll: Bool
+    var onOpenChannel: (String) -> Void
+    var onSelect: (ChatMessage) -> Void
+
+    @State private var sentinelVisible = true   // le bas de la liste est-il visible ?
+    @State private var isDragging      = false  // l'utilisateur fait-il défiler à la main ?
+
+    private let bottomAnchor = "chat_bottom_anchor"   // sentinelle de bas de liste
+
+    var body: some View {
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ZStack(alignment: .bottomTrailing) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(feed.messages.reversed().filter { !$0.hiddenByFilter }) { msg in
+                                ChatMessageRowContent(
+                                    message: msg,
+                                    availableWidth: geo.size.width,
+                                    style: style,
+                                    isMention: msg.mentionsMe,
+                                    lang: lang,
+                                    onOpenChannel: onOpenChannel
+                                )
+                                .equatable()
+                                .id(msg.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    guard msg.userId != "system" else { return }
+                                    onSelect(msg)
+                                }
+                            }
+                            // Sentinelle de bas de liste : visible ⇒ on est en bas.
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchor)
+                                .onAppear {
+                                    sentinelVisible = true
+                                    autoScroll = true    // revenu en bas → on suit
+                                }
+                                .onDisappear {
+                                    sentinelVisible = false
+                                    // On NE coupe PAS le suivi ici : sinon une rafale
+                                    // de messages (qui pousse brièvement la sentinelle
+                                    // hors champ) l'activerait à tort. C'est le geste
+                                    // de défilement manuel qui coupe le suivi.
+                                }
+                        }
+                        .frame(width: geo.size.width, alignment: .leading)
+                        .padding(.vertical, 4)
+                        // Peu de messages : ils se collent en bas comme
+                        // sur Twitch, au lieu de flotter en haut d'un
+                        // grand vide — criant posé sur l'image.
+                        .frame(minHeight: geo.size.height, alignment: .bottom)
+                    }
+                    // Défilement manuel de l'utilisateur → on arrête de le ramener en bas.
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 10)
+                            .onChanged { _ in
+                                isDragging = true
+                                if !sentinelVisible { autoScroll = false }
+                            }
+                            .onEnded { _ in isDragging = false }
+                    )
+                    .onChange(of: feed.messages.first?.id) { _ in
+                        // Suit les nouveaux messages seulement si en bas et hors défilement
+                        // manuel. Sans animation → re-cale instantané, la sentinelle reste
+                        // visible même en rafale (n'active plus le mode lecture par erreur).
+                        guard autoScroll, !isDragging else { return }
+                        proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                    }
+                    // La zone du chat change de hauteur (clavier, rotation…) : on
+                    // reste calé en bas si on suivait, sinon
+                    // le bas sort de l'écran et le suivi semble s'arrêter.
+                    .onChange(of: geo.size.height) { _ in
+                        guard autoScroll else { return }
+                        DispatchQueue.main.async { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+                    }
+
+                    if !autoScroll {
+                        Button {
+                            autoScroll = true
+                            proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down")
+                                Text(followLabel).font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.tPrimary)
+                            .cornerRadius(20)
+                        }
+                        .padding(10)
+                    }
+                }
             }
         }
-        return att
     }
 }
 
 // MARK: – Single Message Row
+/// Row reading the mention settings and language from the store (VOD chat,
+/// thread sheet, settings preview). The live chat list uses
+/// `ChatMessageRowContent` directly, with values decided at insert.
 struct ChatMessageRow: View {
     let message: ChatMessage
     let availableWidth: CGFloat
@@ -1124,24 +1178,39 @@ struct ChatMessageRow: View {
     var onOpenChannel: (String) -> Void = { _ in }
     @EnvironmentObject private var store: AppStore
 
+    var body: some View {
+        ChatMessageRowContent(message: message,
+                              availableWidth: availableWidth,
+                              style: style,
+                              isMention: message.mentions(login: store.twitchLogin,
+                                                          words: store.chatHighlightWords),
+                              lang: store.lang,
+                              onOpenChannel: onOpenChannel)
+    }
+}
+
+/// The row itself, from plain values only: no store observation, so a store
+/// change does not re-render every row, and Equatable so the live list can
+/// skip rows that did not change (`.equatable()`).
+struct ChatMessageRowContent: View, Equatable {
+    let message: ChatMessage
+    let availableWidth: CGFloat
+    var style: ChatStyle = .standard
     /// Mentionné (avec ou sans @) ou mot surveillé (réglages) : surligné.
-    private var isMention: Bool {
-        guard message.systemMsg == nil, message.userId != "system" else { return false }
-        let me = store.twitchLogin?.lowercased() ?? ""
-        guard message.userName.lowercased() != me || me.isEmpty else { return false }
-        let words = store.chatHighlightWords
-        guard !me.isEmpty || !words.isEmpty else { return false }
-        for token in message.tokens {
-            switch token {
-            case .mention(let m):
-                if !me.isEmpty, m.lowercased() == me { return true }
-            case .text(let t):
-                let w = t.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "@.,!?:;"))
-                if (!me.isEmpty && w == me) || words.contains(w) { return true }
-            default: break
-            }
-        }
-        return false
+    let isMention: Bool
+    let lang: Lang
+    /// Raid entrant : ouvrir la chaîne d'où vient le raid.
+    var onOpenChannel: (String) -> Void = { _ in }
+
+    /// Messages never change after insert except for moderation (isDeleted)
+    /// and the highlight decision; the closure is deliberately ignored.
+    nonisolated static func == (a: ChatMessageRowContent, b: ChatMessageRowContent) -> Bool {
+        a.message.id == b.message.id
+            && a.message.isDeleted == b.message.isDeleted
+            && a.isMention == b.isMention
+            && a.availableWidth == b.availableWidth
+            && a.style == b.style
+            && a.lang == b.lang
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -1157,7 +1226,7 @@ struct ChatMessageRow: View {
             if message.isFirstMessage {
                 HStack(spacing: 5) {
                     Image(systemName: "sparkles").font(.system(size: 10, weight: .bold))
-                    Text(store.t("chat_first_message")).font(.system(size: 11, weight: .semibold))
+                    Text(translate("chat_first_message", lang)).font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundColor(.tPurple)
                 .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 4)
@@ -1173,7 +1242,7 @@ struct ChatMessageRow: View {
                     Spacer(minLength: 4)
                     if let raider = message.raider {
                         Button { onOpenChannel(raider) } label: {
-                            Text(store.t("see_channel")).font(.system(size: 11, weight: .bold))
+                            Text(translate("see_channel", lang)).font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.tPurple)
                                 .padding(.horizontal, 8).padding(.vertical, 4)
                                 .background(Color.tPurple.opacity(0.18)).cornerRadius(6)
@@ -1318,9 +1387,24 @@ struct TokenBlock: Identifiable { let id: Int; let content: MessageToken }
 // MARK: – Flow Layout
 struct MessageFlowLayout: Layout {
     var spacing, lineSpacing, width: CGFloat
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize { computeLayout(subviews).size }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let l = computeLayout(subviews)
+
+    typealias FlowResult = (size: CGSize, positions: [CGPoint], lineHeights: [CGFloat], sizes: [CGSize])
+    /// Layout measured once and reused by sizeThatFits and placeSubviews
+    /// (every token used to be measured in both). It depends only on the
+    /// subviews and `width`, not on the proposal.
+    struct FlowCache {
+        var width: CGFloat = -1
+        var result: FlowResult? = nil
+    }
+
+    func makeCache(subviews: Subviews) -> FlowCache { FlowCache() }
+    func updateCache(_ cache: inout FlowCache, subviews: Subviews) { cache = FlowCache() }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout FlowCache) -> CGSize {
+        cachedLayout(subviews, &cache).size
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout FlowCache) {
+        let l = cachedLayout(subviews, &cache)
         for (i, sub) in subviews.enumerated() {
             let p = l.positions[i]; let sz = l.sizes[i]
             sub.place(at: CGPoint(x: bounds.minX + p.x, y: bounds.minY + p.y + max(0,(l.lineHeights[i]-sz.height)/2)),
@@ -1328,7 +1412,14 @@ struct MessageFlowLayout: Layout {
                       proposal: ProposedViewSize(width: sz.width, height: sz.height))
         }
     }
-    private func computeLayout(_ subviews: Subviews) -> (size: CGSize, positions: [CGPoint], lineHeights: [CGFloat], sizes: [CGSize]) {
+    private func cachedLayout(_ subviews: Subviews, _ cache: inout FlowCache) -> FlowResult {
+        if let r = cache.result, cache.width == width, r.positions.count == subviews.count { return r }
+        let r = computeLayout(subviews)
+        cache.width = width
+        cache.result = r
+        return r
+    }
+    private func computeLayout(_ subviews: Subviews) -> FlowResult {
         let W = max(width,1); var cx: CGFloat=0, cy: CGFloat=0, mh: CGFloat=0
         var pos=[CGPoint](); var sizes=[CGSize](); var lh=[CGFloat](repeating:0,count:subviews.count); var ls=0
         for (i,s) in subviews.enumerated() {

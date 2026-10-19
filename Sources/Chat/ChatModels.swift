@@ -201,6 +201,34 @@ struct ChatMessage: Identifiable {
     var raider: String? = nil
     /// Annonce : couleur choisie par le modérateur.
     var accent: Color? = nil
+    /// Live chat: hidden by the user's chat filters. Decided once when the
+    /// message is inserted (and again when the filters change), not per render.
+    var hiddenByFilter: Bool = false
+    /// Live chat: mentions the user or one of their highlight words. Same
+    /// reason: computed at insert instead of lowercasing every token per render.
+    var mentionsMe: Bool = false
+}
+
+extension ChatMessage {
+    /// Mentionné (avec ou sans @) ou mot surveillé (réglages) : surligné.
+    /// `words` are lowercased (AppStore.chatHighlightWords).
+    func mentions(login: String?, words: [String]) -> Bool {
+        guard systemMsg == nil, userId != "system" else { return false }
+        let me = login?.lowercased() ?? ""
+        guard userName.lowercased() != me || me.isEmpty else { return false }
+        guard !me.isEmpty || !words.isEmpty else { return false }
+        for token in tokens {
+            switch token {
+            case .mention(let m):
+                if !me.isEmpty, m.lowercased() == me { return true }
+            case .text(let t):
+                let w = t.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "@.,!?:;"))
+                if (!me.isEmpty && w == me) || words.contains(w) { return true }
+            default: break
+            }
+        }
+        return false
+    }
 }
 
 // MARK: – Tokenisation d'un segment de texte
@@ -208,7 +236,11 @@ struct ChatMessage: Identifiable {
 /// Partagé par le chat live (IRC) et le chat des VODs. `userId` : auteur du
 /// message, pour ses emotes personnelles BTTV Pro.
 func tokenizeChatSegment(_ segment: String, channelId: String?, userId: String? = nil) async -> [MessageToken] {
-    var tokens: [MessageToken] = []
+    // Links and mentions are decided here; every other word is looked up in
+    // EmoteService in ONE actor call per segment (it used to be one hop per word).
+    var tokens: [MessageToken?] = []
+    var lookups: [String] = []
+    var lookupSlots: [Int] = []
     for word in segment.components(separatedBy: " ") {
         guard !word.isEmpty else { continue }
         let lower = word.lowercased()
@@ -217,20 +249,38 @@ func tokenizeChatSegment(_ segment: String, channelId: String?, userId: String? 
             tokens.append(.link(word))
         } else if word.hasPrefix("@") && word.count > 1 {
             tokens.append(.mention(String(word.dropFirst())))
-        } else if let emote = await EmoteService.shared.resolve(name: word, channelId: channelId, userId: userId) {
-            tokens.append(.emote(emote))
         } else {
-            tokens.append(.text(word))
+            lookupSlots.append(tokens.count)
+            lookups.append(word)
+            tokens.append(nil)
         }
     }
-    return tokens
+    if !lookups.isEmpty {
+        let found = await EmoteService.shared.resolveAll(names: lookups, channelId: channelId, userId: userId)
+        for (k, slot) in lookupSlots.enumerated() {
+            if k < found.count, let emote = found[k] {
+                tokens[slot] = .emote(emote)
+            } else {
+                tokens[slot] = .text(lookups[k])
+            }
+        }
+    }
+    return tokens.compactMap { $0 }
 }
+
+/// Compiled once: `range(of:options: .regularExpression)` recompiled the
+/// pattern for every word of every message.
+private let bareLinkRegex: NSRegularExpression? = try? NSRegularExpression(
+    pattern: #"^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(com|net|org|tv|gg|me|io|fr|be|ch|de|es|it|uk|co|app|dev|ly|link|to|ru|eu|xyz|shop|store)(/\S*)?$"#)
 
 /// Lien sans « https:// » (« t.me/x », « discord.gg/abc ») : seulement les
 /// extensions courantes, pour ne pas transformer « lol.xd » en lien.
 func isBareLink(_ lower: String) -> Bool {
-    lower.range(of: #"^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(com|net|org|tv|gg|me|io|fr|be|ch|de|es|it|uk|co|app|dev|ly|link|to|ru|eu|xyz|shop|store)(/\S*)?$"#,
-                options: .regularExpression) != nil
+    // No dot, no domain: skip the regex for the vast majority of words.
+    guard lower.contains(".") else { return false }
+    guard let regex = bareLinkRegex else { return false }
+    let range = NSRange(lower.startIndex..<lower.endIndex, in: lower)
+    return regex.firstMatch(in: lower, options: [], range: range) != nil
 }
 
 // MARK: – Déséchappement IRCv3 (tags system-msg, etc.)
@@ -279,7 +329,6 @@ struct IRCMessage {
     var color: String { tags["color"] ?? "" }
     var badgesRaw: String { tags["badges"] ?? "" }
     var emotesRaw: String { tags["emotes"] ?? "" }
-    var isReply: Bool { tags["reply-parent-msg-id"] != nil }
     var replyUser: String? { tags["reply-parent-display-name"] }
     var replyParentMsgId: String? { tags["reply-parent-msg-id"] }
     var replyThreadRootId: String? { tags["reply-thread-parent-msg-id"] ?? tags["reply-parent-msg-id"] }

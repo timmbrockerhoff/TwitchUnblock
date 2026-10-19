@@ -26,13 +26,18 @@ struct MessageSheet: View {
     @State private var copied = false
     /// Emote ou badge touché dans le fil : sa fiche, par-dessus cette feuille.
     @State private var infoItem: ChatInfoItem? = nil
+    /// The list as it was when the sheet opened. Recomputing it (filter + sort
+    /// over the whole chat) on every render meant once per keystroke.
+    @State private var snapshot: [ChatMessage]? = nil
     @FocusState private var focused: Bool
 
     private var rootId: String { message.threadRootId ?? message.id }
     private var canReply: Bool { !replyText.trimmingCharacters(in: .whitespaces).isEmpty }
 
+    private var displayed: [ChatMessage] { snapshot ?? computeDisplayed() }
+
     /// Le fil quand il y en a un, sinon tout ce que la personne a écrit.
-    private var displayed: [ChatMessage] {
+    private func computeDisplayed() -> [ChatMessage] {
         let thread = chat.threadMessages(rootId: rootId)
         if thread.count > 1 { return thread }
         let mine = chat.messagesFrom(userName: message.userName)
@@ -47,6 +52,7 @@ struct MessageSheet: View {
             if replying, canSend { replyBar }
         }
         .background(Color.tDark)
+        .onAppear { if snapshot == nil { snapshot = computeDisplayed() } }
         .overlay(alignment: .top) {
             if copied {
                 Text(store.t("msg_copied"))
