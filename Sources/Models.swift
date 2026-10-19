@@ -58,7 +58,9 @@ struct PlaylistData: Identifiable {
 
 /// Chapitre d'une VOD (changement de jeu).
 struct VodChapter: Identifiable, Hashable {
-    var id: Double { start }
+    /// Not just `start`: two chapters at the same second (Twitch sends some)
+    /// gave ForEach duplicate IDs. Not Codable, nothing persisted.
+    var id: String { "\(start)|\(duration)|\(title)" }
     let start: Double      // secondes
     let duration: Double   // secondes
     let title: String
@@ -122,12 +124,6 @@ struct ClipPlayback {
     let broadcasterName: String?
     let vodId: String?
     let vodOffset: Double?
-}
-
-struct ChannelVideosData {
-    let videos: [VodData]
-    let avatar: String?
-    let error: String?
 }
 
 struct M3U8Data {
