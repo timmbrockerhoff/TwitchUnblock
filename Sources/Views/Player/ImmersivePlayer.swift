@@ -968,6 +968,11 @@ struct ImmersivePlayer: View {
     /// nouvel état, pour le bandeau.
     var onToggleChatVisibility: () -> LandscapeChat = { .hidden }
     var onSleep:    () -> Void = {}
+    /// Clip opened from a channel's clip list: previous / next clip (nil at
+    /// the list's ends, both nil outside a list). Arrows beside play/pause,
+    /// and a horizontal swipe on the image.
+    var onPrevClip: (() -> Void)? = nil
+    var onNextClip: (() -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     @StateObject private var model: ImmersivePlayerModel
@@ -1016,6 +1021,10 @@ struct ImmersivePlayer: View {
     /// contrôle, appel) : remis à faux dans onEnded seulement, il bloquait
     /// ensuite le glissé vers le bas.
     @GestureState private var pinching = false
+    /// Clip swipe in progress: where it started (tells a new gesture from
+    /// the same one) and whether it touched the seek bar or the zoom.
+    @State private var clipSwipeOrigin: CGPoint? = nil
+    @State private var clipSwipeBlocked = false
 
     init(url: URL, isLive: Bool, dvrEnabled: Bool, savedTime: Double,
          contentID: String = "",
@@ -1050,7 +1059,9 @@ struct ImmersivePlayer: View {
          onToggleChatVisibility: @escaping () -> LandscapeChat = { .hidden },
          onSleep:    @escaping () -> Void = {},
          onBackToLive: @escaping () -> Void = {},
-         onSeekToArchive: @escaping (Double) -> Void = { _ in }) {
+         onSeekToArchive: @escaping (Double) -> Void = { _ in },
+         onPrevClip: (() -> Void)? = nil,
+         onNextClip: (() -> Void)? = nil) {
         self.url = url; self.isLive = isLive; self.dvrEnabled = dvrEnabled
         self.savedTime = savedTime; self.contentID = contentID
         self.info = info; self.onChannel = onChannel
@@ -1069,6 +1080,7 @@ struct ImmersivePlayer: View {
         self.onToggleChat = onToggleChat; self.onSleep = onSleep
         self.onToggleChatVisibility = onToggleChatVisibility
         self.onBackToLive = onBackToLive; self.onSeekToArchive = onSeekToArchive
+        self.onPrevClip = onPrevClip; self.onNextClip = onNextClip
         _model = StateObject(wrappedValue: ImmersivePlayerModel(
             url: url, isLive: isLive, savedTime: savedTime,
             onProgress: onProgress, onLatency: onLatency, onBehind: onBehind))
@@ -1230,6 +1242,9 @@ struct ImmersivePlayer: View {
         // réduit le lecteur, comme la flèche en haut à gauche.
         .simultaneousGesture(zoomGesture)
         .gesture(panGesture)
+        // Clip from a channel's list: swipe left / right for the next /
+        // previous one. Alongside the pull-down, which ignores sideways drags.
+        .simultaneousGesture(clipSwipeGesture)
         // Geste interrompu en plein glissé : le lecteur reprend sa place.
         .onChange(of: panActive) { active in
             if !active, pulling == true {
@@ -1373,16 +1388,25 @@ struct ImmersivePlayer: View {
             // pas sur l'écran entier : le chat superposé en masque la droite.
             // En échec, la carte « Réessayer » prend sa place.
             if !model.failed {
-                Button {
-                    model.togglePlay(); scheduleAutoHide()
-                } label: {
-                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 58, height: 58)
-                        .tGlass(in: Circle(), fallback: Color.black.opacity(0.45), clear: true)
+                // Clip from a channel's list: previous / next on either side.
+                HStack(spacing: 28) {
+                    if onPrevClip != nil || onNextClip != nil {
+                        clipArrow(icon: "backward.end.fill", action: onPrevClip)
+                    }
+                    Button {
+                        model.togglePlay(); scheduleAutoHide()
+                    } label: {
+                        Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 58, height: 58)
+                            .tGlass(in: Circle(), fallback: Color.black.opacity(0.45), clear: true)
+                    }
+                    .buttonStyle(.plain)
+                    if onPrevClip != nil || onNextClip != nil {
+                        clipArrow(icon: "forward.end.fill", action: onNextClip)
+                    }
                 }
-                .buttonStyle(.plain)
                 .offset(x: -controlsInset / 2)
             }
 
@@ -1867,6 +1891,20 @@ struct ImmersivePlayer: View {
         .buttonStyle(.plain)
     }
 
+    /// Previous / next clip beside play/pause; dimmed at the list's ends.
+    private func clipArrow(icon: String, action: (() -> Void)?) -> some View {
+        Button { action?() } label: {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .tGlass(in: Circle(), fallback: Color.black.opacity(0.4), clear: true)
+        }
+        .buttonStyle(.plain)
+        .disabled(action == nil)
+        .opacity(action == nil ? 0.35 : 1)
+    }
+
     @ViewBuilder
     private func overlayMeta(icon: String, text: String) -> some View {
         HStack(spacing: 3) {
@@ -1971,6 +2009,36 @@ struct ImmersivePlayer: View {
                 if zoom > 1 { panBase = pan; return }
                 guard pulling == true else { return }
                 onPullEnd(max(0, value.translation.height), value.predictedEndTranslation.height)
+            }
+    }
+
+    /// Horizontal swipe between the clips of a channel's list. Local space:
+    /// the start point is checked against the bottom bar. Ignored on the
+    /// seek bar, while zoomed or pinching, and for mostly vertical drags
+    /// (the pull-down).
+    private var clipSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 40)
+            .onChanged { value in
+                guard onPrevClip != nil || onNextClip != nil else { return }
+                if clipSwipeOrigin != value.startLocation {
+                    clipSwipeOrigin = value.startLocation
+                    clipSwipeBlocked = false
+                }
+                if dragging || pinching || zoom > 1 { clipSwipeBlocked = true }
+            }
+            .onEnded { value in
+                guard onPrevClip != nil || onNextClip != nil else { return }
+                let blocked = clipSwipeBlocked
+                clipSwipeOrigin = nil
+                clipSwipeBlocked = false
+                guard !blocked, !dragging, !pinching, zoom <= 1 else { return }
+                let w = value.translation.width, h = value.translation.height
+                guard abs(w) > 80, abs(w) > 2 * abs(h) else { return }
+                // Seek bar and buttons live at the bottom while controls show.
+                if showControls, value.startLocation.y > surfaceSize.height - 90 { return }
+                // Left → next clip, right → previous one.
+                let action = w < 0 ? onNextClip : onPrevClip
+                action?()
             }
     }
 
