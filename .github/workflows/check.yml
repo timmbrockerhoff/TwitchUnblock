@@ -1,0 +1,185 @@
+name: Check build
+
+# Compiles every pushed branch other than master/test and uploads an
+# unsigned IPA artifact. Unlike build.yml it never creates releases or
+# commits to apps.json, so it is safe for work branches.
+on:
+  push:
+    branches-ignore:
+      - master
+      - test-17d298
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  HOMEBREW_NO_AUTO_UPDATE: 1
+
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    # Intel runners: the arm64 pool was out of capacity for 15+ minutes at a time.
+    runs-on: macos-15-intel
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historique complet : sert à numéroter la version
+
+      - name: Define Release Variables
+        id: vars
+        run: |
+          # Version lisible : « MAJEUR.MINEUR » vient du fichier VERSION (à
+          # modifier à la main pour passer à 1.2, 2.0…), le dernier chiffre
+          # compte les builds depuis ce changement (commits automatiques
+          # « [skip ci] » exclus). Il repart de 0 à chaque nouvelle série au
+          # lieu de grimper sans fin (1.0.367). Le numéro de build interne
+          # (CFBundleVersion) reste github.run_number : toujours croissant,
+          # c'est lui qui sert à détecter une mise à jour.
+          BASE=$(tr -d ' \n\r' < VERSION 2>/dev/null || echo "1.0")
+          SINCE=$(git log -1 --format=%H -- VERSION)
+          if [ -n "$SINCE" ]; then
+            # Seuls les commits qui touchent l'app comptent (pas les README…),
+            # sans les fusions : sur master, les anciennes fusions de la
+            # branche de test comptaient (1.4.10 au lieu de 1.4.0).
+            PATCH=$(git rev-list --count --no-merges "$SINCE"..HEAD -- Sources Shared Widgets Info.plist project.yml buildipa.sh assets/icon.png assets/icons)
+          else
+            PATCH=${{ github.run_number }}
+          fi
+          NEW_VERSION="$BASE.$PATCH"
+          # Fork check build: same bundle identifier as the installed app so
+          # it can replace it; nothing is released or committed.
+          CHANNEL=stable; TAG_NAME="check-${{ github.run_number }}"; SOURCE=apps.json
+          BUILD_DATE=$(date -u +%Y-%m-%d)
+          DOWNLOAD_URL="https://github.com/MXFia19/TwitchUnblock/releases/download/$TAG_NAME/TwitchUnblock.ipa"
+
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          echo "source=$SOURCE" >> $GITHUB_OUTPUT
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Create App Icon Folder
+        run: |
+          echo "--- Icône iOS par défaut et aperçus des icônes au choix ---"
+          CAT=Sources/Assets.xcassets
+          # Une icône : normale, sombre et teintée (iOS 18+ ; iOS 26 tire aussi
+          # ses icônes transparentes de la version teintée). $1 : catalogue,
+          # $2 : image normale, $3 : préfixe des variantes dans assets/icons.
+          make_icon() {
+          dir="$CAT/$1.appiconset"
+          mkdir -p "$dir"
+          cp "$2" "$dir/icon.png"
+          cp "assets/icons/$3-dark.png" "$dir/icon-dark.png"
+          cp "assets/icons/$3-tinted.png" "$dir/icon-tinted.png"
+          cat <<EOF > "$dir/Contents.json"
+          {
+            "images" : [
+              { "filename" : "icon.png", "idiom" : "universal", "platform" : "ios", "size" : "1024x1024" },
+              { "appearances" : [ { "appearance" : "luminosity", "value" : "dark" } ],
+                "filename" : "icon-dark.png", "idiom" : "universal", "platform" : "ios", "size" : "1024x1024" },
+              { "appearances" : [ { "appearance" : "luminosity", "value" : "tinted" } ],
+                "filename" : "icon-tinted.png", "idiom" : "universal", "platform" : "ios", "size" : "1024x1024" }
+            ],
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          EOF
+          }
+          # Aperçu pour Réglages → Apparence → Icône de l'app.
+          make_preview() {
+          dir="$CAT/IconPreview-$1.imageset"
+          mkdir -p "$dir"
+          cp "assets/icons/previews/$1.png" "$dir/preview.png"
+          cat <<EOF > "$dir/Contents.json"
+          {
+            "images" : [ { "filename" : "preview.png", "idiom" : "universal" } ],
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          EOF
+          }
+          make_icon AppIcon assets/icon.png AppIcon
+          make_preview Default
+          # Icônes au choix : fichiers séparés, ajoutés à l'app par buildipa.sh.
+          for name in Purple Night Light Contrast Neon; do
+            make_preview "$name"
+          done
+
+      - name: Inject XcodeGen Settings
+        run: |
+          echo "--- Préparation du project.yml pour l'icône ---"
+          if [ -f "project.yml" ]; then
+            # Ancré en fin de ligne : sans `$`, la cible TwitchUnblockWidgets
+            # (même début de nom) recevait aussi ces réglages, et son nom.
+            sed -i '' "s/PRODUCT_NAME: TwitchUnblock$/PRODUCT_NAME: TwitchUnblock\n        MARKETING_VERSION: ${{ steps.vars.outputs.version }}\n        CURRENT_PROJECT_VERSION: ${{ github.run_number }}\n        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon/g" project.yml
+            # Build de test : identifiant à part, installé à côté de l'app normale.
+            # L'extension suit : son identifiant doit commencer par celui de l'app.
+            if [ "${{ steps.vars.outputs.channel }}" = "test" ]; then
+              sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER: com.mxfia19.TwitchUnblock$/PRODUCT_BUNDLE_IDENTIFIER: com.mxfia19.TwitchUnblock.test/" project.yml
+              sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER: com.mxfia19.TwitchUnblock.Widgets$/PRODUCT_BUNDLE_IDENTIFIER: com.mxfia19.TwitchUnblock.test.Widgets/" project.yml
+            fi
+          fi
+
+      - name: Generate Xcode Project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+
+      - name: Post-Generation Fix (Anti-Black Bars, Identity & PiP)
+        env:
+          # Secret du dépôt officiel, non hérité par les forks : seul le build
+          # officiel porte ce jeton, et le Worker ne compte que les pings qui le
+          # présentent. Vide si le secret n'est pas défini → build non compté.
+          PING_KEY: ${{ secrets.PING_KEY }}
+        run: |
+          echo "--- Fix Info.plist (Plein écran, ID, Version, PiP) ---"
+          # L'Info.plist de l'app seulement. Avant, `find . -name Info.plist`
+          # les prenait tous : celui de l'extension des Live Activities aurait
+          # reçu l'identifiant de l'app, et iOS refuse alors l'installation.
+          APP_PLIST=./Info.plist
+          EXT_PLIST=./Widgets/Info.plist
+          # Identifiants et version
+          if [ "${{ steps.vars.outputs.channel }}" = "test" ]; then
+            plutil -replace CFBundleIdentifier -string "com.mxfia19.TwitchUnblock.test" "$APP_PLIST"
+            plutil -replace CFBundleDisplayName -string "TU Test" "$APP_PLIST"
+          else
+            plutil -replace CFBundleIdentifier -string "com.mxfia19.TwitchUnblock" "$APP_PLIST"
+          fi
+          # Canal lu par l'app : source de mises à jour (apps.json ou apps-test.json).
+          plutil -replace TUChannel -string "${{ steps.vars.outputs.channel }}" "$APP_PLIST"
+          # Même version pour l'app et son extension (iOS l'exige).
+          for P in "$APP_PLIST" "$EXT_PLIST"; do
+            plutil -replace CFBundleShortVersionString -string "${{ steps.vars.outputs.version }}" "$P"
+            plutil -replace CFBundleVersion -string "${{ github.run_number }}" "$P"
+          done
+          plutil -replace CFBundleIconName -string "AppIcon" "$APP_PLIST"
+
+          # Jeton de comptage, seulement sur le build officiel (secret absent
+          # des forks). Vide si non défini : le build n'est alors pas compté.
+          plutil -replace TUPingKey -string "$PING_KEY" "$APP_PLIST"
+
+          # Force le plein écran sans bandes noires
+          plutil -remove UILaunchStoryboardName "$APP_PLIST" || true
+          plutil -replace UILaunchScreen -xml "<dict/>" "$APP_PLIST"
+
+          # ✨ RÉPARATION DU PIP ET DE L'AUDIO EN ARRIÈRE-PLAN
+          plutil -replace UIBackgroundModes -json '["audio","fetch"]' "$APP_PLIST"
+
+      - name: Make build script executable
+        run: chmod +x ./buildipa.sh
+
+      - name: Build iOS IPA
+        run: ./buildipa.sh
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TwitchUnblock-IPA
+          path: build/TwitchUnblock.ipa
+
