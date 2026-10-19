@@ -242,8 +242,9 @@ enum Lang: String, CaseIterable, Identifiable {
 }
 
 // MARK: – Translations
-private let translations: [Lang: [String: String]] = [
-    .fr: [
+// One explicitly typed literal per language: a single nested
+// [Lang: [String: String]] literal of ~2,500 entries is slow to type-check.
+private let kFrenchStrings: [String: String] = [
         "title": "Regarder Twitch sans Sub",
         "tab_home": "Accueil", "tab_search": "Recherche", "tab_library": "Mes VODs",
         "settings": "Paramètres",
@@ -773,8 +774,9 @@ private let translations: [Lang: [String: String]] = [
         "adm_hook_never": "Discord : aucun envoi depuis la mise à jour",
         "adm_hook_test": "Tester l'envoi Discord",
         "adm_hook_test_ok": "Message de test envoyé sur Discord.",
-    ],
-    .en: [
+]
+
+private let kEnglishStrings: [String: String] = [
         "title": "Watch Twitch No Sub",
         "tab_home": "Home", "tab_search": "Search", "tab_library": "My VODs",
         "settings": "Settings",
@@ -1304,8 +1306,9 @@ private let translations: [Lang: [String: String]] = [
         "adm_hook_never": "Discord: nothing sent since the update",
         "adm_hook_test": "Test Discord delivery",
         "adm_hook_test_ok": "Test message sent to Discord.",
-    ],
-    .es: [
+]
+
+private let kSpanishStrings: [String: String] = [
         "title": "Ver Twitch sin Sub",
         "tab_home": "Inicio", "tab_search": "Buscar", "tab_library": "Mis VODs",
         "settings": "Ajustes",
@@ -1835,7 +1838,12 @@ private let translations: [Lang: [String: String]] = [
         "adm_hook_never": "Discord: nada enviado desde la actualización",
         "adm_hook_test": "Probar el envío a Discord",
         "adm_hook_test_ok": "Mensaje de prueba enviado a Discord.",
-    ],
+]
+
+private let translations: [Lang: [String: String]] = [
+    .fr: kFrenchStrings,
+    .en: kEnglishStrings,
+    .es: kSpanishStrings,
     // Russe : dans son propre fichier (Localization/RussianStrings.swift).
     .ru: kRussianStrings,
 ]
