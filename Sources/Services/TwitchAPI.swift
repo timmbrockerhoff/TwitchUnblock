@@ -591,24 +591,19 @@ func getLive(channelName: String, webToken: String? = nil,
     }
 
     // Ordre des sources (Réglages → Lecteur, ou menu du lecteur) : essayées
-    // l'une après l'autre, pour que le direct se lance quand même.
+    // dans cet ordre, pour que le direct se lance quand même. Staggered race:
+    // a slow source no longer blocks the next one (see raceLiveSources).
     let steps = liveSourceSteps()
     logger.info("LIVE", "Ordre des sources : \(steps.joined(separator: " → ").uppercased())")
-    var workerInfo: [String: Any]? = nil
-    for src in steps where found.links.isEmpty {
-        onSource?(src)
-        switch src {
-        case "as":     found = await luminousLiveLinks(hosts: ["as.luminous.dev"], login: login, lowLatency: lowLatency)
-        case "al":     found = await ttvlolLiveLinks(login: login, lowLatency: lowLatency)
-        case "eu":     found = await luminousLiveLinks(hosts: kLuminousHosts.filter { $0 != "as.luminous.dev" },
-                                                       login: login, lowLatency: lowLatency)
-        case "twitch": if let token { found = await usherLiveLinks(login: login, token: token, lowLatency: lowLatency) }
-        default:
-            let worker = await workerLiveLinks(login: login)
-            found = worker.master
-            workerInfo = worker.info
+    var workerInfo: [String: String]? = nil
+    if found.links.isEmpty {
+        let (hit, info) = await raceLiveSources(steps, login: login, token: token,
+                                                lowLatency: lowLatency, onSource: onSource)
+        if let hit {
+            found = (hit.links, hit.variants)
+            usedSource = hit.src
         }
-        if !found.links.isEmpty { usedSource = src }
+        workerInfo = info
     }
 
     if let uid = userId {
@@ -618,7 +613,7 @@ func getLive(channelName: String, webToken: String? = nil,
     // Twitch n'a rien dit : titre, jeu, miniature et avatar du Worker, s'il
     // a servi le direct (une chaîne vide de sa part ne remplace rien).
     if user == nil, let info = workerInfo {
-        func text(_ key: String) -> String? { (info[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        func text(_ key: String) -> String? { info[key].flatMap { $0.isEmpty ? nil : $0 } }
         title = text("title") ?? title
         game = text("game") ?? game
         thumbnail = text("thumbnail") ?? thumbnail
@@ -723,41 +718,167 @@ func liveSourceSteps() -> [String] {
     return order + kLiveSources.filter { !order.contains($0) } + ["worker"]
 }
 
-/// Miroirs Luminous, essayés dans l'ordre ; vide si aucun ne répond. Pas
-/// « sans pub » : les pré-rolls et les pauses pub de la chaîne y arrivent
-/// comme sur Twitch (écran « Commercial break in progress » ou vraie pub,
-/// cousus dans la playlist ; voir AdBreakMonitor).
-private func luminousLiveLinks(hosts: [String], login: String, lowLatency: Bool) async -> MasterPlaylist {
-    for host in hosts {
-        logger.info("LIVE", "Tentative Luminous…", host)
-        guard var comps = URLComponents(string: "https://\(host)/live/\(login)") else { continue }
-        comps.queryItems = [
-            .init(name: "allow_source",     value: "true"),
-            .init(name: "allow_audio_only", value: "true"),
-            // fast_bread = variante faible latence côté Twitch.
-            .init(name: "fast_bread",       value: lowLatency ? "true" : "false")
-        ]
-        guard let url = comps.url else { continue }
-        // 8 s au plus par miroir (au lieu de 60), comme le flux officiel : un
-        // miroir muet faisait attendre des minutes avant la source suivante.
-        var req = URLRequest(url: url, timeoutInterval: 8)
-        requestHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
-        do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            if code == 200, let body = String(data: data, encoding: .utf8) {
-                let master = parseMaster(body, baseURL: url)
-                if !master.links.isEmpty {
-                    logger.success("LIVE", "✅ Luminous OK (\(host))", "\(master.links.count) qualités")
-                    return master
-                }
-                logger.warn("LIVE", "⚠️ Luminous \(host) : playlist vide", "miroir suivant…")
-            } else {
-                logger.warn("LIVE", "⚠️ Luminous \(host) échec (\(code))", "miroir suivant…")
+/// Result of one live source attempt (empty `links` = nothing). Only
+/// Sendable members so it can cross task-group boundaries.
+private struct LiveSourceHit: Sendable {
+    let src: String
+    let links: QualityLinks
+    let variants: [String: VariantInfo]
+    /// Worker only: title, game, thumbnail, avatar from its response.
+    let info: [String: String]?
+}
+
+private enum LiveRaceEvent: Sendable {
+    /// Stagger timer of the `n`-th started source fired.
+    case tick(Int)
+    case done(LiveSourceHit)
+}
+
+/// Delay before the next source is started alongside a slow one.
+private let liveSourceStaggerNs: UInt64 = 1_500_000_000
+
+/// One source of `liveSourceSteps()`.
+private func liveSourceAttempt(_ src: String, login: String,
+                               token: (value: String, signature: String)?,
+                               lowLatency: Bool) async -> LiveSourceHit {
+    var master: MasterPlaylist = ([:], [:])
+    var info: [String: String]? = nil
+    switch src {
+    case "as":     master = await luminousLiveLinks(hosts: ["as.luminous.dev"], login: login, lowLatency: lowLatency)
+    case "al":     master = await ttvlolLiveLinks(login: login, lowLatency: lowLatency)
+    case "eu":     master = await luminousLiveLinks(hosts: kLuminousHosts.filter { $0 != "as.luminous.dev" },
+                                                    login: login, lowLatency: lowLatency)
+    case "twitch": if let token { master = await usherLiveLinks(login: login, token: token, lowLatency: lowLatency) }
+    default:
+        let worker = await workerLiveLinks(login: login)
+        master = worker.master
+        if let raw = worker.info {
+            var out: [String: String] = [:]
+            for key in ["title", "game", "thumbnail", "avatar"] {
+                if let v = raw[key] as? String { out[key] = v }
             }
-        } catch {
-            logger.error("LIVE", "❌ Erreur Luminous \(host)", error.localizedDescription)
+            info = out
         }
+    }
+    return LiveSourceHit(src: src, links: master.links, variants: master.variants, info: info)
+}
+
+/// Staggered race over the live sources, in the configured order: each source
+/// starts as soon as the previous one failed, or after `liveSourceStaggerNs`
+/// if it is still waiting; the first non-empty answer wins and the others are
+/// cancelled. Before, sources ran strictly one after another with 8-20 s
+/// timeouts each (over a minute before an error). `onSource` is called with
+/// each source as it starts (the latest started one is the one shown).
+/// Returns the winner (nil if none) and the Worker's info if it answered.
+private func raceLiveSources(_ steps: [String], login: String,
+                             token: (value: String, signature: String)?,
+                             lowLatency: Bool,
+                             onSource: ((String) -> Void)?) async -> (LiveSourceHit?, [String: String]?) {
+    await withTaskGroup(of: LiveRaceEvent.self,
+                        returning: (LiveSourceHit?, [String: String]?).self) { group in
+        var next = 0        // index of the next source to start
+        var running = 0     // sources started and not finished
+        var started = 0     // id of the latest stagger timer
+        var workerInfo: [String: String]? = nil
+        var startNow = !steps.isEmpty
+        while true {
+            if startNow, next < steps.count {
+                let src = steps[next]
+                next += 1
+                running += 1
+                started += 1
+                onSource?(src)
+                group.addTask {
+                    let hit = await liveSourceAttempt(src, login: login, token: token, lowLatency: lowLatency)
+                    return LiveRaceEvent.done(hit)
+                }
+                if next < steps.count {
+                    let id = started
+                    group.addTask {
+                        try? await Task.sleep(nanoseconds: liveSourceStaggerNs)
+                        return LiveRaceEvent.tick(id)
+                    }
+                }
+            }
+            startNow = false
+            guard let event = await group.next() else { break }
+            switch event {
+            case .tick(let id):
+                // Only the timer of the latest started source counts.
+                startNow = id == started && !Task.isCancelled
+            case .done(let hit):
+                running -= 1
+                if hit.src == "worker" { workerInfo = hit.info }
+                if !hit.links.isEmpty {
+                    group.cancelAll()
+                    return (hit, workerInfo)
+                }
+                if running == 0 {
+                    // Nothing in flight: next source right away, or give up.
+                    if next >= steps.count || Task.isCancelled {
+                        group.cancelAll()
+                        return (nil, workerInfo)
+                    }
+                    startNow = true
+                }
+            }
+        }
+        return (nil, workerInfo)
+    }
+}
+
+/// Miroirs Luminous, tried in parallel (first non-empty wins); vide si aucun
+/// ne répond. Pas « sans pub » : les pré-rolls et les pauses pub de la chaîne
+/// y arrivent comme sur Twitch (écran « Commercial break in progress » ou
+/// vraie pub, cousus dans la playlist ; voir AdBreakMonitor).
+private func luminousLiveLinks(hosts: [String], login: String, lowLatency: Bool) async -> MasterPlaylist {
+    if hosts.count == 1, let host = hosts.first {
+        return await luminousHostLinks(host: host, login: login, lowLatency: lowLatency)
+    }
+    return await withTaskGroup(of: MasterPlaylist.self, returning: MasterPlaylist.self) { group in
+        for host in hosts {
+            group.addTask { await luminousHostLinks(host: host, login: login, lowLatency: lowLatency) }
+        }
+        while let master = await group.next() {
+            if !master.links.isEmpty {
+                group.cancelAll()
+                return master
+            }
+        }
+        return ([:], [:])
+    }
+}
+
+/// One Luminous mirror; empty if it has nothing.
+private func luminousHostLinks(host: String, login: String, lowLatency: Bool) async -> MasterPlaylist {
+    logger.info("LIVE", "Tentative Luminous…", host)
+    guard var comps = URLComponents(string: "https://\(host)/live/\(login)") else { return ([:], [:]) }
+    comps.queryItems = [
+        .init(name: "allow_source",     value: "true"),
+        .init(name: "allow_audio_only", value: "true"),
+        // fast_bread = variante faible latence côté Twitch.
+        .init(name: "fast_bread",       value: lowLatency ? "true" : "false")
+    ]
+    guard let url = comps.url else { return ([:], [:]) }
+    // 8 s au plus par miroir (au lieu de 60), comme le flux officiel : un
+    // miroir muet faisait attendre des minutes avant la source suivante.
+    var req = URLRequest(url: url, timeoutInterval: 8)
+    requestHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+    do {
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 200, let body = String(data: data, encoding: .utf8) {
+            let master = parseMaster(body, baseURL: url)
+            if !master.links.isEmpty {
+                logger.success("LIVE", "✅ Luminous OK (\(host))", "\(master.links.count) qualités")
+                return master
+            }
+            logger.warn("LIVE", "⚠️ Luminous \(host) : playlist vide")
+        } else {
+            logger.warn("LIVE", "⚠️ Luminous \(host) échec (\(code))")
+        }
+    } catch {
+        logger.error("LIVE", "❌ Erreur Luminous \(host)", error.localizedDescription)
     }
     return ([:], [:])
 }
