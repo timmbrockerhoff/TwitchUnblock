@@ -24,7 +24,7 @@ jobs:
     # Intel runners: the arm64 pool was out of capacity for 15+ minutes at a time.
     runs-on: macos-15-intel
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -193,6 +193,25 @@ jobs:
           grep -E "error:" build.log | sort -u | head -60 | sed 's/^/::error::/' || true
           tail -n 5 build.log
           exit $STATUS
+
+      - name: Publish IPA to the latest-optimize pre-release
+        # A stable download URL (no login, no zip):
+        # github.com/<owner>/<repo>/releases/download/latest-optimize/TwitchUnblock.ipa
+        if: github.ref_name == 'optimize'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          if ! gh release view latest-optimize --repo "$REPO" >/dev/null 2>&1; then
+            gh release create latest-optimize --repo "$REPO" --prerelease \
+              --title "Optimized build (branch optimize)" \
+              --notes "Unsigned IPA from the optimize branch. Replaced on every build." \
+              --target optimize
+          fi
+          gh release upload latest-optimize build/TwitchUnblock.ipa --repo "$REPO" --clobber
+          gh release edit latest-optimize --repo "$REPO" \
+            --notes "Unsigned IPA from the optimize branch, commit ${SHA}. Replaced on every build."
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
