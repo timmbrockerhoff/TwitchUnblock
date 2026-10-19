@@ -1102,7 +1102,7 @@ func setChatColor(token: String, userId: String, color: String) async -> String?
           let url = URL(string: "https://api.twitch.tv/helix/chat/color?user_id=\(userId)&color=\(color)")
     else { return "color_bad_request" }
 
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.httpMethod = "PUT"
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
@@ -1144,7 +1144,7 @@ func getTwitchUser(token: String) async -> TwitchUser? {
 /// chargement » à chaque ouverture. nil : panne réseau, réponse inattendue.
 func fetchTwitchUser(token: String) async throws -> TwitchUser? {
     guard let url = URL(string: "https://api.twitch.tv/helix/users") else { return nil }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
     guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
@@ -1196,7 +1196,7 @@ actor AvatarCache {
               let url = URL(string: "https://api.twitch.tv/helix/users?login=\(key)") else {
             return await publicAvatar(login: key)
         }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
 
@@ -1250,7 +1250,7 @@ func getFollowedStreamsPaged(token: String, userId: String) async throws -> (str
             address += "&after=\(cursor.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? cursor)"
         }
         guard let url = URL(string: address) else { break }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
         let data: Data, status: Int
@@ -1291,7 +1291,7 @@ func getTopStreams(token: String, lang: String? = nil, count: Int = 50) async th
     var urlStr = "https://api.twitch.tv/helix/streams?first=\(min(max(count, 1), 100))"
     if let lang { urlStr += "&language=\(lang)" }
     guard let url = URL(string: urlStr) else { return [] }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
     let (data, resp) = try await URLSession.shared.data(for: req)
@@ -1313,7 +1313,7 @@ func getTopCategories(token: String, cursor: String? = nil) async throws -> (cat
     var urlStr = "https://api.twitch.tv/helix/games/top?first=100"
     if let cursor { urlStr += "&after=\(cursor)" }
     guard let url = URL(string: urlStr) else { return ([], nil) }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
     let (data, resp) = try await URLSession.shared.data(for: req)
@@ -1335,7 +1335,7 @@ func searchCategories(token: String, query: String) async throws -> [TwitchCateg
     guard !q.isEmpty,
           let url = URL(string: "https://api.twitch.tv/helix/search/categories?first=50&query=\(q)")
     else { return [] }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
     let (data, resp) = try await URLSession.shared.data(for: req)
@@ -1355,7 +1355,7 @@ func getStreamsByCategory(token: String, gameId: String, cursor: String? = nil,
     if let lang { urlStr += "&language=\(lang)" }
     if let cursor { urlStr += "&after=\(cursor)" }
     guard let url = URL(string: urlStr) else { return ([], nil) }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
     let (data, resp) = try await URLSession.shared.data(for: req)
@@ -1749,7 +1749,7 @@ enum WebSessionCheck {
 func webSessionIdentity(token: String) async -> WebSessionCheck {
     guard !token.isEmpty, let url = URL(string: "https://gql.twitch.tv/gql") else { return .invalid }
 
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.httpMethod = "POST"
     req.setValue(kGQLClientID,       forHTTPHeaderField: "Client-ID")
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1811,7 +1811,7 @@ func gqlStr(_ s: String) -> String {
 private func gqlRequest(_ query: String, _ variables: [String: Any]) async -> [String: Any]? {
     guard let url = URL(string: "https://gql.twitch.tv/gql"),
           let body = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables]) else { return nil }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.httpMethod = "POST"
     req.setValue(kGQLClientID, forHTTPHeaderField: "Client-ID")
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1840,7 +1840,7 @@ private func gqlIntegrityRefused(_ json: [String: Any]) -> Bool {
 private func gqlNextRequest(_ query: String, _ variables: [String: Any]) async -> (data: [String: Any]?, refused: Bool)? {
     guard let url = URL(string: "https://gql.twitch.tv/gql"),
           let body = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables]) else { return nil }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.httpMethod = "POST"
     req.setValue(kGQLNextClientID, forHTTPHeaderField: "Client-ID")
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1970,7 +1970,7 @@ func getFollowedLogins(token: String, userId: String) async -> [String]? {
         var urlStr = "https://api.twitch.tv/helix/channels/followed?user_id=\(userId)&first=100"
         if let cursor { urlStr += "&after=\(cursor)" }
         guard let url = URL(string: urlStr) else { return nil }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
@@ -1993,7 +1993,7 @@ func getFollowedCategoriesGQL(webToken: String) async -> [TwitchCategory]? {
     query { currentUser { followedGames(first: 100, type: ALL) { nodes { id displayName boxArtURL(width: 285, height: 380) viewersCount } } } }
     """
     guard let body = try? JSONSerialization.data(withJSONObject: ["query": q]) else { return nil }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.httpMethod = "POST"
     req.setValue(kGQLClientID, forHTTPHeaderField: "Client-ID")
     req.setValue("OAuth \(webToken)", forHTTPHeaderField: "Authorization")
@@ -2176,7 +2176,7 @@ func getClipsHelix(token: String, broadcasterId: String, period: String,
     }
     if let cursor { urlStr += "&after=\(cursor)" }
     guard let url = URL(string: urlStr) else { return ([], nil) }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue(kHelixClientID, forHTTPHeaderField: "Client-Id")
     guard let (data, resp) = try? await URLSession.shared.data(for: req),

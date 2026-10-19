@@ -105,7 +105,7 @@ final class UpdateChecker: ObservableObject {
     private static func fetchVersions() async -> [[String: Any]]? {
         // Contourne le cache du CDN de GitHub (quelques minutes).
         guard let url = URL(string: "\(sourceURL)?t=\(Int(Date().timeIntervalSince1970 / 600))") else { return nil }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 15)
         req.cachePolicy = .reloadIgnoringLocalCacheData
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
