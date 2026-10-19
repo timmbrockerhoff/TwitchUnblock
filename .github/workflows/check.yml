@@ -184,7 +184,15 @@ jobs:
         run: chmod +x ./buildipa.sh
 
       - name: Build iOS IPA
-        run: ./buildipa.sh
+        run: |
+          set +e
+          ./buildipa.sh > build.log 2>&1
+          STATUS=$?
+          set -e
+          # Surface compiler errors as annotations (readable without logs access).
+          grep -E "error:" build.log | sort -u | head -60 | sed 's/^/::error::/' || true
+          tail -n 5 build.log
+          exit $STATUS
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
@@ -192,3 +200,42 @@ jobs:
           name: TwitchUnblock-IPA
           path: build/TwitchUnblock.ipa
 
+
+  build-tvos:
+    name: Build tvOS app
+    runs-on: macos-15-intel
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
+          xcodebuild -version
+
+      - name: Generate Xcode Project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+
+      - name: Build tvOS app (unsigned)
+        run: |
+          mkdir -p build
+          set +e
+          xcodebuild -project TwitchUnblock.xcodeproj \
+            -scheme TwitchUnblockTV \
+            -configuration Release \
+            -derivedDataPath build/DD \
+            -destination 'generic/platform=tvOS' \
+            -skipPackagePluginValidation \
+            build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_ENTITLEMENTS="" CODE_SIGNING_ALLOWED=NO \
+            > build/xcodebuild.log 2>&1
+          STATUS=$?
+          set -e
+          grep -E "error:" build/xcodebuild.log | sort -u | head -60 | sed 's/^/::error::/' || true
+          tail -n 5 build/xcodebuild.log
+          exit $STATUS
