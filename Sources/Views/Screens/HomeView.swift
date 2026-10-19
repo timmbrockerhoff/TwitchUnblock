@@ -162,15 +162,27 @@ struct HomeView: View {
     /// streamers épinglés passent devant, dans l'ordre d'épinglage.
     private var allFollowedLive: [TwitchStream] {
         let known = Set(followedStreams.map { $0.userLogin.lowercased() })
+        let ranks = pinRanks()
         return (followedStreams + localLive.filter { !known.contains($0.userLogin.lowercased()) })
             .sorted { a, b in
-                pinnedFirst(a.userLogin, b.userLogin) ?? (a.viewerCount > b.viewerCount)
+                pinnedFirst(a.userLogin, b.userLogin, ranks) ?? (a.viewerCount > b.viewerCount)
             }
     }
 
+    /// Pin rank per login, built once per sort so the comparator does an O(1)
+    /// lookup instead of a linear `pinRank` search. Same result as
+    /// `store.pinRank` (first occurrence wins).
+    private func pinRanks() -> [String: Int] {
+        var ranks: [String: Int] = [:]
+        for (i, login) in store.pinnedStreamers.enumerated() where ranks[login] == nil {
+            ranks[login] = i
+        }
+        return ranks
+    }
+
     /// Ordre imposé par l'épinglage (nil : aucun des deux n'est épinglé).
-    private func pinnedFirst(_ a: String, _ b: String) -> Bool? {
-        switch (store.pinRank(a), store.pinRank(b)) {
+    private func pinnedFirst(_ a: String, _ b: String, _ ranks: [String: Int]) -> Bool? {
+        switch (ranks[a.lowercased()], ranks[b.lowercased()]) {
         case let (x?, y?): return x < y
         case (.some, nil): return true
         case (nil, .some): return false
@@ -180,8 +192,9 @@ struct HomeView: View {
 
     /// Hors ligne : les épinglés d'abord, puis par nom.
     private var sortedOffline: [ChannelBrief] {
-        offlineChannels.sorted { a, b in
-            pinnedFirst(a.login, b.login)
+        let ranks = pinRanks()
+        return offlineChannels.sorted { a, b in
+            pinnedFirst(a.login, b.login, ranks)
                 ?? (a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending)
         }
     }
@@ -410,7 +423,8 @@ struct HomeView: View {
             TLoader()
         } else if followsFailed {
             TEmptyState(icon: "exclamationmark.triangle", title: store.t("err_loading"))
-        } else if !allFollowedLive.isEmpty {
+        } else if !followedStreams.isEmpty || !localLive.isEmpty {
+            // Same test as `!allFollowedLive.isEmpty`, without merging and sorting.
             TEmptyState(icon: "dot.radiowaves.left.and.right", title: store.t("offline_all_live"))
         } else {
             TEmptyState(icon: "heart",
