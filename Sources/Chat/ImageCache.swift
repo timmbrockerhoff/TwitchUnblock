@@ -224,6 +224,21 @@ final class ImageCache {
         logger.info("CACHE", "Cache images réduit", ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
     }
 
+    /// "Purge when leaving the live" setting: empties the disk cache only, on
+    /// a background queue. The memory cache stays, so other chats still on
+    /// screen (multi-live) keep their emotes; the old full purge ran on main
+    /// and blanked them.
+    func purgeDiskIfNeeded() {
+        let auto = UserDefaults.standard.object(forKey: "cfg_purge_cache") as? Bool ?? true
+        guard auto else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let items = (try? self.fm.contentsOfDirectory(at: self.dir, includingPropertiesForKeys: nil,
+                                                          options: [.skipsHiddenFiles])) ?? []
+            for f in items { try? self.fm.removeItem(at: f) }
+        }
+    }
+
     /// Vide seulement si l'utilisateur a activé la purge automatique (réglages).
     func purgeIfNeeded() {
         let auto = UserDefaults.standard.object(forKey: "cfg_purge_cache") as? Bool ?? true

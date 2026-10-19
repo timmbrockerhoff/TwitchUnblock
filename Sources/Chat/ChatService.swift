@@ -118,6 +118,8 @@ final class ChatService: NSObject, ObservableObject {
     }
     private var pending: [PendingChatMessage] = []
     private var flushTask: Task<Void, Never>?
+    /// When `flushTask` is planned to wake.
+    private var flushWake: Date?
     private static let flushInterval: Double = 0.2
 
     /// Insère un message reçu, immédiatement ou après le délai de synchro.
@@ -130,15 +132,26 @@ final class ChatService: NSObject, ObservableObject {
     }
 
     private func scheduleFlush() {
-        guard flushTask == nil, !pending.isEmpty else { return }
+        guard !pending.isEmpty else { return }
         // Wake when the earliest message is due, but never more than 5×/s.
         let earliest = pending.map(\.due).min() ?? Date()
+        if flushTask != nil {
+            // Already scheduled. Re-plan only if a message is now due well
+            // before that wake-up (the sync delay was just lowered); otherwise
+            // a quiet chat would hold it until the old, later wake-up.
+            guard let wake = flushWake,
+                  earliest < wake.addingTimeInterval(-Self.flushInterval) else { return }
+            flushTask?.cancel()
+            flushTask = nil
+        }
         let wait = max(Self.flushInterval, earliest.timeIntervalSinceNow)
         let nanos = UInt64(min(wait, 3_600) * 1_000_000_000)
+        flushWake = Date().addingTimeInterval(wait)
         flushTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: nanos)
             guard let self, !Task.isCancelled else { return }
             self.flushTask = nil
+            self.flushWake = nil
             self.flushPending()
         }
     }
@@ -327,7 +340,7 @@ final class ChatService: NSObject, ObservableObject {
     func disconnect() {
         generation &+= 1   // abandonne les messages encore en attente de synchro
         pending.removeAll()
-        flushTask?.cancel(); flushTask = nil
+        flushTask?.cancel(); flushTask = nil; flushWake = nil
         receiveTask?.cancel(); receiveTask = nil
         reconnectTask?.cancel(); reconnectTask = nil
         presentUsers.removeAll()

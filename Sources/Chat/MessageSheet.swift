@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Feuille ouverte en touchant un message.
@@ -53,6 +54,12 @@ struct MessageSheet: View {
         }
         .background(Color.tDark)
         .onAppear { if snapshot == nil { snapshot = computeDisplayed() } }
+        // Keep the thread live (new replies, deletions, timeouts) without
+        // recomputing on every render: refresh at most every 300 ms.
+        .onReceive(chat.feed.$messages
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { _ in
+            snapshot = computeDisplayed()
+        }
         .overlay(alignment: .top) {
             if copied {
                 Text(store.t("msg_copied"))

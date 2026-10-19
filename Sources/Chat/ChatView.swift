@@ -622,9 +622,9 @@ struct ChatView: View {
             events.stop()
             raidService.disconnect()
             pointsService.stopPolling()
-            // The image cache is no longer purged here: other chats (multi-live)
-            // still show those emotes, and the purge ran on the main thread.
-            // It is purged at app exit (AppDelegate).
+            // Cache emotes/badges : purge en quittant le live (si l'option est
+            // active) — disk only and off the main thread, see purgeDiskIfNeeded.
+            ImageCache.shared.purgeDiskIfNeeded()
             isSetup = false
         }
         teardownWork = work
