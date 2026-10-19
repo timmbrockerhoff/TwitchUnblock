@@ -10,6 +10,9 @@ struct MainTabView: View {
     /// Playlist lancée avec « Tout lire » : la VOD suivante démarre à la fin.
     @State private var vodQueue: [VodData] = []
     @State private var vodQueueStreamer: String? = nil
+    /// Channel clip list the current clip was opened from: swipes and the
+    /// arrows move through it, and the next clip starts when one ends.
+    @State private var clipQueue: [ClipData] = []
     @State private var qualityLinks: QualityLinks? = nil
     /// Hauteur et cadence de chaque qualité (mêmes clés que `qualityLinks`),
     /// pour la qualité préférée ; vide quand la source ne les donne pas.
@@ -287,6 +290,7 @@ struct MainTabView: View {
                     case .search:  SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
                                               onPlayLive: { playLive($0) },
                                               onPlayClip: { playClip($0, $1) },
+                                              onPlayClipList: { playClipQueue($0, $1) },
                                               onPlayQueue: { playQueue($0, $1) },
                                               onRecovered: { playRecovered($0) })
                     case .library: LibraryView(onPlayVod: { playVod($0, $1, $2, $3) },
@@ -526,6 +530,7 @@ struct MainTabView: View {
             SearchView(onPlayVod: { id, t, th, s in channelSheet = nil; playVod(id, t, th, s) },
                        onPlayLive: { l in channelSheet = nil; playLive(l) },
                        onPlayClip: { slug, t in channelSheet = nil; playClip(slug, t) },
+                       onPlayClipList: { list, i in channelSheet = nil; playClipQueue(list, i) },
                        onPlayQueue: { list, s in channelSheet = nil; playQueue(list, s) },
                        onRecovered: { rec in channelSheet = nil; playRecovered(rec) },
                        initialChannel: item.login,
@@ -536,6 +541,8 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
             playNextInQueue()
+            // A clip from a channel's list: the next one follows (VODs above).
+            if case .clip(_, _)? = playerMode { playAdjacentClip(1, keepVisibility: true) }
         }
         // Playlist réécrite par VodUnmuteLoader : passages encore muets (pour
         // la barre de lecture) et nombre de segments rétablis.
@@ -934,7 +941,9 @@ struct MainTabView: View {
                     store.setVodProgress(dvr, time: offset)
                     pendingDvrChannel = ch
                     playVod(dvr, statusTitle, nil, ch, soft: true)
-                }
+                },
+                onPrevClip: prevClipAction,
+                onNextClip: nextClipAction
             )
         } else {
             VideoPlayerView(
@@ -1012,6 +1021,13 @@ struct MainTabView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            // Clip from a channel's list: previous / next. Apple's player has
+            // no swipe for it, and the immersive one shows the same arrows.
+            if clipQueueIndex != nil {
+                clipArrowButton(icon: "backward.end.fill", action: prevClipAction)
+                clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
+            }
+
             // Minuteur de veille
             Button { showSleepSheet = true } label: {
                 HStack(spacing: 3) {
@@ -1043,6 +1059,20 @@ struct MainTabView: View {
         .onChange(of: topBarDragging) { active in
             if !active, playerVisible, pull.y > 0 { pullPlayer(0) }
         }
+    }
+
+    /// Previous / next clip arrow of the top bar; dimmed at the list's ends.
+    private func clipArrowButton(icon: String, action: (() -> Void)?) -> some View {
+        Button { action?() } label: {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.tPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(action == nil)
+        .opacity(action == nil ? 0.35 : 1)
     }
 
     /// Barre de l'écran de chargement : réduire (le chargement continue, la
@@ -1235,6 +1265,24 @@ struct MainTabView: View {
         return { playLive(ch, soft: true) }
     }
 
+    /// Place of the current clip in the channel clip list it was opened
+    /// from; nil outside such a list (or a list of one).
+    private var clipQueueIndex: Int? {
+        guard clipQueue.count > 1, case .clip(let slug, _)? = playerMode else { return nil }
+        return clipQueue.firstIndex(where: { $0.id == slug })
+    }
+
+    /// Previous / next clip of that list; nil at its ends.
+    private var prevClipAction: (() -> Void)? {
+        guard let i = clipQueueIndex, i > 0 else { return nil }
+        return { playAdjacentClip(-1) }
+    }
+
+    private var nextClipAction: (() -> Void)? {
+        guard let i = clipQueueIndex, i + 1 < clipQueue.count else { return nil }
+        return { playAdjacentClip(1) }
+    }
+
     /// VOD téléchargée en lecture : le chat gardé avec elle, s'il y en a un.
     private var offlineChatFile: URL? {
         guard case .recovered(let rec)? = playerMode, rec.streamID.hasPrefix("offline-") else { return nil }
@@ -1384,6 +1432,7 @@ struct MainTabView: View {
                          soft: Bool = false, keepVisibility: Bool = false) {
         // Une VOD hors de la playlist en cours met fin à l'enchaînement.
         if !vodQueue.contains(where: { $0.id == id }) { vodQueue = [] }
+        clipQueue = []
         // Historique des VODs vues : centralisé ici pour couvrir TOUS les points
         // d'entrée (Découverte, Streamer, Lien/ID, rembobinage…). Avant, seul
         // l'onglet Lien/ID enregistrait, donc l'onglet VODs restait vide.
@@ -1413,11 +1462,30 @@ struct MainTabView: View {
     }
     private func playClip(_ slug: String, _ title: String?) {
         vodQueue = []
+        clipQueue = []
         startPlayback(.clip(slug: slug, title: title))
+    }
+    /// Clip tapped in a channel's clip list: the list is kept so swipes, the
+    /// arrows and the end of a clip move through it.
+    private func playClipQueue(_ list: [ClipData], _ index: Int) {
+        guard list.indices.contains(index) else { return }
+        vodQueue = []
+        clipQueue = list
+        let clip = list[index]
+        startPlayback(.clip(slug: clip.id, title: clip.title))
+    }
+    /// Neighbouring clip of the list (delta −1 / +1). `keepVisibility`: the
+    /// automatic advance at the end of a clip leaves a reduced player reduced.
+    private func playAdjacentClip(_ delta: Int, keepVisibility: Bool = false) {
+        guard !closingPlayer, let i = clipQueueIndex,
+              clipQueue.indices.contains(i + delta) else { return }
+        let clip = clipQueue[i + delta]
+        startPlayback(.clip(slug: clip.id, title: clip.title), keepVisibility: keepVisibility)
     }
     /// VOD supprimée déjà reconstruite (liens prêts) : on lit directement.
     private func playRecovered(_ rec: RecoveredVod) {
         vodQueue = []
+        clipQueue = []
         startPlayback(.recovered(rec))
     }
     private func playLive(_ channel: String, soft: Bool = false, keepVisibility: Bool = false) {
@@ -1433,6 +1501,7 @@ struct MainTabView: View {
             return
         }
         vodQueue = []
+        clipQueue = []
         startPlayback(.live(channelName: channel), soft: soft, keepVisibility: keepVisibility)
     }
 
@@ -1743,6 +1812,7 @@ struct MainTabView: View {
             // rouverte plus tard depuis l'historique enchaînait sur la suivante.
             vodQueue           = []
             vodQueueStreamer   = nil
+            clipQueue          = []
             switchingSource    = false
             vodChapters        = []
             vodMuted           = []

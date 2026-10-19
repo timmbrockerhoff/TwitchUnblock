@@ -14,6 +14,10 @@ struct SearchView: View {
     let onPlayVod:  (String, String?, String?, String?) -> Void
     let onPlayLive: (String) -> Void
     var onPlayClip: (String, String?) -> Void = { _, _ in }
+    /// Clip tapped in a channel's clip list: the loaded list and the tapped
+    /// index, so the player can move to the neighbouring clips. nil falls
+    /// back to `onPlayClip`.
+    var onPlayClipList: (([ClipData], Int) -> Void)? = nil
     /// « Tout lire » d'une playlist : la liste, et le nom de la chaîne.
     var onPlayQueue: ([VodData], String?) -> Void = { _, _ in }
     /// VOD supprimée reconstruite : liens prêts à lire.
@@ -762,7 +766,14 @@ struct SearchView: View {
             } else {
                 LazyVGrid(columns: columns, spacing: TSpace.md) {
                     ForEach(clips) { clip in
-                        ClipCardView(clip: clip) { leaveRecovery(); onPlayClip(clip.id, clip.title) }
+                        ClipCardView(clip: clip) {
+                            leaveRecovery()
+                            if let onPlayClipList, let i = clips.firstIndex(where: { $0.id == clip.id }) {
+                                onPlayClipList(clips, i)
+                            } else {
+                                onPlayClip(clip.id, clip.title)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, TSpace.lg)
