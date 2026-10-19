@@ -2394,8 +2394,12 @@ func getVodMarkers(vodId: String) async -> VodMarkers {
         let dur = (n["durationMilliseconds"] as? Double) ?? Double(n["durationMilliseconds"] as? Int ?? 0)
         return VodChapter(start: pos / 1000, duration: dur / 1000, title: n["description"] as? String ?? "")
     }
+    // VodChapter.id is its start: two chapters at the same start would give
+    // SwiftUI duplicate ids. Keep the first one.
+    var seenStarts = Set<Double>()
+    let unique = chapters.sorted { $0.start < $1.start }.filter { seenStarts.insert($0.start).inserted }
     // Un seul chapitre n'apporte rien (toute la VOD sur le même jeu).
-    out.chapters = chapters.count > 1 ? chapters.sorted { $0.start < $1.start } : []
+    out.chapters = unique.count > 1 ? unique : []
 
     let nodes = ((v["muteInfo"] as? [String: Any])?["mutedSegmentConnection"] as? [String: Any])?["nodes"]
         as? [[String: Any]] ?? []
