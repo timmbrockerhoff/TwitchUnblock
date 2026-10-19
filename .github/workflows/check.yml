@@ -31,6 +31,15 @@ jobs:
         with:
           fetch-depth: 0   # historique complet : sert à numéroter la version
 
+      - name: Select Xcode 26
+        # The app uses iOS 26 APIs (Liquid Glass) behind #available checks, so
+        # it needs the iOS 26 SDK. Pick the newest Xcode 26 on the runner.
+        run: |
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
+          xcodebuild -version
+
       - name: Define Release Variables
         id: vars
         run: |
