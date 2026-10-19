@@ -12,7 +12,9 @@
 //  siennes.
 //
 //  Ce qui est stocké : un identifiant aléatoire, une date, une version.
-//  Pas d'adresse IP, pas d'en-tête de requête, rien qui vienne du compte Twitch.
+//  Pas d'adresse IP, pas d'en-tête de requête. Connecté, l'app (≥ 1.4.1)
+//  envoie `acct` : un SHA-256 salé de l'id du compte Twitch, jamais le jeton.
+//  Older clients may still send `Authorization: Bearer …`: it is ignored.
 //  Les clés expirent d'elles-mêmes au bout de 35 jours.
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -32,10 +34,16 @@
 
 var USAGE_PREFIX = "usage_";
 var USAGE_RETENTION_DAYS = 35;
+var USAGE_STATS_TTL_S = 300;
+// Per-isolate copy of the last /api/stats payload (Cache API is a no-op on
+// workers.dev, so this is the fallback that always works).
+var usageStatsMemo = null;
 
 // ── POST /api/ping ────────────────────────────────────────────────────────
-//  { id, version, platform }  → enregistre l'installation
-//  { id, forget: true }       → l'efface
+//  { id, version, platform, acct? }  → enregistre l'installation
+//  { id, acct?, forget: true }       → l'efface
+//  acct (optional): 64 hex chars, hashed account id — counts a signed-in
+//  account once across devices instead of per install.
 async function handlePing(request, env) {
   if (request.method !== "POST") return jsonError("Method Not Allowed", 405);
   if (!env.TWITCH_DATA) return jsonError("KV 'TWITCH_DATA' non lié au Worker.", 500);
@@ -50,9 +58,14 @@ async function handlePing(request, env) {
   // On n'accepte que des UUID : pas question de laisser écrire des clés libres.
   const id = String(body.id || "");
   if (!/^[0-9a-fA-F-]{36}$/.test(id)) return jsonError("ID invalide", 400);
+  // Hash only (never a token); anything else is ignored, not rejected, so a
+  // malformed field can't break counting for that client.
+  const acct = /^[0-9a-f]{64}$/.test(String(body.acct || "")) ? String(body.acct) : null;
+  const key = acct ? USAGE_PREFIX + "a_" + acct : USAGE_PREFIX + id;
 
   if (body.forget === true) {
     await env.TWITCH_DATA.delete(USAGE_PREFIX + id);
+    if (acct) await env.TWITCH_DATA.delete(USAGE_PREFIX + "a_" + acct);
     return jsonResponse({ ok: true, forgotten: true });
   }
 
@@ -64,7 +77,7 @@ async function handlePing(request, env) {
   // Coût : une lecture par ping, donc au pire une par installation et par heure.
   let prev = {};
   try {
-    const stored = await env.TWITCH_DATA.getWithMetadata(USAGE_PREFIX + id);
+    const stored = await env.TWITCH_DATA.getWithMetadata(key);
     prev = stored.metadata || {};
   } catch (e) {
     // Première fois, ou lecture indisponible : on repart d'un état vierge.
@@ -73,16 +86,25 @@ async function handlePing(request, env) {
   // Un même jour ne compte qu'une fois, quel que soit le nombre d'ouvertures.
   const days = prev.last === day ? (prev.days || 1) : (prev.days || 0) + 1;
 
+  const v = String(body.version || "?").slice(0, 16);
+  const p = String(body.platform || "ios").slice(0, 16);
+
+  // Same day, same version, same platform: the stored metadata would be
+  // identical, so skip the write (KV free tier allows 1000 writes/day).
+  if (prev.last === day && prev.v === v && prev.p === p) {
+    return jsonResponse({ ok: true, days });
+  }
+
   // Valeur vide : tout tient dans les métadonnées, que list() renvoie
   // sans lecture supplémentaire (voir handleStats).
-  await env.TWITCH_DATA.put(USAGE_PREFIX + id, "", {
+  await env.TWITCH_DATA.put(key, "", {
     expirationTtl: 60 * 60 * 24 * USAGE_RETENTION_DAYS,
     metadata: {
       first: prev.first || day,
       last: day,
       days,
-      v: String(body.version || "?").slice(0, 16),
-      p: String(body.platform || "ios").slice(0, 16)
+      v,
+      p
     }
   });
 
@@ -92,6 +114,44 @@ async function handlePing(request, env) {
 // ── GET /api/stats ────────────────────────────────────────────────────────
 async function handleStats(env) {
   if (!env.TWITCH_DATA) return jsonError("KV 'TWITCH_DATA' non lié au Worker.", 500);
+
+  // list() over every key is the expensive part: serve a copy at most
+  // USAGE_STATS_TTL_S old (isolate memory first, then the Cache API).
+  const cacheKey = new Request("https://usage-stats.internal/api/stats");
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  let body = null;
+  if (usageStatsMemo && Date.now() - usageStatsMemo.at < USAGE_STATS_TTL_S * 1000) {
+    body = usageStatsMemo.body;
+  } else if (cache) {
+    try {
+      const hit = await cache.match(cacheKey);
+      if (hit) body = await hit.text();
+    } catch (e) {}
+  }
+  if (body === null) {
+    body = JSON.stringify(await computeUsageStats(env));
+    usageStatsMemo = { at: Date.now(), body };
+    if (cache) {
+      try {
+        await cache.put(cacheKey, new Response(body, {
+          headers: { "Cache-Control": "max-age=" + USAGE_STATS_TTL_S }
+        }));
+      } catch (e) {}
+    }
+  }
+
+  // no-store : sans ça, une réponse peut être resservie telle quelle et le
+  // bouton « Actualiser » de l'app afficherait deux fois les mêmes chiffres.
+  return new Response(body, {
+    headers: {
+      ...RESPONSE_HEADERS,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
+async function computeUsageStats(env) {
 
   const todayMs = Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
   let cursor, known = 0, today = 0, week = 0, month = 0;
@@ -157,14 +217,5 @@ async function handleStats(env) {
       .sort((a, b) => b.count - a.count),
     generatedAt: new Date().toISOString()
   };
-
-  // no-store : sans ça, une réponse peut être resservie telle quelle et le
-  // bouton « Actualiser » de l'app afficherait deux fois les mêmes chiffres.
-  return new Response(JSON.stringify(payload), {
-    headers: {
-      ...RESPONSE_HEADERS,
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store"
-    }
-  });
+  return payload;
 }
