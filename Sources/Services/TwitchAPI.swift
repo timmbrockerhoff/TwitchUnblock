@@ -1380,21 +1380,31 @@ func getStreamsByCategory(token: String, gameId: String, cursor: String? = nil,
 func categoryViewers(ids: [String]) async -> [String: Int] {
     guard !ids.isEmpty else { return [:] }
     var out: [String: Int] = [:]
+    let chunks = stride(from: 0, to: ids.count, by: 100).map { Array(ids[$0 ..< min($0 + 100, ids.count)]) }
 
-    for start in stride(from: 0, to: ids.count, by: 100) {
-        let chunk = Array(ids[start ..< min(start + 100, ids.count)])
-        let fields = chunk.enumerated()
-            .map { "g\($0.offset): game(id: \"\(gqlStr($0.element))\") { id viewersCount }" }
-            .joined(separator: " ")
+    // Independent queries: fetched in parallel instead of one after another.
+    await withTaskGroup(of: [String: Int].self) { group in
+        for chunk in chunks {
+            group.addTask {
+                let fields = chunk.enumerated()
+                    .map { "g\($0.offset): game(id: \"\(gqlStr($0.element))\") { id viewersCount }" }
+                    .joined(separator: " ")
 
-        guard let json = try? await twitchGQL("query { \(fields) }") as? [String: Any],
-              let data = json["data"] as? [String: Any] else { continue }
+                guard let json = try? await twitchGQL("query { \(fields) }") as? [String: Any],
+                      let data = json["data"] as? [String: Any] else { return [:] }
 
-        for (_, value) in data {
-            guard let game = value as? [String: Any],
-                  let id    = game["id"] as? String,
-                  let count = game["viewersCount"] as? Int else { continue }
-            out[id] = count
+                var part: [String: Int] = [:]
+                for (_, value) in data {
+                    guard let game = value as? [String: Any],
+                          let id    = game["id"] as? String,
+                          let count = game["viewersCount"] as? Int else { continue }
+                    part[id] = count
+                }
+                return part
+            }
+        }
+        for await part in group {
+            out.merge(part) { _, new in new }
         }
     }
 
@@ -1908,14 +1918,28 @@ func getLiveStreamsGQL(logins: [String]) async -> [TwitchStream]? {
     query($l: [String!]) { users(logins: $l) { id login displayName
       stream { title viewersCount previewImageURL(width: 440, height: 248) game { displayName } freeformTags { name } } } }
     """
-    var out: [TwitchStream] = []
-    for start in stride(from: 0, to: logins.count, by: 100) {
-        let chunk = Array(logins[start..<min(start + 100, logins.count)])
-        guard let d = await gqlRequest(q, ["l": chunk]),
-              let users = d["users"] as? [Any] else { return nil }
-        for case let u as [String: Any] in users {
-            if let s = u["stream"] as? [String: Any], let st = streamFromGQL(user: u, stream: s) { out.append(st) }
+    let chunks = stride(from: 0, to: logins.count, by: 100).map { Array(logins[$0 ..< min($0 + 100, logins.count)]) }
+    // Chunks in parallel; one failed chunk still fails the whole call (nil).
+    let parts = await withTaskGroup(of: [TwitchStream]?.self, returning: [[TwitchStream]?].self) { group in
+        for chunk in chunks {
+            group.addTask {
+                guard let d = await gqlRequest(q, ["l": chunk]),
+                      let users = d["users"] as? [Any] else { return nil }
+                var part: [TwitchStream] = []
+                for case let u as [String: Any] in users {
+                    if let s = u["stream"] as? [String: Any], let st = streamFromGQL(user: u, stream: s) { part.append(st) }
+                }
+                return part
+            }
         }
+        var all: [[TwitchStream]?] = []
+        for await p in group { all.append(p) }
+        return all
+    }
+    var out: [TwitchStream] = []
+    for chunkResult in parts {
+        guard let part = chunkResult else { return nil }
+        out += part
     }
     return out.sorted { $0.viewerCount > $1.viewerCount }
 }
@@ -1942,22 +1966,38 @@ func getChannelsGQL(logins: [String]) async -> [ChannelBrief]? {
       videos(first: 1, type: ARCHIVE, sort: TIME) { edges { node { publishedAt lengthSeconds } } }
       stream { title viewersCount previewImageURL(width: 440, height: 248) game { displayName } freeformTags { name } } } }
     """
-    var out: [ChannelBrief] = []
-    for start in stride(from: 0, to: logins.count, by: 100) {
-        let chunk = Array(logins[start..<min(start + 100, logins.count)])
-        guard let d = await gqlRequest(q, ["l": chunk]),
-              let users = d["users"] as? [Any] else { return nil }
-        for case let u as [String: Any] in users {
-            guard let login = u["login"] as? String else { continue }
-            let stream = (u["stream"] as? [String: Any]).flatMap { streamFromGQL(user: u, stream: $0) }
-            let video = ((u["videos"] as? [String: Any])?["edges"] as? [[String: Any]])?.first?["node"] as? [String: Any]
-            let lastEnd = lastLiveEnd(publishedAt: video?["publishedAt"] as? String,
-                                      lengthSeconds: video?["lengthSeconds"] as? Int ?? 0,
-                                      lastStart: (u["lastBroadcast"] as? [String: Any])?["startedAt"] as? String)
-            out.append(ChannelBrief(login: login, name: u["displayName"] as? String ?? login,
-                                    avatar: u["profileImageURL"] as? String ?? "", stream: stream,
-                                    lastEnd: lastEnd))
+    let chunks = stride(from: 0, to: logins.count, by: 100).map { Array(logins[$0 ..< min($0 + 100, logins.count)]) }
+    // Chunks in parallel, reassembled in input order; one failed chunk still
+    // fails the whole call (nil).
+    let parts = await withTaskGroup(of: (Int, [ChannelBrief]?).self,
+                                    returning: [(Int, [ChannelBrief]?)].self) { group in
+        for (index, chunk) in chunks.enumerated() {
+            group.addTask {
+                guard let d = await gqlRequest(q, ["l": chunk]),
+                      let users = d["users"] as? [Any] else { return (index, nil) }
+                var part: [ChannelBrief] = []
+                for case let u as [String: Any] in users {
+                    guard let login = u["login"] as? String else { continue }
+                    let stream = (u["stream"] as? [String: Any]).flatMap { streamFromGQL(user: u, stream: $0) }
+                    let video = ((u["videos"] as? [String: Any])?["edges"] as? [[String: Any]])?.first?["node"] as? [String: Any]
+                    let lastEnd = lastLiveEnd(publishedAt: video?["publishedAt"] as? String,
+                                              lengthSeconds: video?["lengthSeconds"] as? Int ?? 0,
+                                              lastStart: (u["lastBroadcast"] as? [String: Any])?["startedAt"] as? String)
+                    part.append(ChannelBrief(login: login, name: u["displayName"] as? String ?? login,
+                                             avatar: u["profileImageURL"] as? String ?? "", stream: stream,
+                                             lastEnd: lastEnd))
+                }
+                return (index, part)
+            }
         }
+        var all: [(Int, [ChannelBrief]?)] = []
+        for await p in group { all.append(p) }
+        return all
+    }
+    var out: [ChannelBrief] = []
+    for chunkResult in parts.sorted(by: { $0.0 < $1.0 }) {
+        guard let part = chunkResult.1 else { return nil }
+        out += part
     }
     return out
 }
