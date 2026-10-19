@@ -1,0 +1,50 @@
+name: Publish IPA
+
+# Copies the IPA artifact of a finished "Check build" run into a fixed
+# pre-release of this fork, so it can be downloaded with a plain URL
+# (github.com/<owner>/<repo>/releases/download/latest-optimize/TwitchUnblock.ipa).
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Run ID of the "Check build" run whose IPA to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-ipa
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TwitchUnblock-IPA
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ipa
+
+      - name: Publish to the latest-optimize pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          test -f ipa/TwitchUnblock.ipa
+          sha256sum ipa/TwitchUnblock.ipa
+          if ! gh release view latest-optimize --repo "$REPO" >/dev/null 2>&1; then
+            gh release create latest-optimize --repo "$REPO" --prerelease \
+              --title "Optimized build (branch optimize)" \
+              --notes "Unsigned IPA from the optimize branch. Replaced on every publish." \
+              --target optimize
+          fi
+          gh release upload latest-optimize ipa/TwitchUnblock.ipa --repo "$REPO" --clobber
+          gh release edit latest-optimize --repo "$REPO" \
+            --notes "Unsigned IPA from the optimize branch, check run $RUN_ID. Replaced on every publish."
