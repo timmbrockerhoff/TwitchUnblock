@@ -233,12 +233,6 @@ struct MainTabView: View {
         return !(store.immersivePlayer && isAudioQuality(currentQuality(links)))
     }
 
-    /// Y a-t-il un chat à afficher sous le lecteur ?
-    private var chatTarget: String? {
-        if let ch = currentChannelName { return ch }
-        return currentVodId
-    }
-
     /// Trois destinations seulement. « Streamer » et « Lien / ID » ont fusionné
     /// dans Recherche, et les Réglages sont passés derrière l'avatar de l'en-tête.
     enum TabName: String, CaseIterable {
@@ -1804,13 +1798,6 @@ struct MainTabView: View {
         liveUptimeText = h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
             : String(format: "%d:%02d", m, s)
-    }
-
-    private var modeTitle: String {
-        // Le direct est déjà signalé par le badge de l'encart : ici, juste le nom.
-        guard let mode = playerMode else { return statusTitle }
-        if case .live(let ch) = mode { return ch }
-        return statusTitle
     }
 }
 
