@@ -12,7 +12,6 @@ let kGQLClientID     = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 /// un jeton, jamais pour les jetons de lecture. La page 1 reste sur le web.
 let kGQLNextClientID = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
 let kRedirectURI     = "https://mxfia19.github.io/TwitchUnblock/auth.html"
-let kDeepLinkScheme  = "twitchunblock://"
 
 /// Workers de secours, sur un autre compte Cloudflare : le principal est
 /// limité à 100 000 requêtes par jour (« error code: 1027 » au-delà, jusqu'à
@@ -191,7 +190,6 @@ extension Color {
     static let tWarning   = Color(hex: "e6e619")
     static let tVLC       = Color(hex: "ff8800")
     static let tOutplayer = Color(hex: "007aff")
-    static let tInfuse    = Color(hex: "fc3c44")
 
     init(hex: String) {
         var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,102 +241,44 @@ enum Lang: String, CaseIterable, Identifiable {
     var machineTranslated: Bool { self == .ru }
 }
 
-// ✨ NOUVEAU : Les sources se traduisent automatiquement !
-enum LiveSource: String, CaseIterable, Identifiable, Codable {
-    case auto, luminous, twitch, cloudflare
-    var id: String { rawValue }
-
-    // Lit la langue actuelle choisie par l'utilisateur
-    private var currentLang: Lang {
-        let saved = UserDefaults.standard.string(forKey: "lang") ?? "en"
-        return Lang(rawValue: saved) ?? .en
-    }
-
-    var displayName: String {
-        switch self {
-        case .auto:       return translate("source_auto", currentLang)
-        case .luminous:   return translate("source_luminous", currentLang)
-        case .twitch:     return translate("source_twitch", currentLang)
-        case .cloudflare: return translate("source_cloudflare", currentLang)
-        }
-    }
-    
-    var subtitle: String {
-        switch self {
-        case .auto:       return translate("source_auto_sub", currentLang)
-        case .luminous:   return translate("source_luminous_sub", currentLang)
-        case .twitch:     return translate("source_twitch_sub", currentLang)
-        case .cloudflare: return translate("source_cloudflare_sub", currentLang)
-        }
-    }
-    
-    var emoji: String {
-        switch self {
-        case .auto:       return "✨"
-        case .luminous:   return "💡"
-        case .twitch:     return "🟣"
-        case .cloudflare: return "☁️"
-        }
-    }
-}
-
 // MARK: – Translations
-private let translations: [Lang: [String: String]] = [
-    .fr: [
+// One explicitly typed literal per language: a single nested
+// [Lang: [String: String]] literal of ~2,500 entries is slow to type-check.
+private let kFrenchStrings: [String: String] = [
         "title": "Regarder Twitch sans Sub",
         "tab_home": "Accueil", "tab_search": "Recherche", "tab_library": "Mes VODs",
-        "tab_direct": "Lien / ID", "settings": "Paramètres",
-        "tab_history": "VODs",
-        "ph_streamer": "Streamer (ex: squeezie)", "ph_keyword": "Mot-clé (ex: horreur)",
-        "ph_id": "ID ou Lien de la VOD",
+        "settings": "Paramètres",
+        "ph_keyword": "Mot-clé (ex: horreur)",
         "btn_unlock": "Déverrouiller", "btn_search": "Chercher",
-        "btn_watch_live": "Regarder le direct", "btn_copy": "Copier",
-        "btn_pip": "PiP", "btn_refresh": "🔄 Actualiser",
+        "btn_watch_live": "Regarder le direct",
         "btn_logout": "Déconnexion", "btn_login_twitch": "🟣 Se connecter avec Twitch",
         "btn_clear": "Effacer",
         "loading": "Chargement...", "loading_vod": "Lancement VOD...",
-        "loading_channels": "Chargement de vos chaînes...", "loading_top": "Chargement du Top...",
-        "vod_ready": "VOD en lecture !", "live_on": "EN DIRECT", "offline": "HORS LIGNE",
+        "live_on": "EN DIRECT", "offline": "HORS LIGNE",
         "offline_since": "Hors ligne depuis : ", "no_vod": "Aucune VOD trouvée.",
         "no_live": "Aucune chaîne en live pour le moment.", "vods_found": "VODs trouvées.",
-        "not_found": "❌ Streamer introuvable.", "err_missing": "Nom manquant.",
-        "err_network": "Erreur réseau.", "err_live": "Erreur Live.",
-        "err_conn": "Erreur connexion.", "err_loading": "Erreur lors du chargement.",
+        "not_found": "❌ Streamer introuvable.",
+        "err_network": "Erreur réseau.",
+        "err_loading": "Erreur lors du chargement.",
         "err_no_source": "Aucune source n'a répondu pour ce direct.",
         "err_vod_unavailable": "VOD introuvable ou réservée aux abonnés.",
         "login_prompt": "Connectez-vous pour retrouver vos chaînes préférées.",
-        "login_required": "Connectez-vous pour voir les streams en cours.",
         "session_expired": "Session expirée. Veuillez vous reconnecter.",
-        "lbl_vod_history": "VODs récemment regardées", "lbl_channel_history": "Streamers récents",
-        "followed_channels": "Vos chaînes suivies", "top_streams": "Top streams",
-        "top_fr": "France", "top_world": "Monde", "top_lang": "Top des lives", "top_lang_sub": "Langue des streamers. Par défaut celle de ton appareil ({l}).", "lang_auto": "Appareil", "copied": "Lien copié !",
+        "lbl_channel_history": "Streamers récents",
+        "top_streams": "Top streams",
+        "top_world": "Monde", "top_lang": "Top des lives", "top_lang_sub": "Langue des streamers. Par défaut celle de ton appareil ({l}).", "lang_auto": "Appareil",
         "day": "j", "hour": "h", "min": "min", "offline_msg": "Pas de stream en cours.",
-        "open_vlc": "Ouvrir dans VLC", "open_outplayer": "Ouvrir dans Outplayer",
-        "open_infuse": "Ouvrir dans Infuse", "proxy": "Proxy",
         "reduce": "Réduire", "back": "Retour", "live_badge": "EN DIRECT",
         "no_result": "Aucun résultat", "confirm_logout": "Êtes-vous sûr de vouloir vous déconnecter ?",
-        "cancel": "Annuler", "clear_logs": "Effacer les logs", "confirm": "Confirmer ?",
-        "erase": "Effacer", "export": "📤 Exporter", "logs_empty": "Aucun log",
-        "logs_hint": "Lance une VOD ou un stream pour voir les logs",
+        "cancel": "Annuler", "confirm": "Confirmer ?",
+        "erase": "Effacer",
         "about": "À propos", "version": "Version 1.0.0",
         "about_desc": "Regardez vos VODs et vos directs Twitch sans abonnement, avec accès à toutes les qualités. Rien à configurer.",
         "show_logs": "Afficher les logs système",
-        "connected": "Connecté", "not_connected": "Non connecté",
+        "connected": "Connecté",
         "history": "Historique", "vods": "VODs", "channels": "Chaînes",
-        "proxy_sub": "Désactiver pour économiser le serveur (utile pour VLC)",
-        "proxy_enable": "Activer le proxy", "twitch_account": "Compte Twitch",
+        "twitch_account": "Compte Twitch",
         "language": "Langue",
-        "settings_source": "Serveur / Source Vidéo",
-        
-        // Traductions sources
-        "source_auto": "Auto",
-        "source_auto_sub": "Meilleure source disponible",
-        "source_luminous": "Luminous",
-        "source_luminous_sub": "Sans publicité (recommandé)",
-        "source_twitch": "Twitch Officiel",
-        "source_twitch_sub": "Avec publicités",
-        "source_cloudflare": "Cloudflare Worker",
-        "source_cloudflare_sub": "Proxy personnel",
 
         // Chat & Points
         "chat_connected": "Chat connecté", "chat_connecting": "Connexion...",
@@ -350,12 +290,12 @@ private let translations: [Lang: [String: String]] = [
         "notif_live": "Notifications de live", "notif_live_sub": "Prévient quand une chaîne suivie commence un live (vérifié en arrière-plan quand iOS le permet ; suivis Twitch et suivis sur cet appareil).", "notif_test": "Envoyer une notification de test", "notif_test_title": "TwitchUnblock", "notif_test_body": "Les notifications fonctionnent 🎉", "notif_test_sent": "Envoyée : elle arrive dans 3 s (quitte l'app pour la voir comme une vraie).", "notif_test_denied": "Notifications refusées : autorise-les dans Réglages iOS → TwitchUnblock.", "notif_last_never": "Aucune vérification en arrière-plan pour l'instant. iOS choisit le moment : laisse l'app en arrière-plan (sans la fermer) quelques heures.", "notif_last_run": "Dernière vérification en arrière-plan : {t}", "notif_last_failed": "échec (connexion ou jeton)", "notif_bg_off": "« Actualisation en arrière-plan » est coupée (ou le mode économie d'énergie est actif) : iOS ne réveillera pas l'app. Réglages iOS → Général → Actualisation en arrière-plan.", "notif_bg_refused": "iOS a refusé de programmer la vérification", "web_banner_title": "Connecte ta session web", "web_banner_msg": "Pour les points de chaîne, les coffres récupérés tout seuls et les prédictions : connecte-toi une fois sur twitch.tv dans l'app.", "web_banner_btn": "Connecter", "announcement_open": "Ouvrir", "dont_show_again": "Ne plus afficher", "notif_live_title": "{u} est en live",
         "chapters": "Chapitres", "close": "Fermer",
         "made_by": "Fait par", "source_ios": "Code source de l'app", "web_version": "Version web", "credits_thanks": "Merci à BetterTTV, FrankerFaceZ, 7TV, recent-messages et Luminous.", "not_affiliated": "Projet indépendant, non affilié à Twitch.",
-        "update_title": "Mise à jour disponible", "update_msg": "La version {v} est sortie (tu as la {c}). Mets-la à jour depuis Feather, SideStore ou AltStore.", "update_whats_new": "Voici ce qui a changé depuis ta version :", "update_open": "Mettre à jour", "later": "Plus tard", "update_available": "Mise à jour disponible : {v}", "update_check": "Vérifier les mises à jour", "update_none": "L'app est à jour", "version_label": "Version", "discord_join": "Rejoindre le Discord",
+        "update_title": "Mise à jour disponible", "update_whats_new": "Voici ce qui a changé depuis ta version :", "update_open": "Mettre à jour", "later": "Plus tard", "update_available": "Mise à jour disponible : {v}", "update_check": "Vérifier les mises à jour", "update_none": "L'app est à jour", "version_label": "Version", "discord_join": "Rejoindre le Discord",
         "discord_title": "Rejoins le Discord", "discord_msg": "Nouveautés, bugs, idées : la communauté TwitchUnblock est sur Discord. Tu peux aussi le retrouver plus tard dans Réglages → À propos.",
         "update_msg_short": "Une nouvelle version de TwitchUnblock est disponible. Installe-la depuis Feather, SideStore ou AltStore.",
         "see_channel": "Voir la chaîne", "highlight_words": "Mots surlignés", "highlight_words_sub": "Séparés par des virgules. Les messages qui les contiennent (ou qui te mentionnent) sont mis en avant.",
         "pinned": "Message épinglé", "pinned_by": "Épinglé par {u}", "pinned_short": "Épinglé", "just_now": "à l'instant", "minutes_ago": "il y a {n} min", "hours_ago": "il y a {n} h", "pin_left": "encore {n} min",
-        "thread_title": "Fil", "thread_reply_to": "Réponse à",
+        "thread_reply_to": "Réponse à",
         "follow": "Suivre", "following": "Suivi", "hype_level": "Niveau",
         "hype_train": "Train de la Hype", "hype_incoming": "En approche", "hype_kickoff": "Encore {n} pour le lancer",
         "hype_departed": "Le train de la Hype est parti !", "hype_departed_sub": "Temps limité pour gagner des émoticônes exclusives",
@@ -363,7 +303,6 @@ private let translations: [Lang: [String: String]] = [
         "hype_golden": "Train de kappa doré", "hype_treasure": "Train au trésor",
         "raid_to": "Raid vers", "join": "Rejoindre", "viewers": "spectateurs",
         "customize": "Personnalisation",
-        "cfg_title": "Titre du live", "cfg_title_sub": "Afficher le titre au-dessus du chat",
         "cfg_pinned": "Messages épinglés", "cfg_pinned_sub": "Afficher le bandeau des messages épinglés",
         "cfg_drops_notice": "Drops de la chaîne", "cfg_drops_notice_sub": "Une carte en haut du chat quand la chaîne a des drops (à fermer)",
         "drops_notice_title": "Regarde {m} min pour obtenir {r}", "drops_notice_ends": "Jusqu'au {d}", "drops_notice_details": "Détails", "drops_notice_more": "+{n} récompense(s)",
@@ -423,7 +362,6 @@ private let translations: [Lang: [String: String]] = [
         "web_expired": "Session web expirée",
         "web_expired_sub": "Twitch a refusé la session web. Les points de chaîne, sondages et prédictions restent indisponibles tant qu'elle n'est pas rétablie.",
         "web_reconnect": "Rétablir la session",
-        "history_vods_title": "Vos dernières VODs",
         "history_vods_empty": "Aucune VOD dans votre historique pour le moment.",
         "vod_chat_loading": "Chargement du chat…",
         "vod_chat_empty": "Aucun message à cet instant de la VOD",
@@ -433,7 +371,6 @@ private let translations: [Lang: [String: String]] = [
         "cache_auto_sub": "Purge le cache en quittant le live ou l'application",
         "account_api": "Connexion API", "account_api_sub": "Chat, chaînes suivies et Top",
         "account_web": "Session web (points)", "account_web_sub": "Points de chaîne, drops, et sans pub sur les chaînes où tu es abonné",
-        "login_points_hint": "Pour les points de chaîne, connecte-toi aussi en « Session web » depuis les Réglages ⚙️",
         "points_title": "Points de chaîne",
         "points_connect_title": "Connecte ton compte Twitch",
         "points_connect_desc": "Nécessaire pour afficher ton solde et réclamer les coffres.",
@@ -446,7 +383,6 @@ private let translations: [Lang: [String: String]] = [
         "points_input_ph": "Votre message…", "points_unit": "pts",
         "points_redeemed": "réclamé ✓", "points_error": "Erreur",
         "points_network_error": "Erreur réseau", "points_missing": "Il te manque",
-        "points_by": "par",
         "err_not_enough": "Pas assez de points", "err_reward_not_found": "Récompense introuvable",
         "err_points_disabled": "Points désactivés", "err_already_claimed": "Déjà réclamé",
         "err_cooldown": "Attends un peu",
@@ -477,9 +413,6 @@ private let translations: [Lang: [String: String]] = [
         "cfg_chat_width": "Largeur du chat",
         "cfg_chat_width_sub": "En paysage seulement, que le chat soit en colonne ou posé sur l'image.",
         "reset_defaults": "Rétablir les valeurs par défaut",
-        "vlc_player": "Lecteur VLC",
-        "vlc_player_sub": "Contrôles maison : double-tap ±10s, rembobinage live. (pas de PiP)",
-        "go_live": "EN DIRECT",
 
         // Catégories
         "streams": "Streams", "categories": "Catégories",
@@ -552,7 +485,6 @@ private let translations: [Lang: [String: String]] = [
         "color_network": "Impossible de joindre Twitch.",
         "color_bad_request": "Couleur refusée par Twitch.",
         "color_failed": "Twitch a refusé le changement de couleur.",
-        "role_broadcaster": "Streamer", "role_moderator": "Modérateurs",
         "ph_search": "Streamer, lien ou ID de VOD…",
         "btn_open": "Ouvrir",
         "hint_is_vod": "Ouvrira cette VOD",
@@ -819,7 +751,6 @@ private let translations: [Lang: [String: String]] = [
         "chat_rej_duplicate": "Message non envoyé : identique au précédent.",
         "chat_rej_verified": "Message non envoyé : cette chaîne demande un compte vérifié (e-mail ou téléphone).",
         "chat_rej_timeout": "Message non envoyé : tu es exclu temporairement de ce chat.",
-        "chat_rej_banned": "Message non envoyé : tu es banni de ce chat.",
         "chat_rej_automod": "Message retenu par la modération automatique de la chaîne.",
         "chat_rej_ratelimit": "Message non envoyé : trop de messages d'un coup, attends un peu.",
         "chat_rej_suspended": "Message non envoyé : ce chat n'est pas disponible.",
@@ -843,62 +774,43 @@ private let translations: [Lang: [String: String]] = [
         "adm_hook_never": "Discord : aucun envoi depuis la mise à jour",
         "adm_hook_test": "Tester l'envoi Discord",
         "adm_hook_test_ok": "Message de test envoyé sur Discord.",
-    ],
-    .en: [
+]
+
+private let kEnglishStrings: [String: String] = [
         "title": "Watch Twitch No Sub",
         "tab_home": "Home", "tab_search": "Search", "tab_library": "My VODs",
-        "tab_direct": "Link / ID", "settings": "Settings",
-        "tab_history": "VODs",
-        "ph_streamer": "Streamer (ex: shroud)", "ph_keyword": "Keyword (ex: horror)",
-        "ph_id": "VOD ID or Link",
+        "settings": "Settings",
+        "ph_keyword": "Keyword (ex: horror)",
         "btn_unlock": "Unlock", "btn_search": "Search",
-        "btn_watch_live": "Watch live", "btn_copy": "Copy",
-        "btn_pip": "PiP", "btn_refresh": "🔄 Refresh",
+        "btn_watch_live": "Watch live",
         "btn_logout": "Logout", "btn_login_twitch": "🟣 Log in with Twitch",
         "btn_clear": "Clear",
         "loading": "Loading...", "loading_vod": "Loading VOD...",
-        "loading_channels": "Loading your channels...", "loading_top": "Loading Top...",
-        "vod_ready": "VOD Playing!", "live_on": "LIVE NOW", "offline": "OFFLINE",
+        "live_on": "LIVE NOW", "offline": "OFFLINE",
         "offline_since": "Offline since: ", "no_vod": "No VODs found.",
         "no_live": "No live channels at the moment.", "vods_found": "VODs found.",
-        "not_found": "❌ Streamer not found.", "err_missing": "Name missing.",
-        "err_network": "Network error.", "err_live": "Live error.",
-        "err_conn": "Connection error.", "err_loading": "Error loading data.",
+        "not_found": "❌ Streamer not found.",
+        "err_network": "Network error.",
+        "err_loading": "Error loading data.",
         "err_no_source": "No source answered for this live stream.",
         "err_vod_unavailable": "VOD not found or for subscribers only.",
         "login_prompt": "Log in to find your favorite channels.",
-        "login_required": "Please log in to view live streams.",
         "session_expired": "Session expired. Please log in again.",
-        "lbl_vod_history": "Recently watched VODs", "lbl_channel_history": "Recent Streamers",
-        "followed_channels": "Followed channels", "top_streams": "Top streams",
-        "top_fr": "France", "top_world": "World", "top_lang": "Top streams", "top_lang_sub": "Streamer language. Defaults to your device language ({l}).", "lang_auto": "Device", "copied": "Link copied!",
+        "lbl_channel_history": "Recent Streamers",
+        "top_streams": "Top streams",
+        "top_world": "World", "top_lang": "Top streams", "top_lang_sub": "Streamer language. Defaults to your device language ({l}).", "lang_auto": "Device",
         "day": "d", "hour": "h", "min": "min", "offline_msg": "Stream is offline.",
-        "open_vlc": "Open in VLC", "open_outplayer": "Open in Outplayer",
-        "open_infuse": "Open in Infuse", "proxy": "Proxy",
         "reduce": "Reduce", "back": "Back", "live_badge": "LIVE",
         "no_result": "No result", "confirm_logout": "Are you sure you want to log out?",
-        "cancel": "Cancel", "clear_logs": "Clear logs", "confirm": "Confirm?",
-        "erase": "Clear", "export": "📤 Export", "logs_empty": "No logs",
-        "logs_hint": "Launch a VOD or stream to see logs",
+        "cancel": "Cancel", "confirm": "Confirm?",
+        "erase": "Clear",
         "about": "About", "version": "Version 1.0.0",
         "about_desc": "Watch Twitch VODs and live streams without a subscription, at full quality. Nothing to set up.",
         "show_logs": "Show system logs",
-        "connected": "Connected", "not_connected": "Not connected",
+        "connected": "Connected",
         "history": "History", "vods": "VODs", "channels": "Channels",
-        "proxy_sub": "Disable to save server resources (useful for VLC)",
-        "proxy_enable": "Enable proxy", "twitch_account": "Twitch Account",
+        "twitch_account": "Twitch Account",
         "language": "Language",
-        "settings_source": "Video Server / Source",
-        
-        // Traductions sources
-        "source_auto": "Auto",
-        "source_auto_sub": "Best available source",
-        "source_luminous": "Luminous",
-        "source_luminous_sub": "Ad-free (recommended)",
-        "source_twitch": "Official Twitch",
-        "source_twitch_sub": "With ads",
-        "source_cloudflare": "Cloudflare Worker",
-        "source_cloudflare_sub": "Personal proxy",
 
         // Chat & Points
         "chat_connected": "Chat connected", "chat_connecting": "Connecting...",
@@ -910,12 +822,12 @@ private let translations: [Lang: [String: String]] = [
         "notif_live": "Live notifications", "notif_live_sub": "Get notified when a followed channel goes live (checked in the background when iOS allows it; Twitch follows and follows on this device).", "notif_test": "Send a test notification", "notif_test_title": "TwitchUnblock", "notif_test_body": "Notifications are working 🎉", "notif_test_sent": "Sent: it arrives in 3 s (leave the app to see it like a real one).", "notif_test_denied": "Notifications denied: allow them in iOS Settings → TwitchUnblock.", "notif_last_never": "No background check yet. iOS picks the moment: leave the app in the background (without closing it) for a few hours.", "notif_last_run": "Last background check: {t}", "notif_last_failed": "failed (network or token)", "notif_bg_off": "“Background App Refresh” is off (or Low Power Mode is on): iOS won’t wake the app. iOS Settings → General → Background App Refresh.", "notif_bg_refused": "iOS refused to schedule the check", "web_banner_title": "Connect your web session", "web_banner_msg": "For channel points, auto-claimed chests and predictions: sign in once to twitch.tv inside the app.", "web_banner_btn": "Connect", "announcement_open": "Open", "dont_show_again": "Don’t show again", "notif_live_title": "{u} is live",
         "chapters": "Chapters", "close": "Close",
         "made_by": "Made by", "source_ios": "App source code", "web_version": "Web version", "credits_thanks": "Thanks to BetterTTV, FrankerFaceZ, 7TV, recent-messages and Luminous.", "not_affiliated": "Independent project, not affiliated with Twitch.",
-        "update_title": "Update available", "update_msg": "Version {v} is out (you have {c}). Update it from Feather, SideStore or AltStore.", "update_whats_new": "Here’s what’s new since your version:", "update_open": "Update", "later": "Later", "update_available": "Update available: {v}", "update_check": "Check for updates", "update_none": "The app is up to date", "version_label": "Version", "discord_join": "Join the Discord",
+        "update_title": "Update available", "update_whats_new": "Here’s what’s new since your version:", "update_open": "Update", "later": "Later", "update_available": "Update available: {v}", "update_check": "Check for updates", "update_none": "The app is up to date", "version_label": "Version", "discord_join": "Join the Discord",
         "discord_title": "Join the Discord", "discord_msg": "News, bugs, ideas: the TwitchUnblock community is on Discord. You can also find it later in Settings → About.",
         "update_msg_short": "A new version of TwitchUnblock is available. Install it from Feather, SideStore or AltStore.",
         "see_channel": "See channel", "highlight_words": "Highlighted words", "highlight_words_sub": "Comma-separated. Messages containing them (or mentioning you) stand out.",
         "pinned": "Pinned message", "pinned_by": "Pinned by {u}", "pinned_short": "Pinned", "just_now": "just now", "minutes_ago": "{n} min ago", "hours_ago": "{n} h ago", "pin_left": "{n} min left",
-        "thread_title": "Thread", "thread_reply_to": "Reply to",
+        "thread_reply_to": "Reply to",
         "follow": "Follow", "following": "Following", "hype_level": "Level",
         "hype_train": "Hype Train", "hype_incoming": "Incoming", "hype_kickoff": "{n} more to kick off",
         "hype_departed": "The Hype Train has left the station!", "hype_departed_sub": "Limited time to earn exclusive emotes",
@@ -923,7 +835,6 @@ private let translations: [Lang: [String: String]] = [
         "hype_golden": "Golden Kappa Train", "hype_treasure": "Treasure Train",
         "raid_to": "Raid to", "join": "Join", "viewers": "viewers",
         "customize": "Customization",
-        "cfg_title": "Stream title", "cfg_title_sub": "Show the title above the chat",
         "cfg_pinned": "Pinned messages", "cfg_pinned_sub": "Show the pinned message banner",
         "cfg_drops_notice": "Channel drops", "cfg_drops_notice_sub": "A card at the top of the chat when the channel has drops (dismissable)",
         "drops_notice_title": "Watch {m} min to get {r}", "drops_notice_ends": "Until {d}", "drops_notice_details": "Details", "drops_notice_more": "+{n} reward(s)",
@@ -983,7 +894,6 @@ private let translations: [Lang: [String: String]] = [
         "web_expired": "Web session expired",
         "web_expired_sub": "Twitch rejected the web session. Channel points, polls and predictions stay unavailable until it is restored.",
         "web_reconnect": "Restore the session",
-        "history_vods_title": "Your recent VODs",
         "history_vods_empty": "No VOD in your history yet.",
         "vod_chat_loading": "Loading chat…",
         "vod_chat_empty": "No messages at this point of the VOD",
@@ -993,7 +903,6 @@ private let translations: [Lang: [String: String]] = [
         "cache_auto_sub": "Purge the cache when leaving the stream or the app",
         "account_api": "API login", "account_api_sub": "Chat, followed channels and Top",
         "account_web": "Web session (points)", "account_web_sub": "Channel points, drops, and ad-free viewing on channels you're subbed to",
-        "login_points_hint": "For channel points, also connect the \"Web session\" from Settings ⚙️",
         "points_title": "Channel Points",
         "points_connect_title": "Connect your Twitch account",
         "points_connect_desc": "Required to show your balance and claim chests.",
@@ -1006,7 +915,6 @@ private let translations: [Lang: [String: String]] = [
         "points_input_ph": "Your message…", "points_unit": "pts",
         "points_redeemed": "redeemed ✓", "points_error": "Error",
         "points_network_error": "Network error", "points_missing": "You need",
-        "points_by": "by",
         "err_not_enough": "Not enough points", "err_reward_not_found": "Reward not found",
         "err_points_disabled": "Points disabled", "err_already_claimed": "Already claimed",
         "err_cooldown": "Wait a moment",
@@ -1037,9 +945,6 @@ private let translations: [Lang: [String: String]] = [
         "cfg_chat_width": "Chat width",
         "cfg_chat_width_sub": "Landscape only, whether the chat is a column or sits on the video.",
         "reset_defaults": "Reset to defaults",
-        "vlc_player": "VLC player",
-        "vlc_player_sub": "Custom controls: double-tap ±10s, live rewind. (no PiP)",
-        "go_live": "LIVE",
 
         // Categories
         "streams": "Streams", "categories": "Categories",
@@ -1112,7 +1017,6 @@ private let translations: [Lang: [String: String]] = [
         "color_network": "Could not reach Twitch.",
         "color_bad_request": "Colour rejected by Twitch.",
         "color_failed": "Twitch refused the colour change.",
-        "role_broadcaster": "Broadcaster", "role_moderator": "Moderators",
         "ph_search": "Streamer, link or VOD ID…",
         "btn_open": "Open",
         "hint_is_vod": "Will open this VOD",
@@ -1379,7 +1283,6 @@ private let translations: [Lang: [String: String]] = [
         "chat_rej_duplicate": "Message not sent: identical to your previous one.",
         "chat_rej_verified": "Message not sent: this channel requires a verified account (email or phone).",
         "chat_rej_timeout": "Message not sent: you're timed out in this chat.",
-        "chat_rej_banned": "Message not sent: you're banned from this chat.",
         "chat_rej_automod": "Message held by the channel's automatic moderation.",
         "chat_rej_ratelimit": "Message not sent: too many messages at once, wait a bit.",
         "chat_rej_suspended": "Message not sent: this chat isn't available.",
@@ -1403,62 +1306,43 @@ private let translations: [Lang: [String: String]] = [
         "adm_hook_never": "Discord: nothing sent since the update",
         "adm_hook_test": "Test Discord delivery",
         "adm_hook_test_ok": "Test message sent to Discord.",
-    ],
-    .es: [
+]
+
+private let kSpanishStrings: [String: String] = [
         "title": "Ver Twitch sin Sub",
         "tab_home": "Inicio", "tab_search": "Buscar", "tab_library": "Mis VODs",
-        "tab_direct": "Enlace / ID", "settings": "Ajustes",
-        "tab_history": "VODs",
-        "ph_streamer": "Streamer (ej: ibai)", "ph_keyword": "Palabra (ej: horror)",
-        "ph_id": "ID o Enlace VOD",
+        "settings": "Ajustes",
+        "ph_keyword": "Palabra (ej: horror)",
         "btn_unlock": "Desbloquear", "btn_search": "Buscar",
-        "btn_watch_live": "Ver directo", "btn_copy": "Copiar",
-        "btn_pip": "PiP", "btn_refresh": "🔄 Actualizar",
+        "btn_watch_live": "Ver directo",
         "btn_logout": "Cerrar sesión", "btn_login_twitch": "🟣 Iniciar sesión con Twitch",
         "btn_clear": "Borrar",
         "loading": "Cargando...", "loading_vod": "Cargando VOD...",
-        "loading_channels": "Cargando tus canales...", "loading_top": "Cargando Top...",
-        "vod_ready": "VOD Reproduciendo!", "live_on": "EN VIVO", "offline": "DESCONECTADO",
+        "live_on": "EN VIVO", "offline": "DESCONECTADO",
         "offline_since": "Desconectado desde: ", "no_vod": "No se encontraron VODs.",
         "no_live": "No hay canales en vivo ahora.", "vods_found": "VODs encontrados.",
-        "not_found": "❌ Streamer no encontrado.", "err_missing": "Falta el nombre.",
-        "err_network": "Error de red.", "err_live": "Error de directo.",
-        "err_conn": "Error de conexión.", "err_loading": "Error al cargar.",
+        "not_found": "❌ Streamer no encontrado.",
+        "err_network": "Error de red.",
+        "err_loading": "Error al cargar.",
         "err_no_source": "Ninguna fuente respondió para este directo.",
         "err_vod_unavailable": "VOD no encontrado o solo para suscriptores.",
         "login_prompt": "Inicia sesión para encontrar tus canales favoritos.",
-        "login_required": "Inicia sesión para ver los streams.",
         "session_expired": "Sesión expirada. Inicia sesión de nuevo.",
-        "lbl_vod_history": "VODs recientes", "lbl_channel_history": "Streamers recientes",
-        "followed_channels": "Canales seguidos", "top_streams": "Top streams",
-        "top_fr": "Francia", "top_world": "Mundo", "top_lang": "Top directos", "top_lang_sub": "Idioma de los streamers. Por defecto, el de tu dispositivo ({l}).", "lang_auto": "Dispositivo", "copied": "Enlace copiado!",
+        "lbl_channel_history": "Streamers recientes",
+        "top_streams": "Top streams",
+        "top_world": "Mundo", "top_lang": "Top directos", "top_lang_sub": "Idioma de los streamers. Por defecto, el de tu dispositivo ({l}).", "lang_auto": "Dispositivo",
         "day": "d", "hour": "h", "min": "min", "offline_msg": "No hay directo en curso.",
-        "open_vlc": "Abrir en VLC", "open_outplayer": "Abrir en Outplayer",
-        "open_infuse": "Abrir en Infuse", "proxy": "Proxy",
         "reduce": "Reducir", "back": "Volver", "live_badge": "EN VIVO",
         "no_result": "Sin resultado", "confirm_logout": "¿Seguro que quieres cerrar sesión?",
-        "cancel": "Cancelar", "clear_logs": "Borrar logs", "confirm": "¿Confirmar?",
-        "erase": "Borrar", "export": "📤 Exportar", "logs_empty": "Sin logs",
-        "logs_hint": "Lanza un VOD o stream para ver los logs",
+        "cancel": "Cancelar", "confirm": "¿Confirmar?",
+        "erase": "Borrar",
         "about": "Acerca de", "version": "Versión 1.0.0",
         "about_desc": "Ve VODs y directos de Twitch sin suscripción, con acceso a todas las calidades. Nada que configurar.",
         "show_logs": "Mostrar logs del sistema",
-        "connected": "Conectado", "not_connected": "No conectado",
+        "connected": "Conectado",
         "history": "Historial", "vods": "VODs", "channels": "Canales",
-        "proxy_sub": "Desactivar para ahorrar el servidor (útil para VLC)",
-        "proxy_enable": "Activar proxy", "twitch_account": "Cuenta de Twitch",
+        "twitch_account": "Cuenta de Twitch",
         "language": "Idioma",
-        "settings_source": "Servidor / Fuente de Video",
-        
-        // Traducciones fuentes
-        "source_auto": "Auto",
-        "source_auto_sub": "Mejor fuente disponible",
-        "source_luminous": "Luminous",
-        "source_luminous_sub": "Sin anuncios (recomendado)",
-        "source_twitch": "Twitch Oficial",
-        "source_twitch_sub": "Con anuncios",
-        "source_cloudflare": "Cloudflare Worker",
-        "source_cloudflare_sub": "Proxy personal",
 
         // Chat & Points
         "chat_connected": "Chat conectado", "chat_connecting": "Conectando...",
@@ -1470,12 +1354,12 @@ private let translations: [Lang: [String: String]] = [
         "notif_live": "Notificaciones de directo", "notif_live_sub": "Avisa cuando un canal seguido empieza un directo (se comprueba en segundo plano cuando iOS lo permite; canales seguidos en Twitch y en este dispositivo).", "notif_test": "Enviar una notificación de prueba", "notif_test_title": "TwitchUnblock", "notif_test_body": "Las notificaciones funcionan 🎉", "notif_test_sent": "Enviada: llega en 3 s (sal de la app para verla como una real).", "notif_test_denied": "Notificaciones denegadas: permítelas en Ajustes de iOS → TwitchUnblock.", "notif_last_never": "Aún no hay comprobación en segundo plano. iOS elige el momento: deja la app en segundo plano (sin cerrarla) unas horas.", "notif_last_run": "Última comprobación en segundo plano: {t}", "notif_last_failed": "error (conexión o token)", "notif_bg_off": "«Actualización en segundo plano» está desactivada (o el modo de bajo consumo está activo): iOS no despertará la app. Ajustes de iOS → General → Actualización en segundo plano.", "notif_bg_refused": "iOS se negó a programar la comprobación", "web_banner_title": "Conecta tu sesión web", "web_banner_msg": "Para los puntos del canal, los cofres recogidos solos y las predicciones: inicia sesión una vez en twitch.tv dentro de la app.", "web_banner_btn": "Conectar", "announcement_open": "Abrir", "dont_show_again": "No volver a mostrar", "notif_live_title": "{u} está en directo",
         "chapters": "Capítulos", "close": "Cerrar",
         "made_by": "Hecho por", "source_ios": "Código fuente de la app", "web_version": "Versión web", "credits_thanks": "Gracias a BetterTTV, FrankerFaceZ, 7TV, recent-messages y Luminous.", "not_affiliated": "Proyecto independiente, no afiliado a Twitch.",
-        "update_title": "Actualización disponible", "update_msg": "Ya salió la versión {v} (tienes la {c}). Actualízala desde Feather, SideStore o AltStore.", "update_whats_new": "Esto es lo nuevo desde tu versión:", "update_open": "Actualizar", "later": "Más tarde", "update_available": "Actualización disponible: {v}", "update_check": "Buscar actualizaciones", "update_none": "La app está al día", "version_label": "Versión", "discord_join": "Unirse al Discord",
+        "update_title": "Actualización disponible", "update_whats_new": "Esto es lo nuevo desde tu versión:", "update_open": "Actualizar", "later": "Más tarde", "update_available": "Actualización disponible: {v}", "update_check": "Buscar actualizaciones", "update_none": "La app está al día", "version_label": "Versión", "discord_join": "Unirse al Discord",
         "discord_title": "Únete al Discord", "discord_msg": "Novedades, bugs, ideas: la comunidad de TwitchUnblock está en Discord. También lo encontrarás en Ajustes → Acerca de.",
         "update_msg_short": "Hay una nueva versión de TwitchUnblock. Instálala desde Feather, SideStore o AltStore.",
         "see_channel": "Ver canal", "highlight_words": "Palabras resaltadas", "highlight_words_sub": "Separadas por comas. Los mensajes que las contienen (o te mencionan) se destacan.",
         "pinned": "Mensaje fijado", "pinned_by": "Fijado por {u}", "pinned_short": "Fijado", "just_now": "ahora mismo", "minutes_ago": "hace {n} min", "hours_ago": "hace {n} h", "pin_left": "quedan {n} min",
-        "thread_title": "Hilo", "thread_reply_to": "Responder a",
+        "thread_reply_to": "Responder a",
         "follow": "Seguir", "following": "Siguiendo", "hype_level": "Nivel",
         "hype_train": "Tren del Hype", "hype_incoming": "Entrante", "hype_kickoff": "Solo {n} más para arrancar",
         "hype_departed": "¡El Tren del Hype ha arrancado!", "hype_departed_sub": "Tiempo limitado para ganar emoticonos exclusivos",
@@ -1483,7 +1367,6 @@ private let translations: [Lang: [String: String]] = [
         "hype_golden": "Tren del Kappa dorado", "hype_treasure": "Tren del tesoro",
         "raid_to": "Raid a", "join": "Unirse", "viewers": "espectadores",
         "customize": "Personalización",
-        "cfg_title": "Título del directo", "cfg_title_sub": "Mostrar el título encima del chat",
         "cfg_pinned": "Mensajes fijados", "cfg_pinned_sub": "Mostrar el mensaje fijado",
         "cfg_drops_notice": "Drops del canal", "cfg_drops_notice_sub": "Una tarjeta arriba del chat cuando el canal tiene drops (se puede cerrar)",
         "drops_notice_title": "Mira {m} min para conseguir {r}", "drops_notice_ends": "Hasta el {d}", "drops_notice_details": "Detalles", "drops_notice_more": "+{n} recompensa(s)",
@@ -1543,7 +1426,6 @@ private let translations: [Lang: [String: String]] = [
         "web_expired": "Sesión web caducada",
         "web_expired_sub": "Twitch rechazó la sesión web. Los puntos de canal, encuestas y predicciones seguirán no disponibles hasta restablecerla.",
         "web_reconnect": "Restablecer la sesión",
-        "history_vods_title": "Tus últimos VODs",
         "history_vods_empty": "Aún no hay ningún VOD en tu historial.",
         "vod_chat_loading": "Cargando el chat…",
         "vod_chat_empty": "Sin mensajes en este punto del VOD",
@@ -1553,7 +1435,6 @@ private let translations: [Lang: [String: String]] = [
         "cache_auto_sub": "Purga el caché al salir del directo o de la app",
         "account_api": "Conexión API", "account_api_sub": "Chat, canales seguidos y Top",
         "account_web": "Sesión web (puntos)", "account_web_sub": "Puntos del canal, drops y sin anuncios en los canales a los que estás suscrito",
-        "login_points_hint": "Para los puntos del canal, conéctate también con la « Sesión web » en Ajustes ⚙️",
         "points_title": "Puntos del canal",
         "points_connect_title": "Conecta tu cuenta de Twitch",
         "points_connect_desc": "Necesario para ver tu saldo y reclamar cofres.",
@@ -1566,7 +1447,6 @@ private let translations: [Lang: [String: String]] = [
         "points_input_ph": "Tu mensaje…", "points_unit": "pts",
         "points_redeemed": "canjeado ✓", "points_error": "Error",
         "points_network_error": "Error de red", "points_missing": "Te faltan",
-        "points_by": "por",
         "err_not_enough": "No tienes suficientes puntos", "err_reward_not_found": "Recompensa no encontrada",
         "err_points_disabled": "Puntos desactivados", "err_already_claimed": "Ya reclamado",
         "err_cooldown": "Espera un poco",
@@ -1597,9 +1477,6 @@ private let translations: [Lang: [String: String]] = [
         "cfg_chat_width": "Ancho del chat",
         "cfg_chat_width_sub": "Solo en horizontal, ya sea en columna o sobre el vídeo.",
         "reset_defaults": "Restablecer valores por defecto",
-        "vlc_player": "Reproductor VLC",
-        "vlc_player_sub": "Controles propios: doble toque ±10s, rebobinar directo. (sin PiP)",
-        "go_live": "EN VIVO",
 
         // Categorías
         "streams": "Streams", "categories": "Categorías",
@@ -1672,7 +1549,6 @@ private let translations: [Lang: [String: String]] = [
         "color_network": "No se pudo contactar con Twitch.",
         "color_bad_request": "Color rechazado por Twitch.",
         "color_failed": "Twitch rechazó el cambio de color.",
-        "role_broadcaster": "Streamer", "role_moderator": "Moderadores",
         "ph_search": "Streamer, enlace o ID de VOD…",
         "btn_open": "Abrir",
         "hint_is_vod": "Abrirá este VOD",
@@ -1939,7 +1815,6 @@ private let translations: [Lang: [String: String]] = [
         "chat_rej_duplicate": "Mensaje no enviado: idéntico al anterior.",
         "chat_rej_verified": "Mensaje no enviado: este canal exige una cuenta verificada (correo o teléfono).",
         "chat_rej_timeout": "Mensaje no enviado: estás expulsado temporalmente de este chat.",
-        "chat_rej_banned": "Mensaje no enviado: estás baneado de este chat.",
         "chat_rej_automod": "Mensaje retenido por la moderación automática del canal.",
         "chat_rej_ratelimit": "Mensaje no enviado: demasiados mensajes seguidos, espera un poco.",
         "chat_rej_suspended": "Mensaje no enviado: este chat no está disponible.",
@@ -1963,7 +1838,12 @@ private let translations: [Lang: [String: String]] = [
         "adm_hook_never": "Discord: nada enviado desde la actualización",
         "adm_hook_test": "Probar el envío a Discord",
         "adm_hook_test_ok": "Mensaje de prueba enviado a Discord.",
-    ],
+]
+
+private let translations: [Lang: [String: String]] = [
+    .fr: kFrenchStrings,
+    .en: kEnglishStrings,
+    .es: kSpanishStrings,
     // Russe : dans son propre fichier (Localization/RussianStrings.swift).
     .ru: kRussianStrings,
 ]
