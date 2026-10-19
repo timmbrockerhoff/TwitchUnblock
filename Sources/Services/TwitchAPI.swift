@@ -780,7 +780,10 @@ private func raceLiveSources(_ steps: [String], login: String,
                     let hit = await liveSourceAttempt(src, login: login, token: token, lowLatency: lowLatency)
                     return LiveRaceEvent.done(hit)
                 }
-                if next < steps.count {
+                // Official Twitch (with ads) is never raced against the
+                // ad-avoiding proxies: it only starts once everything before
+                // it has failed, as before.
+                if next < steps.count, steps[next] != "twitch" {
                     let id = started
                     group.addTask {
                         try? await Task.sleep(nanoseconds: liveSourceStaggerNs)
