@@ -147,7 +147,9 @@ final class ChatPubSub: ObservableObject {
         if pinned != p { pinned = p }
         expiryTask?.cancel(); expiryTask = nil
         guard let p, let ends = p.endsAt else { return }
-        let delay = max(0, ends.timeIntervalSinceNow)
+        // Clamped: a NaN or far-future date from Twitch would trap in UInt64().
+        let raw = ends.timeIntervalSinceNow
+        let delay = raw.isFinite ? min(max(raw, 0), 86_400) : 0
         expiryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self, self.pinned?.id == p.id else { return }
@@ -155,11 +157,17 @@ final class ChatPubSub: ObservableObject {
         }
     }
 
-    private static func date(_ raw: Any?) -> Date? {
-        guard let s = raw as? String, !s.isEmpty else { return nil }
+    // Created once: ISO8601DateFormatter is costly to build (and thread-safe).
+    private static let isoFractional: ISO8601DateFormatter = {
         let df = ISO8601DateFormatter()
         df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return df.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        return df
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+
+    private static func date(_ raw: Any?) -> Date? {
+        guard let s = raw as? String, !s.isEmpty else { return nil }
+        return isoFractional.date(from: s) ?? isoPlain.date(from: s)
     }
 }
 

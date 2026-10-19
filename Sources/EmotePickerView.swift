@@ -40,6 +40,9 @@ struct EmotePickerView: View {
     }
 
     var body: some View {
+        // Computed once per render (it was evaluated three times: counter,
+        // empty check, grid).
+        let shown = displayed
         VStack(spacing: 0) {
 
             // ── Barre de recherche ──────────────────────────────────
@@ -96,7 +99,7 @@ struct EmotePickerView: View {
                 HStack {
                     Text(store.t("emote_results")
                             .replacingOccurrences(of: "{q}", with: searchText)
-                            .replacingOccurrences(of: "{n}", with: "\(displayed.count)"))
+                            .replacingOccurrences(of: "{n}", with: "\(shown.count)"))
                         .font(.system(size: 11))
                         .foregroundColor(.tMuted)
                     Spacer()
@@ -118,7 +121,7 @@ struct EmotePickerView: View {
                 }
                 Spacer()
 
-            } else if displayed.isEmpty {
+            } else if shown.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
                     Text(store.t(searchText.isEmpty ? "emotes_none" : "emotes_no_result"))
@@ -137,7 +140,7 @@ struct EmotePickerView: View {
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(displayed) { emote in
+                        ForEach(shown) { emote in
                             // Toucher : insère ; appui long : fiche ou copie du nom.
                             EmoteCell(emote: emote, onTap: { onSelect(emote) },
                                       onInfo: onInfo.map { open in { open(emote) } })

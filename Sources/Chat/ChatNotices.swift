@@ -27,6 +27,13 @@ final class ChannelDropsNotice: ObservableObject {
     private var task: Task<Void, Never>?
     /// Campagnes dont on a fermé la carte : elle ne revient pas.
     private static let dismissedKey = "drops_notice_dismissed"
+    // Created once: ISO8601DateFormatter is costly to build (and thread-safe).
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
 
     /// Lue à l'arrivée, puis toutes les 10 minutes (une campagne peut
     /// commencer pendant le live).
@@ -36,7 +43,9 @@ final class ChannelDropsNotice: ObservableObject {
         self.channelId = channelId
         task = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.fetch()
+                // Service gone (`self?.fetch()` gives nil): stop instead of
+                // waking every 10 minutes forever.
+                guard await self?.fetch() != nil else { break }
                 try? await Task.sleep(nanoseconds: 600 * 1_000_000_000)
             }
         }
@@ -68,9 +77,8 @@ final class ChannelDropsNotice: ObservableObject {
               let channel = user["channel"] as? [String: Any],
               cid == channelId else { return }
         let dismissed = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedKey) ?? [])
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let isoPlain = ISO8601DateFormatter()
+        let iso = Self.isoFractional
+        let isoPlain = Self.isoPlain
         let found = (channel["viewerDropCampaigns"] as? [[String: Any]] ?? []).compactMap { c -> DropsCampaignNotice? in
             guard let id = c["id"] as? String, !dismissed.contains(id) else { return nil }
             let end = (c["endAt"] as? String).flatMap { iso.date(from: $0) ?? isoPlain.date(from: $0) }
