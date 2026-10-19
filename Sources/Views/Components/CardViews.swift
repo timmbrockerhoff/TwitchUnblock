@@ -10,6 +10,16 @@ import SwiftUI
 /// ligne de méta. Figée pour garantir l'alignement des colonnes.
 private let cardTextHeight: CGFloat = 56
 
+/// Shared formatters: building them on every card render was costly in
+/// scrolling grids (formatters are expensive to create, cheap to reuse).
+private let cardISOFormatter = ISO8601DateFormatter()
+private let cardShortDateFormatter: DateFormatter = {
+    let df = DateFormatter()
+    df.dateStyle = .short
+    df.timeStyle = .none
+    return df
+}()
+
 // MARK: – Vignette 16/9
 private struct Thumbnail: View {
     let url: String
@@ -258,12 +268,8 @@ struct VodCardView: View {
     let onPress: () -> Void
 
     private var dateString: String {
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: vod.publishedAt) {
-            let df = DateFormatter()
-            df.dateStyle = .short
-            df.timeStyle = .none
-            return df.string(from: date)
+        if let date = cardISOFormatter.date(from: vod.publishedAt) {
+            return cardShortDateFormatter.string(from: date)
         }
         return String(vod.publishedAt.prefix(10))
     }
@@ -338,10 +344,7 @@ struct UnlistedVodCardView: View {
     @EnvironmentObject private var store: AppStore
 
     private var meta: String {
-        let df = DateFormatter()
-        df.dateStyle = .short
-        df.timeStyle = .none
-        return [df.string(from: stream.startedAt), stream.game]
+        return [cardShortDateFormatter.string(from: stream.startedAt), stream.game]
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
@@ -415,9 +418,8 @@ struct ClipCardView: View {
 
     private var meta: String {
         var parts: [String] = []
-        if let date = ISO8601DateFormatter().date(from: clip.createdAt) {
-            let df = DateFormatter(); df.dateStyle = .short; df.timeStyle = .none
-            parts.append(df.string(from: date))
+        if let date = cardISOFormatter.date(from: clip.createdAt) {
+            parts.append(cardShortDateFormatter.string(from: date))
         }
         if let c = clip.curator, !c.isEmpty { parts.append(c) }
         return parts.joined(separator: " · ")

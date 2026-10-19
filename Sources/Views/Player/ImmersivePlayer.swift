@@ -23,8 +23,33 @@ struct PlayerOverlayInfo {
     var title: String    = ""
     var game: String     = ""
     var viewers: Int     = 0
-    var uptime: String   = ""
+    /// Live start; the uptime is drawn from it by LiveUptimeLabel.
+    var startedAt: Date? = nil
     var latency: Double? = nil
+}
+
+// MARK: – Durée du direct
+/// Live uptime ("1:02:03"), recomputed every second by its own TimelineView:
+/// a per-second @State in MainTabView re-evaluated the whole root view (and
+/// the player under it) each second just to change this text.
+struct LiveUptimeLabel<Content: View>: View {
+    let startedAt: Date
+    let content: (String) -> Content
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            content(Self.text(since: startedAt, now: context.date))
+        }
+    }
+
+    static func text(since start: Date, now: Date) -> String {
+        // Horloge de l'appareil en retard sur Twitch : « 0:-5 » sinon.
+        let elapsed = max(0, Int(now.timeIntervalSince(start)))
+        let h = elapsed / 3600, m = (elapsed % 3600) / 60, s = elapsed % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
+    }
 }
 
 // MARK: – Écran verrouillé
@@ -118,6 +143,8 @@ final class ImmersivePlayerModel: NSObject, ObservableObject {
     private var rateObs: NSObjectProtocol?
 
     private let onProgress: (Double) -> Void
+    /// Last position sent through onProgress (see tick).
+    private var lastReportedProgress: Double = -1
     private let onLatency:  (Double?) -> Void
     /// Distance au bord du direct (s), base de la synchro du chat.
     private let onBehind:   (Double?) -> Void
@@ -433,7 +460,13 @@ final class ImmersivePlayerModel: NSObject, ObservableObject {
         // temps du chargement, et de faire sauter la barre au début.
         if t.seconds.isFinite, pendingSeek == nil {
             position = t.seconds
-            onProgress(position)
+            // Sent up at most once per second of media (or on a seek): each
+            // call updates MainTabView state and re-evaluates the root view.
+            // The native player already reports once a second.
+            if abs(position - lastReportedProgress) >= 1 {
+                lastReportedProgress = position
+                onProgress(position)
+            }
         }
         refreshNowPlaying()
         // Durée d'une VOD connue après coup : la barre de la Live Activity en a
@@ -1282,7 +1315,9 @@ struct ImmersivePlayer: View {
     @ViewBuilder private var chaptersSheet: some View {
         let current = currentChapter
         NavigationStack {
-            List(chapters) { c in
+            // Indexed ids: VodChapter.id is its start time, and two chapters
+            // starting at the same second would make SwiftUI's ids collide.
+            List(Array(chapters.enumerated()), id: \.offset) { _, c in
                 Button {
                     model.seek(to: c.start)
                     showChapters = false
@@ -1535,7 +1570,7 @@ struct ImmersivePlayer: View {
                         GeometryReader { geo in
                             let inset: CGFloat = 12   // le curseur ne va pas jusqu'au bord
                             let w = max(1, geo.size.width - inset * 2)
-                            ForEach(chapters.dropFirst()) { c in
+                            ForEach(Array(chapters.dropFirst().enumerated()), id: \.offset) { _, c in
                                 Rectangle()
                                     .fill(Color.white.opacity(0.85))
                                     .frame(width: 2, height: 7)
@@ -1579,8 +1614,15 @@ struct ImmersivePlayer: View {
                         if model.atLiveEdge && model.isPlaying {
                             HStack(spacing: TSpace.xs) {
                                 Circle().fill(Color.tLive).frame(width: 7, height: 7)
-                                Text(info.uptime.isEmpty ? store.t("live_on") : info.uptime)
-                                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                if let start = info.startedAt {
+                                    LiveUptimeLabel(startedAt: start) { uptime in
+                                        Text(uptime)
+                                            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                    }
+                                } else {
+                                    Text(store.t("live_on"))
+                                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                }
                             }
                             .foregroundColor(.white)
                         } else {

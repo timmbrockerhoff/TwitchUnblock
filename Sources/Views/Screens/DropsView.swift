@@ -433,10 +433,17 @@ struct DropsPanel: View {
             .replacingOccurrences(of: "{t}", with: "\(required)")
     }
 
-    private func relative(_ date: Date) -> String {
+    // Reused (main thread only); the locale is reset only when the app language changes.
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
-        f.locale = Locale(identifier: store.lang.rawValue)
         f.unitsStyle = .full
+        return f
+    }()
+
+    private func relative(_ date: Date) -> String {
+        let f = Self.relativeFormatter
+        let id = store.lang.rawValue
+        if f.locale.identifier != id { f.locale = Locale(identifier: id) }
         return f.localizedString(for: date, relativeTo: Date())
     }
 }

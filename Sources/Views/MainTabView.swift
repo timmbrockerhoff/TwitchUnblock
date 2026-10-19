@@ -49,9 +49,7 @@ struct MainTabView: View {
     @ObservedObject private var multi = MultiLive.shared
     @State private var showMultiLive = false
     @State private var liveStartedAt: Date? = nil
-    @State private var liveUptimeText: String = ""
     @State private var refreshTimer: Timer? = nil
-    @State private var uptimeTimer: Timer? = nil
 
     // ── Débogage / synchro ────────────────────────────────────────────────
     /// Latence mesurée du direct, arrondie à la seconde (affichée).
@@ -150,7 +148,7 @@ struct MainTabView: View {
             title:   isLivePlaying ? statusTitle : "",
             game:    liveGame,
             viewers: liveViewerCount,
-            uptime:  liveUptimeText,
+            startedAt: liveStartedAt,
             latency: liveLatency > 0 ? liveLatency : nil
         )
     }
@@ -231,12 +229,6 @@ struct MainTabView: View {
         guard playerPlaying, let links = qualityLinks else { return false }
         // Le lecteur natif écarte déjà l'audio seul (VideoPlayerView).
         return !(store.immersivePlayer && isAudioQuality(currentQuality(links)))
-    }
-
-    /// Y a-t-il un chat à afficher sous le lecteur ?
-    private var chatTarget: String? {
-        if let ch = currentChannelName { return ch }
-        return currentVodId
     }
 
     /// Trois destinations seulement. « Streamer » et « Lien / ID » ont fusionné
@@ -1000,9 +992,11 @@ struct MainTabView: View {
 
                 HStack(spacing: TSpace.sm) {
                     if isLivePlaying {
-                        if !liveUptimeText.isEmpty {
-                            TMeta(icon: "dot.radiowaves.left.and.right",
-                                  text: liveUptimeText, tint: .tLive)
+                        if let start = liveStartedAt {
+                            LiveUptimeLabel(startedAt: start) { uptime in
+                                TMeta(icon: "dot.radiowaves.left.and.right",
+                                      text: uptime, tint: .tLive)
+                            }
                         }
                         if liveViewerCount > 0 {
                             TMeta(icon: "eye.fill", text: formatViewers(liveViewerCount))
@@ -1467,7 +1461,6 @@ struct MainTabView: View {
             stopLiveTimers()
             liveViewerCount = 0
             liveStartedAt   = nil
-            liveUptimeText  = ""
         }
         playerMode    = mode
         if !keepVisibility { playerVisible = true }
@@ -1727,7 +1720,6 @@ struct MainTabView: View {
             pendingDvrChannel  = nil
             liveViewerCount    = 0
             liveStartedAt      = nil
-            liveUptimeText     = ""
             liveLatency        = 0
             liveBehind         = 0
             pull.y             = 0
@@ -1762,9 +1754,7 @@ struct MainTabView: View {
     // MARK: – Live timers
     private func startLiveTimers(channel: String) {
         stopLiveTimers()
-        updateUptime()
         let gen = loadGeneration
-        uptimeTimer  = Timer.scheduledCommon(every: 1)  { _ in updateUptime() }
         refreshTimer = Timer.scheduledCommon(every: 30) { _ in
             Task {
                 // Rafraîchissement LÉGER : ne re-fetch PAS les liens du stream,
@@ -1792,25 +1782,7 @@ struct MainTabView: View {
 
     private func stopLiveTimers() {
         refreshTimer?.invalidate(); refreshTimer = nil
-        uptimeTimer?.invalidate();  uptimeTimer  = nil
         DropsHeartbeat.shared.stop()
-    }
-
-    private func updateUptime() {
-        guard let start = liveStartedAt else { return }
-        // Horloge de l'appareil en retard sur Twitch : « 0:-5 » sinon.
-        let elapsed = max(0, Int(Date().timeIntervalSince(start)))
-        let h = elapsed / 3600, m = (elapsed % 3600) / 60, s = elapsed % 60
-        liveUptimeText = h > 0
-            ? String(format: "%d:%02d:%02d", h, m, s)
-            : String(format: "%d:%02d", m, s)
-    }
-
-    private var modeTitle: String {
-        // Le direct est déjà signalé par le badge de l'encart : ici, juste le nom.
-        guard let mode = playerMode else { return statusTitle }
-        if case .live(let ch) = mode { return ch }
-        return statusTitle
     }
 }
 

@@ -125,35 +125,66 @@ struct PointsTrackerPanel: View {
     // MARK: Formats (langue de l'app)
     private var locale: Locale { Locale(identifier: store.lang.rawValue) }
 
+    // Formatters are reused across renders (main thread only) instead of being
+    // rebuilt per row; their locale is reset only when the app language changes.
+    private static let hoursFormatter: DateComponentsFormatter = {
+        let f = DateComponentsFormatter()
+        f.allowedUnits = [.hour, .minute]
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+    private static let minutesFormatter: DateComponentsFormatter = {
+        let f = DateComponentsFormatter()
+        f.allowedUnits = [.minute]
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+    private static let numberFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f
+    }()
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
+    }()
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
     /// 45 min, 3 h 20 min…
     private func duration(_ minutes: Int) -> String {
-        let f = DateComponentsFormatter()
-        f.allowedUnits = minutes >= 60 ? [.hour, .minute] : [.minute]
-        f.unitsStyle = .abbreviated
-        var cal = Calendar.current
-        cal.locale = locale
-        f.calendar = cal
+        let f = minutes >= 60 ? Self.hoursFormatter : Self.minutesFormatter
+        let id = store.lang.rawValue
+        if f.calendar?.locale?.identifier != id {
+            var cal = Calendar.current
+            cal.locale = locale
+            f.calendar = cal
+        }
         return f.string(from: TimeInterval(minutes * 60)) ?? "\(minutes) min"
     }
 
     private func number(_ n: Int) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.locale = locale
+        let f = Self.numberFormatter
+        let id = store.lang.rawValue
+        if f.locale.identifier != id { f.locale = locale }
         return f.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 
     private func date(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.locale = locale
-        f.dateStyle = .medium
+        let f = Self.dateFormatter
+        let id = store.lang.rawValue
+        if f.locale.identifier != id { f.locale = locale }
         return f.string(from: d)
     }
 
     private func relative(_ d: Date) -> String {
-        let f = RelativeDateTimeFormatter()
-        f.locale = locale
-        f.unitsStyle = .short
+        let f = Self.relativeFormatter
+        let id = store.lang.rawValue
+        if f.locale.identifier != id { f.locale = locale }
         return f.localizedString(for: d, relativeTo: Date())
     }
 }

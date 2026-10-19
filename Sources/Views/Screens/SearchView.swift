@@ -137,7 +137,7 @@ struct SearchView: View {
         let window: TimeInterval = 15 * 60
         var dated: [(vod: VodData, date: Date)] = []
         for v in vods {
-            if let d = parseTwitchDate(v.publishedAt) { dated.append((vod: v, date: d)) }
+            if let d = Self.vodDate(v.publishedAt) { dated.append((vod: v, date: d)) }
         }
         // Liste incomplète : suite à charger, en panne, ou refusée par Twitch.
         let oldest = vodCursor != nil || vodsRefused ? dated.map { $0.date }.min() : nil
@@ -152,15 +152,28 @@ struct SearchView: View {
         }
     }
 
+    // Same parsing as parseTwitchDate, with reused formatters: the VOD grid
+    // parsed every VOD date (two new formatters each) on every render.
+    private static let isoFractional: ISO8601DateFormatter = {
+        let df = ISO8601DateFormatter()
+        df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return df
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+    private static func vodDate(_ s: String) -> Date? {
+        isoFractional.date(from: s) ?? isoPlain.date(from: s)
+    }
+
     /// VODs et diffusions non listées, de la plus récente à la plus ancienne,
-    /// filtrées par le mot-clé.
-    private var vodEntries: [VodEntry] {
+    /// filtrées par le mot-clé. `unlisted` : `unlistedStreams`, computed once
+    /// per render by the caller.
+    private func vodEntries(unlisted: [RecoverableStream]) -> [VodEntry] {
         let kw = filterText.trimmingCharacters(in: .whitespaces).lowercased()
-        let extra = unlistedStreams.filter { kw.isEmpty || $0.title.lowercased().contains(kw) }
+        let extra = unlisted.filter { kw.isEmpty || $0.title.lowercased().contains(kw) }
         guard !extra.isEmpty else { return filteredVods.map { VodEntry.vod($0) } }
         var items: [(date: Date, entry: VodEntry)] = []
         for v in filteredVods {
-            items.append((date: parseTwitchDate(v.publishedAt) ?? .distantPast, entry: .vod(v)))
+            items.append((date: Self.vodDate(v.publishedAt) ?? .distantPast, entry: .vod(v)))
         }
         for s in extra {
             items.append((date: s.startedAt, entry: .unlisted(s)))
@@ -538,8 +551,9 @@ struct SearchView: View {
         } else if channelTab == 1 {
             highlightsSection
         } else {
-            let entries = vodEntries
-            let unlistedCount = unlistedStreams.count
+            let unlisted = unlistedStreams
+            let entries = vodEntries(unlisted: unlisted)
+            let unlistedCount = unlisted.count
             if !vods.isEmpty || unlistedCount > 0 {
                 VStack(alignment: .leading, spacing: TSpace.md) {
                     TSectionHeader("\(vods.count) \(store.t("vods_found"))", icon: "film")
