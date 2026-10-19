@@ -12,7 +12,6 @@ let kGQLClientID     = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 /// un jeton, jamais pour les jetons de lecture. La page 1 reste sur le web.
 let kGQLNextClientID = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
 let kRedirectURI     = "https://mxfia19.github.io/TwitchUnblock/auth.html"
-let kDeepLinkScheme  = "twitchunblock://"
 
 /// Workers de secours, sur un autre compte Cloudflare : le principal est
 /// limité à 100 000 requêtes par jour (« error code: 1027 » au-delà, jusqu'à
@@ -191,7 +190,6 @@ extension Color {
     static let tWarning   = Color(hex: "e6e619")
     static let tVLC       = Color(hex: "ff8800")
     static let tOutplayer = Color(hex: "007aff")
-    static let tInfuse    = Color(hex: "fc3c44")
 
     init(hex: String) {
         var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -241,45 +239,6 @@ enum Lang: String, CaseIterable, Identifiable {
     /// Traduite avec l'IA, sans relecture : on le dit à côté du choix de
     /// langue, avec un lien pour signaler les erreurs.
     var machineTranslated: Bool { self == .ru }
-}
-
-// ✨ NOUVEAU : Les sources se traduisent automatiquement !
-enum LiveSource: String, CaseIterable, Identifiable, Codable {
-    case auto, luminous, twitch, cloudflare
-    var id: String { rawValue }
-
-    // Lit la langue actuelle choisie par l'utilisateur
-    private var currentLang: Lang {
-        let saved = UserDefaults.standard.string(forKey: "lang") ?? "en"
-        return Lang(rawValue: saved) ?? .en
-    }
-
-    var displayName: String {
-        switch self {
-        case .auto:       return translate("source_auto", currentLang)
-        case .luminous:   return translate("source_luminous", currentLang)
-        case .twitch:     return translate("source_twitch", currentLang)
-        case .cloudflare: return translate("source_cloudflare", currentLang)
-        }
-    }
-    
-    var subtitle: String {
-        switch self {
-        case .auto:       return translate("source_auto_sub", currentLang)
-        case .luminous:   return translate("source_luminous_sub", currentLang)
-        case .twitch:     return translate("source_twitch_sub", currentLang)
-        case .cloudflare: return translate("source_cloudflare_sub", currentLang)
-        }
-    }
-    
-    var emoji: String {
-        switch self {
-        case .auto:       return "✨"
-        case .luminous:   return "💡"
-        case .twitch:     return "🟣"
-        case .cloudflare: return "☁️"
-        }
-    }
 }
 
 // MARK: – Translations
