@@ -60,6 +60,8 @@ final class UpdateChecker: ObservableObject {
             ? "https://raw.githubusercontent.com/MXFia19/TwitchUnblock/test-17d298/apps-test.json"
             : "https://raw.githubusercontent.com/MXFia19/TwitchUnblock/master/apps.json"
     }
+    /// Off in this fork (see checkIfDue).
+    static let updateChecksEnabled = false
     private let lastCheckKey = "update_last_check"
     private let dismissedKey = "update_dismissed_build"
     private let minInterval: TimeInterval = 6 * 3600
@@ -75,6 +77,10 @@ final class UpdateChecker: ObservableObject {
     /// `atLaunch` : au lancement, on vérifie toujours et on reprévient même si
     /// « Plus tard » a été choisi lors d'un lancement précédent.
     func checkIfDue(force: Bool = false, atLaunch: Bool = false) async {
+        // Fork build: the source above is the upstream project's, whose build
+        // numbers are always higher, so it would offer to replace this version
+        // with the original on every launch. Update checks are turned off.
+        guard Self.updateChecksEnabled else { available = nil; showAlert = false; return }
         let force = force || atLaunch
         if atLaunch { UserDefaults.standard.removeObject(forKey: dismissedKey) }
         let ud = UserDefaults.standard
