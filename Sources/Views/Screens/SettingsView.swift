@@ -1748,19 +1748,23 @@ struct SettingsView: View {
     }
 
     /// Lien externe façon bouton (crédits).
+    /// An unparsable URL hides the row instead of crashing on a force unwrap.
+    @ViewBuilder
     private func creditLink(icon: String, title: String, url: String) -> some View {
-        Link(destination: URL(string: url)!) {
-            HStack(spacing: TSpace.sm) {
-                Image(systemName: icon).font(.system(size: 13, weight: .semibold))
-                Text(title).font(.tLabel)
-                Spacer()
-                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold))
+        if let destination = URL(string: url) {
+            Link(destination: destination) {
+                HStack(spacing: TSpace.sm) {
+                    Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                    Text(title).font(.tLabel)
+                    Spacer()
+                    Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundColor(.tText)
+                .padding(.horizontal, TSpace.md)
+                .frame(height: 44)
+                .background(Color.tSurface)
+                .cornerRadius(TRadius.control)
             }
-            .foregroundColor(.tText)
-            .padding(.horizontal, TSpace.md)
-            .frame(height: 44)
-            .background(Color.tSurface)
-            .cornerRadius(TRadius.control)
         }
     }
 

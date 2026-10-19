@@ -1282,7 +1282,9 @@ struct ImmersivePlayer: View {
     @ViewBuilder private var chaptersSheet: some View {
         let current = currentChapter
         NavigationStack {
-            List(chapters) { c in
+            // Indexed ids: VodChapter.id is its start time, and two chapters
+            // starting at the same second would make SwiftUI's ids collide.
+            List(Array(chapters.enumerated()), id: \.offset) { _, c in
                 Button {
                     model.seek(to: c.start)
                     showChapters = false
@@ -1535,7 +1537,7 @@ struct ImmersivePlayer: View {
                         GeometryReader { geo in
                             let inset: CGFloat = 12   // le curseur ne va pas jusqu'au bord
                             let w = max(1, geo.size.width - inset * 2)
-                            ForEach(chapters.dropFirst()) { c in
+                            ForEach(Array(chapters.dropFirst().enumerated()), id: \.offset) { _, c in
                                 Rectangle()
                                     .fill(Color.white.opacity(0.85))
                                     .frame(width: 2, height: 7)
