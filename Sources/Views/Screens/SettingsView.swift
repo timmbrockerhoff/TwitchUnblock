@@ -51,6 +51,8 @@ struct SettingsView: View {
     @State private var backupMessage: String? = nil
     /// Page ouverte, nil = menu racine.
     @State private var page: Page? = nil
+    /// Chat-size slider being dragged and its uncommitted value (see sliderRow).
+    @State private var sliderDraft: (key: ReferenceWritableKeyPath<AppStore, Double>, value: Double)? = nil
 
     private var vodCount:     Int { store.history.filter { $0.type == .vod }.count }
     private var channelCount: Int { store.history.filter { $0.type == .channel }.count }
@@ -1096,15 +1098,15 @@ struct SettingsView: View {
                 Divider().background(Color.tBorder)
 
                 // Mêmes bornes que l'import d'une sauvegarde (AppStore).
-                sliderRow(store.t("cfg_font_size"), value: $store.chatFontSize,
+                sliderRow(store.t("cfg_font_size"), key: \.chatFontSize,
                           range: AppStore.chatFontRange, step: 1) { String(format: "%.0f pt", $0) }
-                sliderRow(store.t("cfg_msg_spacing"), value: $store.chatSpacing,
+                sliderRow(store.t("cfg_msg_spacing"), key: \.chatSpacing,
                           range: AppStore.chatSpacingRange, step: 1) { String(format: "%.0f px", $0) }
-                sliderRow(store.t("cfg_badge_scale"), value: $store.chatBadgeScale,
+                sliderRow(store.t("cfg_badge_scale"), key: \.chatBadgeScale,
                           range: AppStore.chatScaleRange, step: 0.05) { String(format: "%.2fx", $0) }
-                sliderRow(store.t("cfg_emote_scale"), value: $store.chatEmoteScale,
+                sliderRow(store.t("cfg_emote_scale"), key: \.chatEmoteScale,
                           range: AppStore.chatScaleRange, step: 0.05) { String(format: "%.2fx", $0) }
-                sliderRow(store.t("cfg_chat_width"), value: $store.chatWidthRatio,
+                sliderRow(store.t("cfg_chat_width"), key: \.chatWidthRatio,
                           range: AppStore.chatWidthRange, step: 0.01) { String(format: "%.0f %%", $0 * 100) }
 
                 Text(store.t("cfg_chat_width_sub"))
@@ -2053,7 +2055,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var chatPreview: some View {
-        let style = store.chatStyle(chrome: false, translucent: false)
+        let style = previewStyle()
         GeometryReader { geo in
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Self.previewMessages) { msg in
@@ -2066,25 +2068,64 @@ struct SettingsView: View {
         // Hauteur tenue à la main : un GeometryReader n'en propose aucune. Large
         // de quatre lignes, pour le cas où les deux messages passent à la ligne
         // aux plus grosses tailles ; `clipped` évite tout débordement.
-        .frame(height: store.chatFontSize * 4 + store.chatSpacing * 2 + 20)
+        .frame(height: sliderValue(\.chatFontSize) * 4 + sliderValue(\.chatSpacing) * 2 + 20)
         .clipped()
         .padding(TSpace.sm)
         .background(Color.tDark)
         .cornerRadius(TRadius.chip)
     }
 
+    /// Store style with the live slider values, so the preview follows a drag.
+    private func previewStyle() -> ChatStyle {
+        var st = store.chatStyle(chrome: false, translucent: false)
+        st.fontSize   = CGFloat(sliderValue(\.chatFontSize))
+        st.rowPadding = CGFloat(sliderValue(\.chatSpacing)) / 2
+        st.badgeScale = CGFloat(sliderValue(\.chatBadgeScale))
+        st.emoteScale = CGFloat(sliderValue(\.chatEmoteScale))
+        return st
+    }
+
+    /// Current value of a chat-size setting, preferring the in-progress drag.
+    private func sliderValue(_ key: ReferenceWritableKeyPath<AppStore, Double>) -> Double {
+        if let d = sliderDraft, d.key == key { return d.value }
+        return store[keyPath: key]
+    }
+
+    // While dragging, the value lives in `sliderDraft` and is written to the
+    // store only on release: each store write hits UserDefaults (didSet) and
+    // invalidates every AppStore observer, ~60 times a second otherwise.
+    // Same fix as the chat-resize drag in MainTabView.
     @ViewBuilder
-    private func sliderRow(_ title: String, value: Binding<Double>,
+    private func sliderRow(_ title: String, key: ReferenceWritableKeyPath<AppStore, Double>,
                            range: ClosedRange<Double>, step: Double,
                            format: @escaping (Double) -> String) -> some View {
         VStack(spacing: 2) {
             HStack {
                 Text(title).font(.tCardTitle).foregroundColor(.tText)
                 Spacer()
-                Text(format(value.wrappedValue))
+                Text(format(sliderValue(key)))
                     .font(.tMeta.monospacedDigit()).foregroundColor(.tMuted)
             }
-            Slider(value: value, in: range, step: step).tint(.tPrimary)
+            Slider(value: Binding(
+                       get: { sliderValue(key) },
+                       set: { v in
+                           if let d = sliderDraft, d.key == key {
+                               sliderDraft = (key: key, value: v)
+                           } else {
+                               // Changed without a drag (VoiceOver): commit now.
+                               store[keyPath: key] = v
+                           }
+                       }),
+                   in: range, step: step,
+                   onEditingChanged: { editing in
+                       if editing {
+                           sliderDraft = (key: key, value: store[keyPath: key])
+                       } else if let d = sliderDraft, d.key == key {
+                           sliderDraft = nil
+                           store[keyPath: key] = d.value
+                       }
+                   })
+                .tint(.tPrimary)
         }
     }
 
