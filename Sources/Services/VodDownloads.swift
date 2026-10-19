@@ -809,7 +809,9 @@ enum VodFetcher {
                 }
                 if code == 429 || code >= 500, attempt < 3 {
                     attempt += 1
-                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+                    let retryAfter = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After")
+                    try? await Task.sleep(nanoseconds: backoffNs(attempt: attempt,
+                                                                 retryAfter: code == 429 ? retryAfter : nil))
                     continue
                 }
                 return .refused("http:\(code)")
@@ -818,12 +820,23 @@ enum VodFetcher {
                 if isOutOfSpace(error) { return .fatal(VodDownloadFailure.space) }
                 if attempt < 3 {
                     attempt += 1
-                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+                    try? await Task.sleep(nanoseconds: backoffNs(attempt: attempt, retryAfter: nil))
                     continue
                 }
                 return .fatal(VodDownloadFailure.network)
             }
         }
+    }
+
+    /// Retry delay: exponential (2, 4, 8 s) with ±25 % jitter so parallel
+    /// downloads don't retry in lockstep; a server's Retry-After (seconds,
+    /// capped at 60) wins when given.
+    private static func backoffNs(attempt: Int, retryAfter: String?) -> UInt64 {
+        if let raw = retryAfter?.trimmingCharacters(in: .whitespaces), let secs = Double(raw), secs > 0 {
+            return UInt64(min(secs, 60) * 1_000_000_000)
+        }
+        let base = 2.0 * pow(2.0, Double(max(attempt, 1) - 1))
+        return UInt64(base * Double.random(in: 0.75...1.25) * 1_000_000_000)
     }
 
     private static func fileSize(_ url: URL) -> Int64? {

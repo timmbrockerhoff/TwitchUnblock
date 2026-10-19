@@ -110,17 +110,24 @@ enum LiveNotifier {
         // n'y est pas n'est pas fini pour autant. Le retirer des connus le
         // faisait notifier de nouveau au contrôle suivant, en rafale.
         var partial = false
-        if let token = Keychain.loadToken("twitch_token"),
-           let userId = ud.string(forKey: "twitch_user_id"), !userId.isEmpty {
-            guard let followed = try? await getFollowedStreamsPaged(token: token, userId: userId) else { return false }
+        let token = Keychain.loadToken("twitch_token") ?? ""
+        let userId = ud.string(forKey: "twitch_user_id") ?? ""
+        let signedIn = !token.isEmpty && !userId.isEmpty
+        let local = ud.stringArray(forKey: "local_follows") ?? []
+        // Both lists at once (they were fetched one after the other).
+        // getLiveStreamsGQL returns [] right away for an empty list.
+        async let followedTask: (streams: [TwitchStream], complete: Bool)? =
+            signedIn ? (try? await getFollowedStreamsPaged(token: token, userId: userId)) : nil
+        async let localTask: [TwitchStream]? = getLiveStreamsGQL(logins: local)
+        if signedIn {
+            guard let followed = await followedTask else { return false }
             streams = followed.streams
             partial = !followed.complete
             reached = true
         }
-        let local = ud.stringArray(forKey: "local_follows") ?? []
         if !local.isEmpty {
             let known = Set(streams.map { $0.userLogin.lowercased() })
-            guard let live = await getLiveStreamsGQL(logins: local) else { return false }
+            guard let live = await localTask else { return false }
             streams += live.filter { !known.contains($0.userLogin.lowercased()) }
             reached = true
         }

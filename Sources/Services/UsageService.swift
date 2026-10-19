@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import CryptoKit
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Comptage d'utilisation.
@@ -10,8 +11,8 @@ import UIKit
 //
 //    • un identifiant tiré au hasard à la première ouverture, propre à cette
 //      installation — aucun lien avec l'appareil (pas d'IDFV, pas de numéro
-//      de série) ; connecté, le jeton Twitch, pour compter le compte une seule
-//      fois sur l'app et le site ;
+//      de série) ; connecté, une empreinte SHA-256 salée de l'identifiant du
+//      compte Twitch (jamais le jeton), pour compter le compte une seule fois ;
 //    • la version de l'app, « ios », la langue de l'app, iPhone ou iPad et la
 //      version majeure d'iOS ;
 //    • le nombre de lectures depuis le signal précédent : quelle source a
@@ -85,6 +86,25 @@ final class UsageService: ObservableObject {
     /// pas de suivre les allers-retours dans l'app.
     private let pingInterval: TimeInterval = 3600
 
+    /// Day counting only needs one ping per UTC day; extra pings are only worth
+    /// sending when there are playback counters to deliver.
+    private static func utcDay(_ d: Date) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? .current
+        let c = cal.dateComponents([.year, .month, .day], from: d)
+        return "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"
+    }
+
+    /// Pseudonymous account id for cross-device dedup: salted SHA-256 of the
+    /// Twitch user id. Replaces the OAuth token the ping used to carry, which
+    /// the analytics server has no business holding.
+    private var accountHash: String? {
+        guard let uid = UserDefaults.standard.string(forKey: "twitch_user_id"),
+              !uid.isEmpty else { return nil }
+        let digest = SHA256.hash(data: Data("twitchunblock-usage-v1:\(uid)".utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     private init() {
         let ud = UserDefaults.standard
         // Trousseau d'abord : il survit à une réinstallation par l'outil de
@@ -137,25 +157,23 @@ final class UsageService: ObservableObject {
     /// Signale l'installation au Worker. Sans effet si le comptage est coupé.
     func ping(enabled: Bool, force: Bool = false) async {
         guard enabled else { return }
-        if !force, let last = lastPing, Date().timeIntervalSince(last) < pingInterval {
-            return
+        if !force, let last = lastPing {
+            if Date().timeIntervalSince(last) < pingInterval { return }
+            // Already counted today and nothing to deliver: skip.
+            if pendingEvents.isEmpty, Self.utcDay(last) == Self.utcDay(Date()) { return }
         }
         guard let url = URL(string: "\(APIConfig.base)/api/ping") else { return }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 15
         // Jeton de build : seul le build officiel le porte (injecté par la CI
         // depuis un secret que les forks n'héritent pas). Le Worker ne compte
         // que les pings qui le présentent — un fork qui réutilise ce backend
         // n'alourdit ni la base ni le quota. Absent du build : pas d'en-tête.
         if let key = buildPingKey {
             req.setValue(key, forHTTPHeaderField: "X-TU-Key")
-        }
-        // Connecté : le compte Twitch est compté (une seule fois sur l'app et le
-        // site) plutôt que l'identifiant aléatoire ; l'effacement le vise aussi.
-        if let token = Keychain.loadToken("twitch_token"), !token.isEmpty {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let events = pendingEvents
         var body: [String: Any] = [
@@ -167,6 +185,8 @@ final class UsageService: ObservableObject {
             "device": UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone",
         ]
         if !events.isEmpty { body["ev"] = events }
+        // Signed in: the account is counted once (hash only, never the token).
+        if let acct = accountHash { body["acct"] = acct }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
@@ -204,6 +224,7 @@ final class UsageService: ObservableObject {
         // d'URLSession et afficher deux fois les mêmes chiffres.
         var req = URLRequest(url: url)
         req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.timeoutInterval = 15
 
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
@@ -255,15 +276,11 @@ final class UsageService: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Connecté : le compte Twitch est compté (une seule fois sur l'app et le
-        // site) plutôt que l'identifiant aléatoire ; l'effacement le vise aussi.
-        if let token = Keychain.loadToken("twitch_token"), !token.isEmpty {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        req.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "id": installId,
-            "forget": true,
-        ])
+        req.timeoutInterval = 15
+        // The account hash lets the server erase the per-account entry too.
+        var body: [String: Any] = ["id": installId, "forget": true]
+        if let acct = accountHash { body["acct"] = acct }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         _ = try? await URLSession.shared.data(for: req)
         lastPing = nil
         UserDefaults.standard.removeObject(forKey: "usage_last_ping")

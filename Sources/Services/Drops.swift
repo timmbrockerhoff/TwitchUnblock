@@ -93,10 +93,8 @@ private func gqlErrors(_ json: [String: Any]?) -> String {
 }
 
 private func isoDate(_ s: String?) -> Date? {
-    guard let s else { return nil }
-    let f = ISO8601DateFormatter()
-    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    // Same two formats, with the cached formatters.
+    parseTwitchDate(s)
 }
 
 // MARK: – Inventaire et réclamation

@@ -95,7 +95,7 @@ final class PollService: ObservableObject {
 
     private func post(_ path: String, _ body: [String: Any]) async -> (json: [String: Any]?, status: Int) {
         guard let url = URL(string: "\(APIConfig.base)\(path)") else { return (nil, 0) }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.cachePolicy = .reloadIgnoringLocalCacheData
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
