@@ -45,7 +45,9 @@ final class TwitchAuthManager: NSObject, ASWebAuthenticationPresentationContextP
                                         : "Login Twitch silencieux (force_verify: false)…",
                     isPrivate ? "session privée" : nil)
 
-        return await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            // The completion handler and a failed start() could both resume.
+            let continuation = OAuthResumeOnce(cont)
             let s = ASWebAuthenticationSession(
                 url: authURL,
                 callbackURLScheme: "twitchunblock"
@@ -93,7 +95,14 @@ final class TwitchAuthManager: NSObject, ASWebAuthenticationPresentationContextP
             // entre les logins) ; true après une déconnexion, voir plus haut.
             s.prefersEphemeralWebBrowserSession = isPrivate
             self.session = s
-            DispatchQueue.main.async { s.start() }
+            DispatchQueue.main.async {
+                // start() returns false without calling the handler (no window,
+                // another session already shown): login would hang forever.
+                if !s.start() {
+                    logger.error("AUTH", "Impossible d'ouvrir la page de connexion", nil)
+                    continuation.resume(returning: nil)
+                }
+            }
         }
     }
 
@@ -102,5 +111,21 @@ final class TwitchAuthManager: NSObject, ASWebAuthenticationPresentationContextP
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first?.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    }
+}
+
+/// Resumes a login continuation at most once.
+private final class OAuthResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cont: CheckedContinuation<String?, Never>?
+
+    init(_ cont: CheckedContinuation<String?, Never>) { self.cont = cont }
+
+    func resume(returning value: String?) {
+        lock.lock()
+        let c = cont
+        cont = nil
+        lock.unlock()
+        c?.resume(returning: value)
     }
 }
