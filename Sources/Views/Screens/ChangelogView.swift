@@ -83,15 +83,25 @@ struct ChangelogList: View {
             .clipShape(Capsule())
     }
 
+    // Reused (main thread only); the display locale is reset only when the app language changes.
+    private static let parseFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+    private static let displayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
+    }()
+
     /// « 2026-10-06 » → « 6 oct. 2026 », dans la langue de l'app.
     private func dateText(_ raw: String) -> String {
-        let parse = DateFormatter()
-        parse.locale = Locale(identifier: "en_US_POSIX")
-        parse.dateFormat = "yyyy-MM-dd"
-        guard let d = parse.date(from: raw) else { return raw }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: store.lang.rawValue)
-        f.dateStyle = .medium
+        guard let d = Self.parseFormatter.date(from: raw) else { return raw }
+        let f = Self.displayFormatter
+        let id = store.lang.rawValue
+        if f.locale.identifier != id { f.locale = Locale(identifier: id) }
         return f.string(from: d)
     }
 }

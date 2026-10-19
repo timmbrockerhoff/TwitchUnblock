@@ -981,11 +981,18 @@ struct SettingsView: View {
         .padding(.leading, 2)
     }
 
+    // Reused (main thread only); the locale is reset only when the app language changes.
+    private static let notifRelativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f
+    }()
+
     private var notifStatusLine: String {
         guard let last = LiveNotifier.lastRun else { return store.t("notif_last_never") }
-        let f = RelativeDateTimeFormatter()
-        f.locale = Locale(identifier: store.lang.rawValue)
-        f.unitsStyle = .full
+        let f = Self.notifRelativeFormatter
+        let id = store.lang.rawValue
+        if f.locale.identifier != id { f.locale = Locale(identifier: id) }
         let ok = UserDefaults.standard.bool(forKey: LiveNotifier.lastOkKey)
         return store.t("notif_last_run").replacingOccurrences(of: "{t}", with: f.localizedString(for: last, relativeTo: Date()))
             + (ok ? "" : " · " + store.t("notif_last_failed"))
