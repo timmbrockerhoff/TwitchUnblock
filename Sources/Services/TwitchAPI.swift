@@ -550,9 +550,7 @@ func getLive(channelName: String, webToken: String? = nil,
 
     var startedAt: Date? = nil
     if let createdAtStr = stream?["createdAt"] as? String {
-        let df = ISO8601DateFormatter()
-        df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        startedAt = df.date(from: createdAtStr) ?? ISO8601DateFormatter().date(from: createdAtStr)
+        startedAt = parseTwitchDate(createdAtStr)
     }
 
     // Mode faible latence (réglage, actif par défaut comme dans AppStore) :
@@ -968,9 +966,7 @@ func getStreamStats(channelName: String) async -> (viewerCount: Int, startedAt: 
     let viewerCount = stream["viewersCount"] as? Int ?? 0
     var startedAt: Date? = nil
     if let createdAtStr = stream["createdAt"] as? String {
-        let df = ISO8601DateFormatter()
-        df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        startedAt = df.date(from: createdAtStr) ?? ISO8601DateFormatter().date(from: createdAtStr)
+        startedAt = parseTwitchDate(createdAtStr)
     }
     return (viewerCount, startedAt)
 }
@@ -1592,10 +1588,17 @@ func formatDuration(_ seconds: Int) -> String {
 /// accepte les deux formats.
 func parseTwitchDate(_ s: String?) -> Date? {
     guard let s else { return nil }
-    let df = ISO8601DateFormatter()
-    df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return df.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    return isoFractionalFormatter.date(from: s) ?? isoPlainFormatter.date(from: s)
 }
+
+/// Built once: parseTwitchDate runs per VOD in lists, and creating an
+/// ISO8601DateFormatter is costly. The class is thread-safe.
+private let isoFractionalFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+private let isoPlainFormatter = ISO8601DateFormatter()
 
 /// Fin du dernier live : la dernière VOD (début + durée) ou, si plus tard, le
 /// dernier live lancé (un live sans VOD n'en laisse pas).
@@ -2210,7 +2213,7 @@ func getClipsHelix(token: String, broadcasterId: String, period: String,
     let days: [String: Double] = ["LAST_DAY": 1, "LAST_WEEK": 7, "LAST_MONTH": 30]
     if let n = days[period] {
         // Sans date de fin, Helix s'arrête une semaine après le début.
-        let f = ISO8601DateFormatter()
+        let f = isoPlainFormatter
         let now = Date()
         urlStr += "&started_at=\(f.string(from: now.addingTimeInterval(-n * 86_400)))&ended_at=\(f.string(from: now))"
     }
@@ -2419,11 +2422,7 @@ func getVodMarkers(vodId: String) async -> VodMarkers {
     out.muted = merged
 
     if let s = v["createdAt"] as? String {
-        let df = ISO8601DateFormatter()
-        out.createdAt = df.date(from: s) ?? {
-            df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return df.date(from: s)
-        }()
+        out.createdAt = parseTwitchDate(s)
     }
     return out
 }
