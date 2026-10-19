@@ -28,16 +28,6 @@ private func m3u8Plain(_ line: String, _ name: String) -> String? {
     return String(line[r].drop(while: { $0 != "=" }).dropFirst())
 }
 
-func parseM3U8(_ content: String, baseURL: URL? = nil) -> QualityLinks {
-    parseMaster(content, baseURL: baseURL).links
-}
-
-/// Hauteur, cadence et débit de chaque qualité d'une liste maîtresse, sous le
-/// même nom que `parseM3U8` lui donne.
-func parseVariants(_ content: String) -> [String: VariantInfo] {
-    parseMaster(content).variants
-}
-
 /// Liens par qualité, et ce que la liste maîtresse dit de chacune.
 typealias MasterPlaylist = (links: QualityLinks, variants: [String: VariantInfo])
 
@@ -2142,11 +2132,6 @@ func getStreamsByCategoryPageGQL(gameId: String, lang: String?,
     guard let streams = (page.data?["game"] as? [String: Any])?["streams"] as? [String: Any],
           let edges = streams["edges"] as? [[String: Any]] else { return nil }
     return (streamsFromGQL(edges), gqlNextCursor(streams), false)
-}
-
-/// Top des lives sans jeton (GQL public) ; `lang` au format Helix (« fr », « zh-hk »).
-func getTopStreamsGQL(lang: String?) async -> [TwitchStream] {
-    await getTopStreamsPageGQL(lang: lang, after: nil)?.streams ?? []
 }
 
 /// Une page du top des lives sans jeton : 30, le plafond de Twitch pour
