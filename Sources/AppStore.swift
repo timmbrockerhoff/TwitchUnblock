@@ -473,7 +473,13 @@ final class AppStore: ObservableObject {
     /// catégorie ; la recherche et les pages ouvertes directement montrent
     /// tout. Sur cet appareil, dans la sauvegarde (clé « hidden »).
     @Published var hidden = HiddenContent.load() {
-        didSet { if hidden != oldValue { hidden.save() } }
+        didSet {
+            // Encoded off the main thread from a value snapshot.
+            if hidden != oldValue {
+                let snapshot = hidden
+                Self.persistQueue.async { snapshot.save() }
+            }
+        }
     }
 
     /// Chaîne suivie (compte ou appareil) ou épinglée : jamais masquée.
@@ -601,7 +607,33 @@ final class AppStore: ObservableObject {
     }
 
     // MARK: – VOD Progress
-    @Published private(set) var vodProgress: [String: Double] = [:]
+    /// Resume positions. Not @Published: the player advances them every few
+    /// seconds, and each publish redrew every view observing the store. Real
+    /// changes (new VOD, seek, clear, sync) still publish through the setter;
+    /// small forward steps go to `progressValues` directly and are announced
+    /// with the next debounced save (scheduleProgressSave).
+    private(set) var vodProgress: [String: Double] {
+        get { progressValues }
+        set {
+            objectWillChange.send()
+            progressValues = newValue
+            progressUnpublished = false
+        }
+    }
+    private var progressValues: [String: Double] = [:]
+    /// Small advances already in `progressValues` that views have not seen yet.
+    private var progressUnpublished = false
+    /// Positions changed since the last write to UserDefaults.
+    private var progressSaveDirty = false
+    private var progressSaveScheduled = false
+    /// Playback advances are written at most this often (plus on background,
+    /// termination and video close).
+    private static let progressSaveDelay: TimeInterval = 30
+    /// Encoding and UserDefaults writes off the main thread, in order: each
+    /// write is a snapshot taken on main, so the last one queued wins.
+    private static let persistQueue = DispatchQueue(label: "AppStore.persist", qos: .utility)
+    /// App lifecycle observers (progress flush on background / termination).
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
     // MARK: – Filtres du chat
     @Published var chatHideBots = false {
@@ -784,9 +816,15 @@ final class AppStore: ObservableObject {
         syncDirty = false
         // Filet de sécurité pendant une longue lecture : au plus un envoi par
         // `syncEvery`, et seulement s'il y a du neuf.
+        // Kept running in the background on purpose: it only fires while the
+        // app actually runs there (background audio, PiP), which is exactly
+        // the long playback it guards. Suspended, a Timer costs nothing.
         syncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.flushToCloud() }
         }
+        // Lets iOS batch this wake-up with others.
+        syncTimer?.tolerance = 10
+        observeLifecycle()
     }
 
     // MARK: – Translation
@@ -889,13 +927,17 @@ final class AppStore: ObservableObject {
     }
 
     private func persistHistory() {
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: "twitch_vod_history")
+        // Encoded off the main thread from a value snapshot.
+        let snapshot = history
+        Self.persistQueue.async {
+            if let data = try? JSONEncoder().encode(snapshot) {
+                UserDefaults.standard.set(data, forKey: "twitch_vod_history")
+            }
         }
     }
 
     // MARK: – VOD progress
-    func getVodProgress(_ vodId: String) -> Double { vodProgress[vodId] ?? 0 }
+    func getVodProgress(_ vodId: String) -> Double { progressValues[vodId] ?? 0 }
 
     func setVodProgress(_ vodId: String, time: Double) {
         // Le lecteur appelle ceci toutes les 0,5 s : chaque appel réencodait
@@ -903,11 +945,22 @@ final class AppStore: ObservableObject {
         // redessinait l'interface). Écart de 5 s minimum, sauf saut (reprise
         // DVR, retour au début).
         guard time.isFinite, time >= 0 else { return }
-        if let old = vodProgress[vodId], abs(time - old) < 5 { return }
-        vodProgress[vodId] = time
-        // Borné aux 500 VODs les plus récentes (identifiants croissants).
-        if vodProgress.count > 500 { vodProgress = Self.cappedProgress(vodProgress) }
-        progressChanged()
+        let old = progressValues[vodId]
+        if let old, abs(time - old) < 5 { return }
+        if let old, time > old, time - old < 60 {
+            // Normal playback: memory only, no app-wide redraw. Views catch up
+            // at the next save; getVodProgress already returns this value.
+            progressValues[vodId] = time
+            progressUnpublished = true
+        } else {
+            // New VOD, seek or jump back: published right away.
+            vodProgress[vodId] = time
+            // Borné aux 500 VODs les plus récentes (identifiants croissants).
+            if progressValues.count > 500 { vodProgress = Self.cappedProgress(progressValues) }
+        }
+        syncDirty = true
+        localRevision &+= 1
+        scheduleProgressSave()
     }
 
     private func progressChanged() {
@@ -916,10 +969,66 @@ final class AppStore: ObservableObject {
         localRevision &+= 1
     }
 
-    private func persistProgress() {
-        if let data = try? JSONEncoder().encode(vodProgress) {
+    /// Writes the positions now (off the main thread). `wait`: blocks until
+    /// this write and every earlier one are on disk (background, termination).
+    private func persistProgress(wait: Bool = false) {
+        progressSaveDirty = false
+        let snapshot = progressValues
+        if wait {
+            Self.persistQueue.sync { Self.writeProgress(snapshot) }
+        } else {
+            Self.persistQueue.async { Self.writeProgress(snapshot) }
+        }
+    }
+
+    private static func writeProgress(_ progress: [String: Double]) {
+        if let data = try? JSONEncoder().encode(progress) {
             UserDefaults.standard.set(data, forKey: "vod_progress_all")
         }
+    }
+
+    /// Playback position changed: one write (and one publish) per
+    /// `progressSaveDelay` at most, instead of one per call.
+    private func scheduleProgressSave() {
+        progressSaveDirty = true
+        guard !progressSaveScheduled else { return }
+        progressSaveScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.progressSaveDelay) { [weak self] in
+            guard let self else { return }
+            self.progressSaveScheduled = false
+            self.saveProgressNow()
+        }
+    }
+
+    /// Pending positions: announced to the views and written if needed.
+    private func saveProgressNow(wait: Bool = false) {
+        if progressUnpublished {
+            progressUnpublished = false
+            objectWillChange.send()
+        }
+        if progressSaveDirty {
+            persistProgress(wait: wait)
+        } else if wait {
+            // Earlier queued writes (history, hidden, progress) finish first.
+            Self.persistQueue.sync {}
+        }
+    }
+
+    /// Background / termination: pending positions are written before iOS
+    /// may suspend or kill the app.
+    private func observeLifecycle() {
+        let nc = NotificationCenter.default
+        lifecycleObservers = [
+            nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil,
+                           queue: .main) { [weak self] _ in self?.saveProgressNow(wait: true) },
+            nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil,
+                           queue: .main) { [weak self] _ in self?.saveProgressNow(wait: true) },
+        ]
+    }
+
+    deinit {
+        syncTimer?.invalidate()
+        lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     /// Les 500 VODs les plus récentes (identifiants croissants).
@@ -1248,6 +1357,9 @@ final class AppStore: ObservableObject {
     /// arrière-plan, suppression).
     @MainActor
     func flushToCloud(force: Bool = false) {
+        // Video closed, app backgrounded, deletion: pending local positions
+        // are written (and shown) now, account or not.
+        if force { saveProgressNow() }
         guard syncDirty, syncTarget != nil,
               force || Date().timeIntervalSince(lastSyncAt) >= syncEvery else { return }
         lastSyncAt = Date()

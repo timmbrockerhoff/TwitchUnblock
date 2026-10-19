@@ -52,23 +52,30 @@ struct TwitchUnblockApp: App {
                         // Avis arrivés en arrière-plan sans permission de
                         // notifier : affichés maintenant, dans l'app.
                         InAppNotices.shared.showPending()
-                        // Le service ne laisse passer qu'un ping par heure :
-                        // on compte des journées actives.
-                        Task { await UsageService.shared.ping(enabled: store.shareUsage) }
-                        // Ce qui a été regardé ailleurs entre-temps (site,
-                        // autre appareil) — au plus une lecture par 10 min.
-                        Task { await store.refreshFromCloudIfStale() }
-                        // Nouvelle version sur la source ? (au plus toutes les 6 h)
-                        Task { await UpdateChecker.shared.checkIfDue() }
-                        // Lives vus dans l'app : pas de notification en retard
-                        // au prochain réveil pour un live déjà découvert ici.
-                        Task { await LiveNotifier.check(notify: false) }
-                        Task { await AnnouncementService.shared.refresh() }
-                        Task { await PollService.shared.refresh() }
-                        Task { await FeedbackStore.shared.refresh() }
+                        // Network refreshes as one batch: skipped while the
+                        // previous batch runs or if it started < 30 s ago
+                        // (Control Center / Notification Center come back here).
+                        ForegroundRefresh.shared.run {
+                            [
+                                // Le service ne laisse passer qu'un ping par heure :
+                                // on compte des journées actives.
+                                Task { @MainActor in await UsageService.shared.ping(enabled: store.shareUsage) },
+                                // Ce qui a été regardé ailleurs entre-temps (site,
+                                // autre appareil) — au plus une lecture par 10 min.
+                                Task { @MainActor in await store.refreshFromCloudIfStale() },
+                                // Nouvelle version sur la source ? (au plus toutes les 6 h)
+                                Task { @MainActor in await UpdateChecker.shared.checkIfDue() },
+                                // Lives vus dans l'app : pas de notification en retard
+                                // au prochain réveil pour un live déjà découvert ici.
+                                Task { @MainActor in _ = await LiveNotifier.check(notify: false) },
+                                Task { @MainActor in await AnnouncementService.shared.refresh() },
+                                Task { @MainActor in await PollService.shared.refresh() },
+                                Task { @MainActor in await FeedbackStore.shared.refresh() },
+                                // ntfy : chaînes suivies changées (ou une fois par jour).
+                                Task { @MainActor in _ = await NtfyNotifier.sync(lang: store.lang) },
+                            ]
+                        }
                         FeedbackStore.shared.startForegroundChecks()
-                        // ntfy : chaînes suivies changées (ou une fois par jour).
-                        Task { await NtfyNotifier.sync(lang: store.lang) }
                         // Téléchargements : l'app reprend la main sur iOS,
                         // redemande ce qui manque (app fermée en la
                         // balayant…) et reprend les chats inachevés.
@@ -77,6 +84,31 @@ struct TwitchUnblockApp: App {
                         break
                     }
                 }
+        }
+    }
+}
+
+/// Foreground network refreshes: one batch at a time, at most one start per
+/// `minInterval`. Each service still applies its own throttling.
+@MainActor
+private final class ForegroundRefresh {
+    static let shared = ForegroundRefresh()
+    private var running: Task<Void, Never>?
+    private var lastStart = Date.distantPast
+    private let minInterval: TimeInterval = 30
+    /// A batch running longer than this (stuck request) no longer blocks.
+    private let stuckAfter: TimeInterval = 120
+
+    func run(_ batch: () -> [Task<Void, Never>]) {
+        let elapsed = Date().timeIntervalSince(lastStart)
+        guard elapsed >= minInterval, running == nil || elapsed >= stuckAfter else { return }
+        let started = Date()
+        lastStart = started
+        let tasks = batch()
+        running = Task { @MainActor in
+            for task in tasks { await task.value }
+            // Only the latest batch clears the handle.
+            if self.lastStart == started { self.running = nil }
         }
     }
 }
