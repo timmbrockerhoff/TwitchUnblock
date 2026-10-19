@@ -15,16 +15,20 @@ actor EmoteService {
     static let shared = EmoteService()
     private init() {}
 
-    private var globalBTTV: [String: TwitchEmote] = [:]
-    private var globalFFZ:  [String: TwitchEmote] = [:]
-    private var global7TV:  [String: TwitchEmote] = [:]
+    // Every change to a source drops the autocompletion index (rebuilt lazily).
+    private var globalBTTV: [String: TwitchEmote] = [:] { didSet { suggestIndex = nil } }
+    private var globalFFZ:  [String: TwitchEmote] = [:] { didSet { suggestIndex = nil } }
+    private var global7TV:  [String: TwitchEmote] = [:] { didSet { suggestIndex = nil } }
 
     // Toutes les sources de canal sont maintenant indexées par channelId (cohérent)
-    private var channelBTTV: [String: [String: TwitchEmote]] = [:]
-    private var channelFFZ:  [String: [String: TwitchEmote]] = [:]   // clé = channelId (fix!)
-    private var channel7TV:  [String: [String: TwitchEmote]] = [:]
+    private var channelBTTV: [String: [String: TwitchEmote]] = [:] { didSet { suggestIndex = nil } }
+    private var channelFFZ:  [String: [String: TwitchEmote]] = [:] { didSet { suggestIndex = nil } }   // clé = channelId (fix!)
+    private var channel7TV:  [String: [String: TwitchEmote]] = [:] { didSet { suggestIndex = nil } }
 
-    private var twitchById:     [String: TwitchEmote] = [:]
+    private var twitchById:     [String: TwitchEmote] = [:] { didSet { suggestIndex = nil } }
+    /// Autocompletion pool for one channel, names lowercased and sorted once:
+    /// `suggest` used to rebuild and lowercase the whole pool on every keystroke.
+    private var suggestIndex: (channelId: String?, entries: [(lower: String, emote: TwitchEmote)])? = nil
     private var loadedChannels: Set<String> = []
     /// Nom affiché de la chaîne (« Trymacs »), donné par FFZ ou 7TV : BTTV ne
     /// le donne pas pour les emotes mises en ligne par la chaîne.
@@ -98,6 +102,11 @@ actor EmoteService {
         }
     }
 
+    /// All the Twitch emotes of one message in a single actor call.
+    func registerTwitchEmotes(_ emotes: [(id: String, name: String)]) {
+        for e in emotes { registerTwitchEmote(id: e.id, name: e.name) }
+    }
+
     // MARK: – Resolve emote by name (channel-first, toutes les sources par channelId)
     /// `userId` : auteur du message, pour ses emotes personnelles BTTV Pro
     /// (après celles de la chaîne, avant les globales).
@@ -114,7 +123,11 @@ actor EmoteService {
         return nil
     }
 
-    func resolveById(_ id: String) -> TwitchEmote? { twitchById[id] }
+    /// `resolve` for several words in one actor call (one hop per message
+    /// segment instead of one per word). Same order and count as `names`.
+    func resolveAll(names: [String], channelId: String?, userId: String? = nil) -> [TwitchEmote?] {
+        names.map { resolve(name: $0, channelId: channelId, userId: userId) }
+    }
 
     // MARK: – Grouped emotes for the picker
     func groupedEmotes(channelId: String?) -> [(label: String, emotes: [TwitchEmote])] {
@@ -153,24 +166,33 @@ actor EmoteService {
         let kw = prefix.lowercased()
         guard !kw.isEmpty else { return [] }
 
-        var pool: [String: TwitchEmote] = [:]
-        if let cid = channelId {
-            for dict in [channel7TV[cid], channelBTTV[cid], channelFFZ[cid]] {
-                for (k, v) in dict ?? [:] { pool[k] = v }
+        let entries: [(lower: String, emote: TwitchEmote)]
+        if let index = suggestIndex, index.channelId == channelId {
+            entries = index.entries
+        } else {
+            var pool: [String: TwitchEmote] = [:]
+            if let cid = channelId {
+                for dict in [channel7TV[cid], channelBTTV[cid], channelFFZ[cid]] {
+                    for (k, v) in dict ?? [:] { pool[k] = v }
+                }
             }
-        }
-        for dict in [global7TV, globalBTTV, globalFFZ, twitchById] {
-            for (_, v) in dict where pool[v.name] == nil { pool[v.name] = v }
+            for dict in [global7TV, globalBTTV, globalFFZ, twitchById] {
+                for (_, v) in dict where pool[v.name] == nil { pool[v.name] = v }
+            }
+            // Sorted by lowercased name here, so the matches below come out in order.
+            let built: [(lower: String, emote: TwitchEmote)] = pool.values
+                .map { (lower: $0.name.lowercased(), emote: $0) }
+                .sorted { $0.lower < $1.lower }
+            suggestIndex = (channelId: channelId, entries: built)
+            entries = built
         }
 
         var starts: [TwitchEmote] = [], contains: [TwitchEmote] = []
-        for emote in pool.values {
-            let name = emote.name.lowercased()
-            if name.hasPrefix(kw) { starts.append(emote) }
-            else if name.contains(kw) { contains.append(emote) }
+        for entry in entries {
+            if entry.lower.hasPrefix(kw) { starts.append(entry.emote) }
+            else if entry.lower.contains(kw) { contains.append(entry.emote) }
         }
-        let byName: (TwitchEmote, TwitchEmote) -> Bool = { $0.name.lowercased() < $1.name.lowercased() }
-        return Array((starts.sorted(by: byName) + contains.sorted(by: byName)).prefix(limit))
+        return Array((starts + contains).prefix(limit))
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -93,7 +93,6 @@ final class LiveEventsService: ObservableObject {
 
     /// Choix pour lesquels on a voté (vide = pas encore voté sur ce sondage).
     @Published var votedChoiceIds: Set<String> = []
-    var votedChoiceId: String? { votedChoiceIds.first }
     /// Une prédiction vient de se terminer : on montre l'issue gagnante une minute.
     private var resultUntil: Date? = nil
     @Published var voting = false
@@ -255,9 +254,12 @@ final class LiveEventsService: ObservableObject {
     }
 
     private func fetchAll() async {
-        await fetchStreak()
-        await fetchPoll()
-        await fetchPrediction()
+        // Independent requests: sent together instead of one after the other
+        // (the radio wakes up once per 15 s round, not three times).
+        async let streakDone: Void = fetchStreak()
+        async let pollDone: Void = fetchPoll()
+        async let predictionDone: Void = fetchPrediction()
+        _ = await (streakDone, pollDone, predictionDone)
     }
 
     // MARK: Série de visionnage
@@ -329,10 +331,17 @@ final class LiveEventsService: ObservableObject {
         return nil
     }
 
-    private func isoDate(_ s: String) -> Date? {
+    // Created once: ISO8601DateFormatter is costly to build (and thread-safe).
+    private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: s) ?? ISO8601DateFormatter().date(from: s) { return d }
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+
+    private func isoDate(_ s: String) -> Date? {
+        let f = Self.isoFractional
+        if let d = f.date(from: s) ?? Self.isoPlain.date(from: s) { return d }
         // 8 ou 9 décimales (hype train) : on ne garde que les millisecondes.
         guard let dot = s.firstIndex(of: "."),
               let end = s[dot...].firstIndex(where: { $0 != "." && !$0.isNumber }) else { return nil }
@@ -641,7 +650,7 @@ final class LiveEventsService: ObservableObject {
         hypeFlashTask?.cancel(); hypeFlashTask = nil
         guard let h, h.flash != nil, let until = h.flashUntil else { return }
         let gen = hypeGen
-        let delay = max(0, until.timeIntervalSinceNow)
+        let delay = Self.sleepDelay(until.timeIntervalSinceNow)
         hypeFlashTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self, gen == self.hypeGen else { return }
@@ -676,7 +685,8 @@ final class LiveEventsService: ObservableObject {
         hypeDeadlineTask?.cancel(); hypeDeadlineTask = nil
         guard hypeEnabled, let ends = hype?.endsAt else { return }
         let gen = hypeGen
-        let delay = max(0, ends.timeIntervalSinceNow) + 1
+        // Clamped: a NaN or far-future date from Twitch would trap in UInt64().
+        let delay = Self.sleepDelay(ends.timeIntervalSinceNow + 1)
         hypeDeadlineTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self, gen == self.hypeGen else { return }
@@ -691,6 +701,11 @@ final class LiveEventsService: ObservableObject {
     }
 
     private static func number(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
+
+    /// Seconds to sleep, kept finite and within a day so `UInt64(delay * 1e9)` cannot trap.
+    private static func sleepDelay(_ seconds: TimeInterval) -> TimeInterval {
+        seconds.isFinite ? min(max(seconds, 0), 86_400) : 0
+    }
 
     private static func describe(_ h: LiveHype) -> String {
         h.phase == .approaching ? "en approche, encore \(h.left)" : "niveau \(h.level) · \(Int(h.percent * 100)) %"

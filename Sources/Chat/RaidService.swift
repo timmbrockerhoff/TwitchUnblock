@@ -16,7 +16,9 @@ final class RaidService: ObservableObject {
     @Published var joinTarget: String? = nil // login à rejoindre (raid parti)
 
     private var ws: URLSessionWebSocketTask?
-    private let session = URLSession(configuration: .default)
+    /// Shared session: a session per service was never invalidated, which
+    /// kept its delegate queue and connections alive.
+    private let session = URLSession.shared
     private var watchdog: Timer?
     private var reconnectTask: Task<Void, Never>?
     private var channelId = ""

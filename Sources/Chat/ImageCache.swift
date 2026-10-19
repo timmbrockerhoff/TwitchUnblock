@@ -36,14 +36,25 @@ final class ImageCache {
     private var inFlight: [String: Task<CachedImage?, Never>] = [:]
 
     /// Nb max de frames gardées par emote (sous-échantillonnage au-delà).
-    private let maxFrames = 90
+    /// Every kept frame is a decoded bitmap held by the UIImageView animation:
+    /// 40 stays smooth at chat size and bounds each emote's memory.
+    private let maxFrames = 40
+    /// Longest side (px) an image is decoded at. Emote and badge sources are
+    /// at most 128 px high, so this only shrinks oversized images (local
+    /// files, odd sources), whose full-size frames would cost megabytes each.
+    private static let maxPixelSize = 512
+    /// Disk cache cap, for when it is not purged at app exit (setting off).
+    private static let maxDiskBytes: Int64 = 200 * 1024 * 1024
 
     private init() {
         let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         dir = caches.appendingPathComponent("emote-cache", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        memory.totalCostLimit = 48 * 1024 * 1024   // ~48 Mo décodés en RAM
+        // Cost = decoded bytes of all frames (it used to be the compressed
+        // file size, which let animated emotes grow far past this limit).
+        memory.totalCostLimit = 64 * 1024 * 1024   // ~64 Mo décodés en RAM
+        DispatchQueue.global(qos: .utility).async { [weak self] in self?.trimDisk() }
     }
 
     // MARK: Lecture rapide (synchrone, mémoire uniquement)
@@ -94,26 +105,55 @@ final class ImageCache {
         let count = CGImageSourceGetCount(src)
 
         if count <= 1 {
-            guard let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-            return CachedImage(frames: [UIImage(cgImage: cg)], duration: 0, bytes: max(1, data.count))
+            guard let cg = frame(src, 0) else { return nil }
+            return CachedImage(frames: [UIImage(cgImage: cg)], duration: 0, bytes: decodedBytes(cg))
         }
 
         // Animée : on sous-échantillonne si l'emote a trop de frames.
         let step = max(1, Int(ceil(Double(count) / Double(maxFrames))))
         var frames: [UIImage] = []
-        var total: TimeInterval = 0
+        var bytes = 0
         var i = 0
         while i < count {
-            if let cg = CGImageSourceCreateImageAtIndex(src, i, nil) {
+            if let cg = frame(src, i) {
                 frames.append(UIImage(cgImage: cg))
-                total += delay(src, i) * Double(step)   // la frame gardée couvre `step` frames
+                bytes += decodedBytes(cg)
             }
             i += step
         }
         guard !frames.isEmpty else { return nil }
-        if frames.count == 1 { return CachedImage(frames: frames, duration: 0, bytes: max(1, data.count)) }
+        if frames.count == 1 { return CachedImage(frames: frames, duration: 0, bytes: max(1, bytes)) }
+        // Length of the whole animation: the kept frames are spread over it
+        // evenly, so sampling keeps the original speed.
+        var total: TimeInterval = 0
+        for j in 0..<count { total += delay(src, j) }
         if total <= 0 { total = Double(frames.count) * 0.1 }
-        return CachedImage(frames: frames, duration: total, bytes: max(1, data.count))
+        return CachedImage(frames: frames, duration: total, bytes: max(1, bytes))
+    }
+
+    /// One frame, decoded right away in the loading task (off the main
+    /// thread) instead of lazily at first draw on the main thread; oversized
+    /// images are downsampled while decoding.
+    private static func frame(_ src: CGImageSource, _ index: Int) -> CGImage? {
+        let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any]
+        let w = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let h = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
+        if max(w, h) > maxPixelSize {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+            ]
+            return CGImageSourceCreateThumbnailAtIndex(src, index, options as CFDictionary)
+        }
+        let options: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
+        return CGImageSourceCreateImageAtIndex(src, index, options as CFDictionary)
+    }
+
+    /// Memory a decoded frame really takes (the NSCache cost).
+    private static func decodedBytes(_ cg: CGImage) -> Int {
+        max(1, cg.bytesPerRow * cg.height)
     }
 
     private static func delay(_ src: CGImageSource, _ index: Int) -> TimeInterval {
@@ -161,6 +201,27 @@ final class ImageCache {
         try? fm.removeItem(at: dir)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         logger.info("CACHE", "Cache images vidé", ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))
+    }
+
+    /// Oldest files first until the disk cache is back under 3/4 of its cap.
+    /// Runs on a background queue.
+    private func trimDisk() {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys,
+                                                      options: [.skipsHiddenFiles]) else { return }
+        var files: [(url: URL, size: Int64, date: Date)] = items.map { f -> (url: URL, size: Int64, date: Date) in
+            let v = try? f.resourceValues(forKeys: Set(keys))
+            return (url: f, size: Int64(v?.fileSize ?? 0), date: v?.contentModificationDate ?? .distantPast)
+        }
+        var total = files.reduce(Int64(0)) { $0 + $1.size }
+        guard total > Self.maxDiskBytes else { return }
+        files.sort { $0.date < $1.date }
+        for f in files {
+            guard total > Self.maxDiskBytes / 4 * 3 else { break }
+            try? fm.removeItem(at: f.url)
+            total -= f.size
+        }
+        logger.info("CACHE", "Cache images réduit", ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
     }
 
     /// Vide seulement si l'utilisateur a activé la purge automatique (réglages).

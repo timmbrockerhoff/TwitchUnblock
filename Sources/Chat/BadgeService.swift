@@ -133,6 +133,12 @@ actor BadgeService {
         return "https://static-cdn.jtvnw.net/badges/v1/\(setId)/\(version)/2"
     }
 
+    /// `resolve` for all the badges of one message in a single actor call.
+    /// Same order and count as `badgeIds`.
+    func resolveAll(badgeIds: [String], channelId: String?) -> [String] {
+        badgeIds.map { resolve(badgeId: $0, channelId: channelId) }
+    }
+
     /// Titre et description d'un badge (canal d'abord), nil si inconnu.
     func info(badgeId: String, channelId: String?) -> (title: String, description: String)? {
         if let cid = channelId, let t = channelTitles[cid]?[badgeId] { return (t.0, t.1) }

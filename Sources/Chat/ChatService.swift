@@ -2,16 +2,32 @@ import Foundation
 import Combine
 import SwiftUI
 
+/// The message list lives in its own observable object: only the views that
+/// show messages re-render when chat moves, not everything that observes
+/// ChatService (status bar, banners, input bar, menus).
+final class ChatFeed: ObservableObject {
+    @Published var messages: [ChatMessage] = []
+}
+
 @MainActor
 final class ChatService: NSObject, ObservableObject {
 
-    @Published var messages: [ChatMessage] = []
+    let feed = ChatFeed()
+    /// Most recent first. Not @Published: observe `feed` to follow new messages.
+    var messages: [ChatMessage] {
+        get { feed.messages }
+        set { feed.messages = newValue }
+    }
     @Published var isConnected     = false
     @Published var isAuthenticated = false
     @Published var channelId: String? = nil
 
     private var webSocketTask: URLSessionWebSocketTask?
-    private let session = URLSession(configuration: .default)
+    /// Shared session: a session per chat was never invalidated, and a
+    /// URLSession keeps its delegate queue and connections alive until it is.
+    private let session = URLSession.shared
+    /// Receive loop of the current socket, cancelled on disconnect.
+    private var receiveTask: Task<Void, Never>?
     private(set) var channelName = ""
     /// Modes du salon qui limitent qui peut écrire (abonnés, followers…) :
     /// les réglages du chat (GQL), puis le ROOMSTATE au fil du direct.
@@ -71,34 +87,103 @@ final class ChatService: NSObject, ObservableObject {
     /// Twitch a-t-il envoyé au moins une liste de noms pour ce canal ?
     @Published private(set) var presenceSupported = false
 
-    private func trimIfNeeded() {
-        let cap = pauseTrim ? maxMessagesPaused : maxMessages
-        if messages.count > cap { messages = Array(messages.prefix(cap)) }
+    /// Decides, once per message, whether the user's chat filters hide it and
+    /// whether it mentions them (set by ChatView from AppStore). Running these
+    /// string checks in the view meant redoing them for every message on
+    /// every render.
+    var classify: ((ChatMessage) -> (hidden: Bool, mention: Bool))?
+
+    private func classified(_ message: ChatMessage) -> ChatMessage {
+        guard let classify else { return message }
+        var m = message
+        let c = classify(m)
+        m.hiddenByFilter = c.hidden
+        m.mentionsMe = c.mention
+        return m
     }
+
+    /// Filters or highlight words changed: decide again for every message.
+    func reclassify() {
+        guard classify != nil else { return }
+        messages = messages.map { classified($0) }
+    }
+
+    /// Received messages waiting for their display time (sync delay), shown
+    /// in batches: one list update every ~200 ms instead of one per message,
+    /// and one waiting task instead of a sleeping Task per message.
+    private struct PendingChatMessage {
+        let due: Date
+        let generation: Int
+        let message: ChatMessage
+    }
+    private var pending: [PendingChatMessage] = []
+    private var flushTask: Task<Void, Never>?
+    private static let flushInterval: Double = 0.2
 
     /// Insère un message reçu, immédiatement ou après le délai de synchro.
     private func publish(_ message: ChatMessage) {
         let delay = displayDelay
-        guard delay >= 0.5 else { insert(message); return }
-        let gen = generation
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.generation == gen else { return }
-            self.insert(message)
+        let wait = delay >= 0.5 ? delay : 0
+        pending.append(PendingChatMessage(due: Date().addingTimeInterval(wait),
+                                          generation: generation, message: message))
+        scheduleFlush()
+    }
+
+    private func scheduleFlush() {
+        guard flushTask == nil, !pending.isEmpty else { return }
+        // Wake when the earliest message is due, but never more than 5×/s.
+        let earliest = pending.map(\.due).min() ?? Date()
+        let wait = max(Self.flushInterval, earliest.timeIntervalSinceNow)
+        let nanos = UInt64(min(wait, 3_600) * 1_000_000_000)
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanos)
+            guard let self, !Task.isCancelled else { return }
+            self.flushTask = nil
+            self.flushPending()
         }
     }
 
-    private func insert(_ message: ChatMessage) {
-        // La liste est rangée du plus récent au plus ancien. Si le délai de synchro
-        // vient de baisser, un message peut arriver après un plus récent : on le
-        // replace alors à sa position chronologique au lieu de le coller en haut.
-        if let first = messages.first, message.timestamp < first.timestamp {
-            let idx = messages.firstIndex { $0.timestamp <= message.timestamp } ?? messages.count
-            messages.insert(message, at: idx)
-        } else {
-            messages.insert(message, at: 0)
+    private func flushPending() {
+        let now = Date()
+        let gen = generation
+        var ready: [ChatMessage] = []
+        var later: [PendingChatMessage] = []
+        for p in pending where p.generation == gen {
+            if p.due <= now { ready.append(p.message) } else { later.append(p) }
         }
-        trimIfNeeded()
+        pending = later
+        insert(contentsOf: ready)
+        scheduleFlush()
+    }
+
+    private func insert(_ message: ChatMessage) {
+        insert(contentsOf: [message])
+    }
+
+    /// Adds messages in arrival order with a single list update. A message
+    /// whose id is already shown is skipped: the history replay and the live
+    /// connection can deliver the same one, and a duplicate id in the list's
+    /// ForEach is undefined behavior (crash) in SwiftUI.
+    private func insert(contentsOf batch: [ChatMessage]) {
+        guard !batch.isEmpty else { return }
+        var list = messages
+        var known = Set(list.map(\.id))
+        for raw in batch {
+            guard known.insert(raw.id).inserted else { continue }
+            let message = classified(raw)
+            // La liste est rangée du plus récent au plus ancien. Si le délai de synchro
+            // vient de baisser, un message peut arriver après un plus récent : on le
+            // replace alors à sa position chronologique au lieu de le coller en haut.
+            if let first = list.first, message.timestamp < first.timestamp {
+                let idx = list.firstIndex { $0.timestamp <= message.timestamp } ?? list.count
+                list.insert(message, at: idx)
+            } else {
+                list.insert(message, at: 0)
+            }
+        }
+        let cap = pauseTrim ? maxMessagesPaused : maxMessages
+        if list.count > cap { list = Array(list.prefix(cap)) }
+        messages = list
     }
 
     // Infos du compte connecté (GLOBALUSERSTATE / USERSTATE)
@@ -124,8 +209,9 @@ final class ChatService: NSObject, ObservableObject {
         logger.info("CHAT", "Connexion IRC → #\(channelName)", readOnly ? "lecture seule (compte refusé)" : nil)
 
         guard let url = URL(string: "wss://irc-ws.chat.twitch.tv:443") else { return }
-        webSocketTask = session.webSocketTask(with: url)
-        webSocketTask?.resume()
+        let socket = session.webSocketTask(with: url)
+        webSocketTask = socket
+        socket.resume()
 
         connectionTimeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
@@ -154,7 +240,7 @@ final class ChatService: NSObject, ObservableObject {
                 isAuthenticated = false
             }
             await send("JOIN #\(channelName)")
-            await receive()
+            startReceiving(socket)
         }
 
         // En parallèle de la connexion : l'historique n'a pas à attendre l'IRC,
@@ -237,16 +323,12 @@ final class ChatService: NSObject, ObservableObject {
         Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
     }
 
-    /// Envoie une commande de chat telle quelle (/color, /me…).
-    func sendCommand(_ command: String) async {
-        guard isAuthenticated, isConnected, !channelName.isEmpty else { return }
-        await send("PRIVMSG #\(channelName) :\(command)")
-        logger.info("CHAT", "Commande envoyée", command)
-    }
-
     // MARK: – Disconnect
     func disconnect() {
         generation &+= 1   // abandonne les messages encore en attente de synchro
+        pending.removeAll()
+        flushTask?.cancel(); flushTask = nil
+        receiveTask?.cancel(); receiveTask = nil
         reconnectTask?.cancel(); reconnectTask = nil
         presentUsers.removeAll()
         presenceSupported = false
@@ -267,8 +349,9 @@ final class ChatService: NSObject, ObservableObject {
 
         guard !channelName.isEmpty,
               let url = URL(string: "wss://irc-ws.chat.twitch.tv:443") else { return }
-        webSocketTask = session.webSocketTask(with: url)
-        webSocketTask?.resume()
+        let socket = session.webSocketTask(with: url)
+        webSocketTask = socket
+        socket.resume()
         // Même délai qu'à la connexion : sans lui, une connexion anonyme muette
         // laissait le chat sur « Connecting… » pour de bon.
         let gen = generation
@@ -288,7 +371,7 @@ final class ChatService: NSObject, ObservableObject {
         pingTimer = Timer.scheduledCommon(every: 240) { [weak self] _ in
             Task { await self?.send("PING :tmi.twitch.tv") }
         }
-        await receive()
+        startReceiving(socket)
     }
 
     // MARK: – Send message
@@ -359,25 +442,31 @@ final class ChatService: NSObject, ObservableObject {
     // Boucle (et non plus récursion, qui gardait une trame par message reçu)
     // liée à SA connexion : si la connexion est remplacée (fallback anonyme,
     // reconnexion), l'ancienne boucle s'arrête au lieu de lire la nouvelle.
-    private func receive() async {
-        guard let task = webSocketTask else { return }
+    // Its own Task holding the service weakly while it waits for a frame: a
+    // chat closed without disconnect() is no longer kept alive by its socket.
+    private func startReceiving(_ socket: URLSessionWebSocketTask) {
+        guard webSocketTask === socket else { return }
+        receiveTask?.cancel()
         let gen = generation
-        while webSocketTask === task {
-            do {
-                let msg = try await task.receive()
-                guard webSocketTask === task else { return }
+        receiveTask = Task { [weak self] in
+            while true {
+                let msg: URLSessionWebSocketTask.Message
+                do {
+                    msg = try await socket.receive()
+                } catch {
+                    guard let self, self.webSocketTask === socket, self.generation == gen else { return }
+                    logger.error("CHAT", "Connexion IRC perdue", error.localizedDescription)
+                    self.isConnected = false
+                    self.scheduleReconnect(gen: gen, reason: error.localizedDescription)
+                    return
+                }
+                guard let self, self.webSocketTask === socket else { return }
                 switch msg {
-                case .string(let text):  await handleRaw(text)
+                case .string(let text):  await self.handleRaw(text)
                 case .data(let data):
-                    if let text = String(data: data, encoding: .utf8) { await handleRaw(text) }
+                    if let text = String(data: data, encoding: .utf8) { await self.handleRaw(text) }
                 @unknown default: break
                 }
-            } catch {
-                guard webSocketTask === task, generation == gen else { return }
-                logger.error("CHAT", "Connexion IRC perdue", error.localizedDescription)
-                isConnected = false
-                scheduleReconnect(gen: gen, reason: error.localizedDescription)
-                return
             }
         }
     }
@@ -485,7 +574,7 @@ final class ChatService: NSObject, ObservableObject {
     private func handleUserInfo(_ irc: IRCMessage) {
         if let name = irc.tags["display-name"], !name.isEmpty { localDisplayName = name }
         if let hex  = irc.tags["color"], !hex.isEmpty {
-            localColor = Color.readableChat(hex: hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
+            localColor = Self.chatColor(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
         }
     }
 
@@ -513,6 +602,7 @@ final class ChatService: NSObject, ObservableObject {
 
         let emoteRanges = IRCParser.parseEmoteRanges(raw: irc.emotesRaw, text: text)
         var twitchEmotesByRange: [Range<String.Index>: TwitchEmote] = [:]
+        var seenEmotes: [(id: String, name: String)] = []
         for (emoteId, range) in emoteRanges {
             let emoteName = String(text[range])
             let emote = TwitchEmote(
@@ -520,9 +610,10 @@ final class ChatService: NSObject, ObservableObject {
                 url: "https://static-cdn.jtvnw.net/emoticons/v2/\(emoteId)/default/dark/2.0",
                 source: .twitch
             )
-            await EmoteService.shared.registerTwitchEmote(id: emoteId, name: emoteName)
+            seenEmotes.append((id: emoteId, name: emoteName))
             twitchEmotesByRange[range] = emote
         }
+        if !seenEmotes.isEmpty { await EmoteService.shared.registerTwitchEmotes(seenEmotes) }
 
         let tokens = await tokenize(text: text, twitchRanges: twitchEmotesByRange, channelId: channelId,
                                     userId: irc.userId)
@@ -541,7 +632,7 @@ final class ChatService: NSObject, ObservableObject {
             userId: irc.userId,
             userName: login,
             displayName: irc.displayName.isEmpty ? login : irc.displayName,
-            color: Color.readableChat(hex: hexColor),
+            color: Self.chatColor(hexColor),
             // ← badges résolus via BadgeService
             badges: await parseBadges(irc.badgesRaw, channelId: channelId),
             tokens: tokens,
@@ -575,14 +666,16 @@ final class ChatService: NSObject, ObservableObject {
         if let text = irc.text, !text.isEmpty {
             let emoteRanges = IRCParser.parseEmoteRanges(raw: irc.emotesRaw, text: text)
             var byRange: [Range<String.Index>: TwitchEmote] = [:]
+            var seenEmotes: [(id: String, name: String)] = []
             for (emoteId, range) in emoteRanges {
                 let name = String(text[range])
                 byRange[range] = TwitchEmote(
                     id: emoteId, name: name,
                     url: "https://static-cdn.jtvnw.net/emoticons/v2/\(emoteId)/default/dark/2.0",
                     source: .twitch)
-                await EmoteService.shared.registerTwitchEmote(id: emoteId, name: name)
+                seenEmotes.append((id: emoteId, name: name))
             }
+            if !seenEmotes.isEmpty { await EmoteService.shared.registerTwitchEmotes(seenEmotes) }
             tokens = await tokenize(text: text, twitchRanges: byRange, channelId: channelId,
                                     userId: irc.userId)
         }
@@ -606,7 +699,7 @@ final class ChatService: NSObject, ObservableObject {
             userId: irc.userId,
             userName: irc.tags["login"] ?? "",
             displayName: irc.displayName,
-            color: Color.readableChat(hex: hexColor),
+            color: Self.chatColor(hexColor),
             badges: await parseBadges(irc.badgesRaw, channelId: channelId),
             tokens: tokens,
             timestamp: sentAt,
@@ -632,16 +725,31 @@ final class ChatService: NSObject, ObservableObject {
     /// Fallback automatique vers CDN statique si les badges ne sont pas encore chargés.
     private func parseBadges(_ raw: String, channelId: String?) async -> [TwitchBadge] {
         guard !raw.isEmpty else { return [] }
-        var result: [TwitchBadge] = []
+        var ids: [String] = []
         for part in raw.components(separatedBy: ",") {
             let kv = part.components(separatedBy: "/")
             guard kv.count == 2 else { continue }
-            let id  = "\(kv[0])/\(kv[1])"
-            let url = await BadgeService.shared.resolve(badgeId: id, channelId: channelId)
-            guard !url.isEmpty else { continue }
-            result.append(TwitchBadge(id: id, url: url))
+            ids.append("\(kv[0])/\(kv[1])")
+        }
+        guard !ids.isEmpty else { return [] }
+        // One actor call for all the badges of the message.
+        let urls = await BadgeService.shared.resolveAll(badgeIds: ids, channelId: channelId)
+        var result: [TwitchBadge] = []
+        for (i, id) in ids.enumerated() where i < urls.count && !urls[i].isEmpty {
+            result.append(TwitchBadge(id: id, url: urls[i]))
         }
         return result
+    }
+
+    /// Readable name color per Twitch hex. Colors repeat a lot: cached instead
+    /// of re-scanning the hex for every message.
+    private static var readableColors: [String: Color] = [:]
+    private static func chatColor(_ hex: String) -> Color {
+        if let c = readableColors[hex] { return c }
+        let c = Color.readableChat(hex: hex)
+        if readableColors.count >= 4_096 { readableColors.removeAll() }
+        readableColors[hex] = c
+        return c
     }
 
     // MARK: – NOTICE
@@ -828,13 +936,17 @@ final class ChatService: NSObject, ObservableObject {
 
     /// Retire les messages visés, ou les barre si le réglage le demande.
     private func mark(where predicate: (ChatMessage) -> Bool) {
-        guard keepDeleted else {
-            messages.removeAll(where: predicate)
-            return
+        // Worked on a copy: `messages` forwards to the feed, and each in-place
+        // change would publish (and copy the list) once per message.
+        var list = messages
+        if keepDeleted {
+            for i in list.indices where predicate(list[i]) {
+                list[i].isDeleted = true
+            }
+        } else {
+            list.removeAll(where: predicate)
         }
-        for i in messages.indices where predicate(messages[i]) {
-            messages[i].isDeleted = true
-        }
+        messages = list
     }
 
     // MARK: – Messages récents (avant notre arrivée)
@@ -895,10 +1007,18 @@ final class ChatService: NSObject, ObservableObject {
 
         // La liste va du plus récent au plus ancien ; on fusionne puis on retrie
         // plutôt que d'insérer un par un, l'ordre d'arrivée n'étant pas garanti.
-        let known = Set(messages.map(\.id))
-        messages.append(contentsOf: older.filter { !known.contains($0.id) })
-        messages.sort { $0.timestamp > $1.timestamp }
-        trimIfNeeded()
+        // One list update; ids already shown (or repeated in the replay) are
+        // skipped, a duplicate id in the list's ForEach can crash SwiftUI.
+        var list = messages
+        var known = Set(list.map(\.id))
+        for msg in older {
+            guard known.insert(msg.id).inserted else { continue }
+            list.append(classified(msg))
+        }
+        list.sort { $0.timestamp > $1.timestamp }
+        let cap = pauseTrim ? maxMessagesPaused : maxMessages
+        if list.count > cap { list = Array(list.prefix(cap)) }
+        messages = list
         logger.success("CHAT", "Historique chargé", "\(older.count) messages")
     }
 }

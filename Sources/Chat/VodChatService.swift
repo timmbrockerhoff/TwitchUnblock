@@ -261,14 +261,16 @@ final class VodChatService: ObservableObject {
 
     /// Fait passer dans `messages` tout ce qui est déjà passé dans la vidéo.
     private func release(upTo offset: Double) {
-        var out: [ChatMessage] = []
-        while let f = buffer.first, f.offset <= offset {
-            out.append(f.msg)
-            buffer.removeFirst()
-        }
-        guard !out.isEmpty else { return }
-        for m in out { messages.insert(m, at: 0) }
-        if messages.count > maxMessages { messages = Array(messages.prefix(maxMessages)) }
+        // Taken in one go: removeFirst() per message shifted the whole buffer each time.
+        let n = buffer.prefix(while: { $0.offset <= offset }).count
+        guard n > 0 else { return }
+        let out = buffer.prefix(n).map { $0.msg }
+        buffer.removeFirst(n)
+        // Built on a copy: one update of the published list, not one per message.
+        var list = messages
+        for m in out { list.insert(m, at: 0) }
+        if list.count > maxMessages { list = Array(list.prefix(maxMessages)) }
+        messages = list
     }
 
     /// Hors ligne : `t` est la position dans la vidéo téléchargée, qui
