@@ -147,7 +147,7 @@ final class UsageService: ObservableObject {
     /// Une lecture de plus pour /stats (santé du direct). Rien si le comptage
     /// est coupé.
     func count(_ event: String) {
-        guard UserDefaults.standard.object(forKey: "cfg_share_usage") as? Bool ?? true else { return }
+        guard UserDefaults.standard.object(forKey: "cfg_share_usage") as? Bool ?? false else { return }
         var all = pendingEvents
         all[event, default: 0] += 1
         UserDefaults.standard.set(all, forKey: eventsKey)
