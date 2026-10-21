@@ -646,33 +646,6 @@ struct SettingsView: View {
         // ── Langue ──────────────────────────────────────────
         settingCard {
             VStack(alignment: .leading, spacing: 12) {
-                label("globe", store.t("language"))
-                VStack(spacing: 8) {
-                    ForEach(Lang.allCases) { lang in
-                        langButton(lang)
-                    }
-                }
-                // Langue traduite avec l'IA : on le dit, et on invite à
-                // signaler ce qui sonne faux.
-                if store.lang.machineTranslated {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(store.t("lang_ai_note"), systemImage: "sparkles")
-                            .font(.tMeta).foregroundColor(.tMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button {
-                            feedbackContext = "translation \(store.lang.rawValue)"
-                            showFeedback = true
-                        } label: {
-                            Label(store.t("lang_ai_report"), systemImage: "text.bubble")
-                                .font(.tLabel).foregroundColor(.tPrimary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.tSurface)
-                    .cornerRadius(10)
-                }
                 topLangRow
                 Divider().background(Color.tBorder)
                 toggleRow(store.t("home_list"), store.t("home_list_sub"),
@@ -2252,40 +2225,6 @@ struct SettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(.bottom, 2)
-    }
-
-    @ViewBuilder
-    private func langButton(_ lang: Lang) -> some View {
-        let isSelected = store.lang == lang
-        Button {
-            logger.settingChanged("Langue", value: lang.rawValue)
-            store.lang = lang
-        } label: {
-            HStack(spacing: 12) {
-                Text(lang.flag).font(.system(size: 22))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(lang.label)
-                        .font(.tCardTitle)
-                        .foregroundColor(isSelected ? .tPrimary : .tText)
-                    // Dans la langue elle-même : c'est à ses lecteurs qu'on parle.
-                    if lang.machineTranslated {
-                        Text(translate("lang_ai_badge", lang))
-                            .font(.tMeta).foregroundColor(.tMuted)
-                    }
-                }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.tPrimary)
-                        .font(.system(size: 18))
-                }
-            }
-            .padding(.horizontal, 14).padding(.vertical, 12)
-            .background(isSelected ? Color.tPrimary.opacity(0.12) : Color.tSurface)
-            .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Color.tPrimary : Color.tBorder, lineWidth: isSelected ? 1.5 : 1))
-        }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder

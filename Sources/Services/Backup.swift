@@ -151,7 +151,6 @@ enum Backup {
             if let v = s[k] as? [String] { apply(Array(v.map { $0.lowercased() }.prefix(max))) }
         }
 
-        if let l = s["lang"] as? String, let lang = Lang(rawValue: l) { store.lang = lang }
         // Langue du top : « zh_hk » du site ramené à « zh-hk », et seulement
         // une langue que l'app connaît (sinon aucune case n'était cochée).
         if s["topLang"] is NSNull { store.topLang = nil }

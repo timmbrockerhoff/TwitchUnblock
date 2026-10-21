@@ -333,7 +333,7 @@ final class ChatService: NSObject, ObservableObject {
 
     /// Langue de l'app, pour les lignes écrites par l'app dans le chat.
     private var lang: Lang {
-        Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
+        Lang.de
     }
 
     // MARK: – Disconnect

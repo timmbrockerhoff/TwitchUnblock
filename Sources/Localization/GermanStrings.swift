@@ -1,6 +1,6 @@
 import Foundation
 
-// Deutsche Übersetzung. Ein fehlender Schlüssel fällt auf Englisch zurück.
+// Deutsche Texte der App (einzige Sprache). Ein fehlender Schlüssel zeigt den Schlüssel selbst.
 let kGermanStrings: [String: String] = [
     "title": "Twitch ohne Abo",
     "tab_home": "Startseite",
@@ -56,7 +56,6 @@ let kGermanStrings: [String: String] = [
     "vods": "VODs",
     "channels": "Kanäle",
     "twitch_account": "Twitch-Konto",
-    "language": "Sprache",
     "chat_connected": "Chat verbunden",
     "chat_connecting": "Verbinden...",
     "chat_send_ph": "Nachricht senden…",
@@ -502,9 +501,6 @@ let kGermanStrings: [String: String] = [
     "chat_sync_reset": "Zurück zur reinen Auto-Synchronisierung",
     "chat_sync_adjust": "Sync-Anpassung",
     "chat_sync_adjust_sub": "Chat noch vor dem Video? Füg ein paar Sekunden hinzu. Dahinter? Zieh welche ab. Auch über das ⏱-Abzeichen über dem Chat.",
-    "lang_ai_note": "Mit KI übersetzt, noch nicht geprüft: Wenn etwas komisch klingt, sag uns Bescheid.",
-    "lang_ai_report": "Übersetzungsfehler melden",
-    "lang_ai_badge": "Mit KI übersetzt",
     "switch_account": "Konto wechseln",
     "switch_account_sub": "Twitch fragt nach deinen Zugangsdaten: Melde dich mit dem anderen Konto an.",
     "vod_muted_here": "Ton von Twitch stummgeschaltet (urheberrechtlich geschützte Musik)",

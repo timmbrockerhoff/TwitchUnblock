@@ -6,9 +6,7 @@ final class AppStore: ObservableObject {
 
     // MARK: – Language
     /// L'anglais par défaut : l'app n'est pas réservée à un public français.
-    @Published var lang: Lang = .de {
-        didSet { UserDefaults.standard.set(lang.rawValue, forKey: "lang") }
-    }
+    let lang: Lang = .de
 
     // MARK: – Twitch Auth
     @Published var twitchToken: String? {
@@ -694,7 +692,6 @@ final class AppStore: ObservableObject {
         chatHideCommands   = ud.bool(forKey: "chat_hide_commands")
         chatMutedWords     = ud.stringArray(forKey: "chat_muted_words") ?? []
         chatBlockedUsers   = ud.stringArray(forKey: "chat_blocked_users") ?? []
-        if let l = ud.string(forKey: "lang"), let parsed = Lang(rawValue: l) { lang = parsed }
         twitchToken = Keychain.loadToken("twitch_token")
         twitchUserId = ud.string(forKey: "twitch_user_id")
         twitchWebToken = Keychain.loadToken("twitch_web_token")
@@ -1678,7 +1675,7 @@ enum VodSpeed {
     /// « 1,5× » : virgule en français, espagnol et russe, point en anglais.
     static func label(_ v: Double, _ lang: Lang) -> String {
         var s = String(format: "%g", v)
-        if lang != .en { s = s.replacingOccurrences(of: ".", with: ",") }
+        s = s.replacingOccurrences(of: ".", with: ",")
         return s + "×"
     }
 }

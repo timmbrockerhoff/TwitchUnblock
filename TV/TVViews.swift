@@ -402,10 +402,6 @@ struct TVAccountTab: View {
 
                 VStack(alignment: .leading, spacing: 32) {
                     Text(session.t("tv_settings")).font(.title3.bold())
-                    TVChoiceRow(title: session.t("tv_language"),
-                                options: Lang.allCases.map { ($0.rawValue, $0.label) },
-                                selection: Binding(get: { session.lang.rawValue },
-                                                   set: { session.lang = Lang(rawValue: $0) ?? .en }))
                     TVChoiceRow(title: session.t("live_source"),
                                 options: kLiveSourceChoices.map { ($0, session.t("src_\($0)")) },
                                 selection: $session.liveSource)

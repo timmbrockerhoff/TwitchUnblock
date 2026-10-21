@@ -136,7 +136,7 @@ enum LiveNotifier {
         let now = Set(streams.map { $0.userLogin.lowercased() })
         // ntfy actif : c'est lui qui prévient (sans doublon, et plus vite).
         if notify && !NtfyNotifier.isEnabled {
-            let lang = Lang(rawValue: ud.string(forKey: "lang") ?? "en") ?? .en
+            let lang = Lang.de
             for s in streams where !known.contains(s.userLogin.lowercased()) {
                 let content = UNMutableNotificationContent()
                 content.title = translate("notif_live_title", lang).replacingOccurrences(of: "{u}", with: s.userName)

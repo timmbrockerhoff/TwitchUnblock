@@ -320,7 +320,7 @@ final class DropsService: ObservableObject {
         guard !seen.contains(mark) else { return }
         seen.append(mark)
         UserDefaults.standard.set(Array(seen.suffix(300)), forKey: Self.notifiedKey)
-        let lang = Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
+        let lang = Lang.de
         InAppNotices.shared.deliver(
             InAppNotice(kind: claimed ? .dropClaimed : .dropReady,
                         title: translate(claimed ? "drops_notif_claimed" : "drops_notif_ready", lang),
@@ -350,7 +350,7 @@ final class DropsService: ObservableObject {
         }
         // Session remplacée entre-temps : rien à annoncer à la suivante.
         guard !ended(token) else { return false }
-        let lang = Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
+        let lang = Lang.de
         switch result {
         case .ok:
             logger.success("DROPS", "🎁 Drop réclamé", drop.name)

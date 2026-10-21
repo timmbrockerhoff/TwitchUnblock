@@ -38,7 +38,7 @@ struct TwitchWebLoginSheet: View {
 
     /// Langue de l'app (la feuille est présentée sans le store).
     private var lang: Lang {
-        Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
+        Lang.de
     }
 
     var body: some View {

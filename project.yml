@@ -67,7 +67,6 @@ targets:
       - path: Sources/Constants.swift
       - path: Sources/Theme.swift
       - path: Sources/Models.swift
-      - path: Sources/Localization/RussianStrings.swift
       - path: Sources/Localization/GermanStrings.swift
       - path: Sources/Services/Logger.swift
       - path: Sources/Services/Keychain.swift

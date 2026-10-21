@@ -17,9 +17,7 @@ final class TVSession: ObservableObject {
 
     @Published private(set) var token: String?
     @Published private(set) var user: TwitchUser?
-    @Published var lang: Lang {
-        didSet { UserDefaults.standard.set(lang.rawValue, forKey: "lang") }
-    }
+    let lang: Lang = .de
     /// Source du direct préférée, lue aussi par getLive (même clé que l'iPhone).
     @Published var liveSource: String {
         didSet { UserDefaults.standard.set(liveSource, forKey: "liveSource") }
@@ -56,12 +54,6 @@ final class TVSession: ObservableObject {
 
     private init() {
         let ud = UserDefaults.standard
-        if let saved = ud.string(forKey: "lang"), let l = Lang(rawValue: saved) {
-            lang = l
-        } else {
-            let code = String((Locale.preferredLanguages.first ?? "en").prefix(2)).lowercased()
-            lang = Lang(rawValue: code) ?? .en
-        }
         let source = ud.string(forKey: "liveSource") ?? "auto"
         liveSource = kLiveSourceChoices.contains(source) ? source : "auto"
         tvChat = ud.object(forKey: "tv_chat") as? Bool ?? true

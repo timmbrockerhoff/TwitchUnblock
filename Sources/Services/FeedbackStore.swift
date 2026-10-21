@@ -164,7 +164,7 @@ final class FeedbackStore: ObservableObject {
     /// Identifiant = retour + date : la même mise à jour n'est jamais
     /// annoncée deux fois.
     private func notifyTeamUpdates(_ list: [MyFeedback]) {
-        let lang = Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
+        let lang = Lang.de
         for r in list.prefix(3) {
             let notice: InAppNotice
             if let m = r.messages.last(where: { $0.fromTeam })?.m, !m.isEmpty {

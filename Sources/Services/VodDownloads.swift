@@ -625,7 +625,7 @@ final class VodDownloads: ObservableObject {
         }
         save()
         logger.success("DOWNLOAD", "Téléchargement terminé", d.title)
-        let lang = Lang(rawValue: UserDefaults.standard.string(forKey: "lang") ?? "en") ?? .en
+        let lang = Lang.de
         InAppNotices.shared.deliver(
             InAppNotice(kind: .download, title: translate("dl_done_notif", lang), body: d.title),
             id: "download-\(id)")

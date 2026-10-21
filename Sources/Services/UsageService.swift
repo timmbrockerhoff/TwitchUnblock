@@ -180,7 +180,7 @@ final class UsageService: ObservableObject {
             "id": installId,
             "version": appVersion,
             "platform": "ios",
-            "lang": UserDefaults.standard.string(forKey: "lang") ?? "en",
+            "lang": Lang.de.rawValue,
             "os": String(UIDevice.current.systemVersion.split(separator: ".").first ?? ""),
             "device": UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone",
         ]

@@ -285,7 +285,6 @@ struct OnboardingTour: View {
                     .foregroundColor(.tMuted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                languagePicker
                 primaryButton(store.t("ob_tour")) { go(step + 1) }
                 Button(store.t("ob_skip")) { finish() }
                     .font(.system(size: 15, weight: .semibold))
@@ -301,46 +300,6 @@ struct OnboardingTour: View {
             .stroke(Color.tPrimary.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
         .padding(.horizontal, 20)
-    }
-
-    /// La langue d'abord : toute la visite la suit aussitôt.
-    private var languagePicker: some View {
-        VStack(spacing: 6) {
-            languageButtons
-            // Traduction faite avec l'IA : dit dès le choix de la langue.
-            if store.lang.machineTranslated {
-                Text(store.t("lang_ai_note"))
-                    .font(.tMeta).foregroundColor(.tMuted)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var languageButtons: some View {
-        HStack(spacing: 8) {
-            ForEach(Lang.allCases) { l in
-                let on = store.lang == l
-                Button {
-                    logger.settingChanged("Langue", value: l.rawValue)
-                    store.lang = l
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(l.flag)
-                        Text(l.label)
-                            .font(.tLabel)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    .foregroundColor(on ? .white : .tText)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 36)
-                    .background(on ? Color.tPrimary : Color.tSurface)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 
     private var tipsList: some View {
