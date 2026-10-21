@@ -107,8 +107,6 @@ struct MainTabView: View {
     /// déjà fermé) est ignorée au lieu d'écraser l'état ou de relancer les
     /// minuteries du direct sans lecteur.
     @State private var loadGeneration = 0
-    @ObservedObject private var updater = UpdateChecker.shared
-    @State private var showDiscordPrompt = false
     /// Page d'une chaîne ouverte en feuille (sans passer par l'onglet Recherche).
     @State private var channelSheet: ChannelSheetItem? = nil
     /// Visite guidée du tout premier lancement (revue depuis les réglages).
@@ -404,56 +402,6 @@ struct MainTabView: View {
             SettingsView()
                 .inAppNoticeHost()
         }
-        // Invitation au Discord : à chaque lancement à partir du 2ᵉ, tant
-        // qu'on n'a pas choisi « Ne plus afficher » (ou rejoint), et jamais en
-        // même temps que la fenêtre de mise à jour.
-        .task {
-            let ud = UserDefaults.standard
-            let launches = ud.integer(forKey: "launch_count") + 1
-            ud.set(launches, forKey: "launch_count")
-            guard launches >= 2, onboardingDone, !ud.bool(forKey: "discord_never") else { return }
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard !updater.showAlert else { return }
-            showDiscordPrompt = true
-        }
-        // Fenêtres « mise à jour » et « Discord » dans le style de l'app.
-        // Jamais pendant la visite guidée, qui passe avant tout le reste.
-        .overlay {
-            if onboardingDone, updater.showAlert, let up = updater.available {
-                TPromptCard(
-                    icon: "arrow.down.circle.fill",
-                    title: store.t("update_title"),
-                    message: store.t(up.changes.isEmpty ? "update_msg_short" : "update_whats_new"),
-                    detail: "\(UpdateChecker.installedVersion)  →  \(up.version)",
-                    primary: store.t("update_open"),
-                    secondary: store.t("later"),
-                    onPrimary: { withAnimation(.spring(response: 0.3)) { updater.dismiss() }; UpdateChecker.openSource() },
-                    onSecondary: { withAnimation(.spring(response: 0.3)) { updater.dismiss() } },
-                    // Nouveautés de chaque build manquant, du plus récent au plus ancien.
-                    sections: up.changes.map { .init(title: $0.version, items: $0.items) })
-                .zIndex(10)
-            } else if onboardingDone, showDiscordPrompt {
-                TPromptCard(
-                    icon: "bubble.left.and.bubble.right.fill",
-                    title: store.t("discord_title"),
-                    message: store.t("discord_msg"),
-                    primary: store.t("discord_join"),
-                    secondary: store.t("later"),
-                    onPrimary: {
-                        // Rejoint : inutile de le reproposer.
-                        UserDefaults.standard.set(true, forKey: "discord_never")
-                        withAnimation(.spring(response: 0.3)) { showDiscordPrompt = false }
-                        if let url = URL(string: kDiscordURL) { UIApplication.shared.open(url) }
-                    },
-                    onSecondary: { withAnimation(.spring(response: 0.3)) { showDiscordPrompt = false } },
-                    tertiary: store.t("dont_show_again"),
-                    onTertiary: {
-                        UserDefaults.standard.set(true, forKey: "discord_never")
-                        withAnimation(.spring(response: 0.3)) { showDiscordPrompt = false }
-                    })
-                .zIndex(10)
-            }
-        }
         // Visite guidée (premier lancement, ou revue depuis les réglages) :
         // par-dessus tout, elle éclaire les vrais boutons de l'app, dont les
         // positions remontent par `TourAnchorKey`.
@@ -477,8 +425,6 @@ struct MainTabView: View {
         .onChange(of: onboardingDone) { done in
             if !done { withAnimation(.easeInOut(duration: 0.2)) { playerVisible = false } }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: updater.showAlert)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showDiscordPrompt)
         // Notification « en live » touchée : on ouvre le direct.
         // Page d'une chaîne demandée (pseudo dans le lecteur, accueil…) :
         // ouverte dans une feuille par-dessus l'onglet en cours, sans passer
@@ -1605,8 +1551,6 @@ struct MainTabView: View {
                 async let markersTask = getVodMarkers(vodId: id)
                 let data = await getM3U8(vodId: id)
                 let markers = await markersTask
-                // Santé des lectures (/stats) : compteur seulement, sans la VOD.
-                await MainActor.run { UsageService.shared.count(data.links.isEmpty ? "vod_fail" : "vod") }
                 if let err = data.error, data.links.isEmpty {
                     await MainActor.run {
                         guard gen == loadGeneration else { return }
@@ -1667,13 +1611,6 @@ struct MainTabView: View {
                 // affiche « session expirée ».
                 if data.webSessionExpired {
                     Task { @MainActor in await store.validateWebSession() }
-                }
-                // Santé du direct (/stats) : la source qui a servi, ou un échec
-                // — jamais la chaîne. Hors ligne n'est pas un échec.
-                if let links = data.links, !links.isEmpty {
-                    await MainActor.run { UsageService.shared.count("live_\(data.source ?? "unknown")") }
-                } else if data.error != "offline" {
-                    await MainActor.run { UsageService.shared.count("live_fail") }
                 }
                 // Chaîne introuvable, réseau, ou aucune source n'a répondu
                 // (Twitch la dit en direct) : dit tel quel, plus « hors ligne ».

@@ -58,7 +58,6 @@ enum Backup {
             "mutedWords": store.chatMutedWords,
             "blockedUsers": store.chatBlockedUsers,
             "highlightWords": store.chatHighlightWords,
-            "shareUsage": store.shareUsage,
             "vodSpeed": store.vodSpeed,
             "qualityPref": store.preferredQuality,
             // Propres à l'app
@@ -168,7 +167,6 @@ enum Backup {
         words("mutedWords", 50) { store.chatMutedWords = $0 }
         words("blockedUsers", 500) { store.chatBlockedUsers = $0 }
         words("highlightWords", 30) { store.chatHighlightWords = $0 }
-        bool("shareUsage") { store.shareUsage = $0 }
         num("vodSpeed", 0.25...2) { store.vodSpeed = VodSpeed.nearest($0) }
 
         bool("ios_autoClaimChest") { store.autoClaimChest = $0 }

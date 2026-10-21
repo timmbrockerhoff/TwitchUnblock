@@ -9,18 +9,11 @@ struct TwitchUnblockApp: App {
     var body: some Scene {
         WindowGroup {
             MainTabView()
-                // Avis internes (réponses aux signalements, drops,
+                // Avis internes (drops,
                 // téléchargements), par-dessus le lecteur compris.
                 .inAppNoticeHost()
                 .environmentObject(store)
                 .preferredColorScheme(.dark)
-                .task { await UsageService.shared.ping(enabled: store.shareUsage) }
-                // À chaque lancement : nouvelle version disponible ?
-                .task { await UpdateChecker.shared.checkIfDue(atLaunch: true) }
-                // Annonce du développeur en cours ?
-                .task { await AnnouncementService.shared.refresh(force: true) }
-                // Sondage en cours ?
-                .task { await PollService.shared.refresh(force: true) }
                 // Notification ntfy touchée : twitchunblock://live/<chaîne>.
                 .onOpenURL { url in
                     guard url.scheme == "twitchunblock", url.host == "live",
@@ -50,19 +43,12 @@ struct TwitchUnblockApp: App {
                         // (Control Center / Notification Center come back here).
                         ForegroundRefresh.shared.run {
                             [
-                                // Le service ne laisse passer qu'un ping par heure :
-                                // on compte des journées actives.
-                                Task { @MainActor in await UsageService.shared.ping(enabled: store.shareUsage) },
                                 // Ce qui a été regardé ailleurs entre-temps (site,
                                 // autre appareil) — au plus une lecture par 10 min.
                                 Task { @MainActor in await store.refreshFromCloudIfStale() },
-                                // Nouvelle version sur la source ? (au plus toutes les 6 h)
-                                Task { @MainActor in await UpdateChecker.shared.checkIfDue() },
                                 // Lives vus dans l'app : pas de notification en retard
                                 // au prochain réveil pour un live déjà découvert ici.
                                 Task { @MainActor in _ = await LiveNotifier.check(notify: false) },
-                                Task { @MainActor in await AnnouncementService.shared.refresh() },
-                                Task { @MainActor in await PollService.shared.refresh() },
                                 // ntfy : chaînes suivies changées (ou une fois par jour).
                                 Task { @MainActor in _ = await NtfyNotifier.sync(lang: store.lang) },
                             ]

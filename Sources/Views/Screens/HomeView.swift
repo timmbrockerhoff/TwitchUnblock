@@ -52,8 +52,6 @@ struct HomeView: View {
     @State private var lastLoad = Date.distantPast
     /// Bandeau « session web » masqué jusqu'à cette date (bouton ✕).
     @AppStorage("web_banner_hidden_until") private var webBannerHiddenUntil: Double = 0
-    @ObservedObject private var announcements = AnnouncementService.shared
-    @ObservedObject private var polls = PollService.shared
 
     enum TopLang: Hashable { case local, all }
 
@@ -286,19 +284,6 @@ struct HomeView: View {
     @ViewBuilder private var liveSection: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: TSpace.lg) {
-
-                // ── Annonce du développeur (si une est en cours) ────
-                if let a = announcements.current {
-                    AnnouncementBanner(announcement: a) { announcements.dismiss(a) }
-                        .padding(.horizontal, TSpace.lg)
-                        .padding(.top, TSpace.md)
-                }
-                // ── Sondage du développeur (si un est en cours) ─────
-                if let p = polls.poll {
-                    DevPollCard(poll: p)
-                        .padding(.horizontal, TSpace.lg)
-                        .padding(.top, announcements.current == nil ? TSpace.md : 0)
-                }
 
                 // ── Pas de compte : invitation compacte ──────────────
                 if store.twitchToken == nil {

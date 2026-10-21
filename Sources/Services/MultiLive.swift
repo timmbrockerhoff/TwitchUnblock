@@ -215,7 +215,6 @@ final class MultiTileModel: ObservableObject {
     private var lastSave = Date.distantPast
     /// Historique et statistiques : une fois par tuile, jamais à chaque relance.
     private var started = false
-    private var counted = false
 
     init(entry: MultiLiveEntry,
          accountToken: @escaping (String) -> String? = { _ in nil },
@@ -270,11 +269,6 @@ final class MultiTileModel: ObservableObject {
             let data = await getM3U8(vodId: id)
             let meta = await metaTask
             guard let self, !Task.isCancelled else { return }
-            // Santé des lectures (/stats) : une fois par tuile, sans la VOD.
-            if !self.counted {
-                self.counted = true
-                UsageService.shared.count(data.links.isEmpty ? "vod_fail" : "vod")
-            }
             if let meta, !meta.login.isEmpty { self.login = meta.login }
             guard !data.links.isEmpty,
                   let url = MultiLive.pick(data.links, count: count, variants: data.variants) else {

@@ -3,9 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var showLogs        = false
-    @ObservedObject private var updater = UpdateChecker.shared
-    @State private var checkingUpdate  = false
-    @State private var upToDate        = false
     @State private var highlightDraft  = ""
     @State private var mutedDraft      = ""
     @State private var liveNotif       = LiveNotifier.isEnabled
@@ -34,7 +31,6 @@ struct SettingsView: View {
     @State private var cacheBytes: Int64 = 0
     @State private var cacheFiles      = 0
     @ObservedObject private var sleepTimer = SleepTimerService.shared
-    @ObservedObject private var usage      = UsageService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showSleepSheet  = false
     @State private var showHidden      = false   // chaînes et catégories masquées
@@ -78,15 +74,6 @@ struct SettingsView: View {
         .background(Color.tDark)
         .onAppear {
             refreshCacheInfo()
-            Task { await usage.loadStats() }
-        }
-        // Retrait du comptage → on efface aussi l'identifiant côté serveur.
-        .onChange(of: store.shareUsage) { on in
-            Task {
-                if on { await usage.ping(enabled: true, force: true) }
-                else  { await usage.forget() }
-                await usage.loadStats()
-            }
         }
         // ── Alerts ──────────────────────────────────────────────────
         .alert(store.t("btn_logout"), isPresented: $showLogoutAlert) {
@@ -159,7 +146,7 @@ struct SettingsView: View {
     // MARK: – Pages de réglages
     /// Les destinations du menu.
     enum Page: Hashable {
-        case account, general, player, chat, drops, points, labs, other, changelog
+        case account, general, player, chat, drops, points, labs, other
 
         var titleKey: String {
             switch self {
@@ -171,7 +158,6 @@ struct SettingsView: View {
             case .points:    return "points_tracker"
             case .labs:      return "debug_section"
             case .other:     return "sec_other"
-            case .changelog: return "changelog"
             }
         }
         var subtitleKey: String {
@@ -184,7 +170,6 @@ struct SettingsView: View {
             case .points:    return "points_tracker_sub"
             case .labs:      return "sec_labs_sub"
             case .other:     return "sec_other_sub"
-            case .changelog: return "changelog_sub"
             }
         }
         var icon: String {
@@ -197,7 +182,6 @@ struct SettingsView: View {
             case .points:    return "circle.circle.fill"
             case .labs:      return "flask.fill"
             case .other:     return "info.circle.fill"
-            case .changelog: return "sparkles"
             }
         }
         /// Une teinte par domaine : on repère la ligne à la couleur avant
@@ -212,7 +196,6 @@ struct SettingsView: View {
             case .points:    return .tPurple
             case .labs:      return .tWarning
             case .other:     return .tMuted
-            case .changelog: return .tVLC
             }
         }
     }
@@ -281,8 +264,6 @@ struct SettingsView: View {
                     menuRow(.labs)
                     rowSeparator
                     menuRow(.other)
-                    rowSeparator
-                    menuRow(.changelog)
                 }
                 .tCard()
 
@@ -386,7 +367,6 @@ struct SettingsView: View {
                 case .account:
                     webSessionCard
                     compteCard
-                    usageCard
                 case .general:
                     langueCard
                     hiddenCard
@@ -411,8 +391,6 @@ struct SettingsView: View {
                 case .other:
                     aboutCard
                     expertCard
-                case .changelog:
-                    ChangelogList()
                 }
                 Spacer(minLength: 32)
             }
@@ -1422,71 +1400,6 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var usageCard: some View {
-        // ── Utilisation de l'app ────────────────────────────
-        settingCard {
-            VStack(alignment: .leading, spacing: 14) {
-                label("chart.line.uptrend.xyaxis", store.t("usage_section"))
-
-                if usage.loading {
-                    TLoader()
-                } else if let s = usage.stats {
-                    HStack(spacing: TSpace.sm) {
-                        statBox(value: s.today, label: store.t("usage_today"),
-                                icon: "sun.max.fill")
-                        statBox(value: s.week,  label: store.t("usage_week"),
-                                icon: "calendar")
-                        statBox(value: s.month, label: store.t("usage_month"),
-                                icon: "calendar.badge.clock")
-                    }
-
-                    // Fidélité : la question n'est pas « combien ont
-                    // installé » mais « combien reviennent ».
-                    if s.loyalty.total > 0 {
-                        Divider().background(Color.tBorder)
-                        loyaltyBlock(s)
-                    }
-
-                    if !s.versions.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(store.t("usage_versions"))
-                                .font(.tMeta).foregroundColor(.tMuted)
-                            ForEach(Array(s.versions.prefix(4))) { v in
-                                HStack {
-                                    Text(v.version)
-                                        .font(.tLabel).foregroundColor(.tText)
-                                    Spacer()
-                                    Text("\(v.count)")
-                                        .font(.tLabel).foregroundColor(.tPrimary)
-                                }
-                            }
-                        }
-                    }
-                } else if usage.lastError == "worker_missing" {
-                    Text(store.t("usage_worker_missing"))
-                        .font(.tMeta).foregroundColor(.tWarning)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if usage.lastError != nil {
-                    Text(store.t("usage_error"))
-                        .font(.tMeta).foregroundColor(.tMuted)
-                } else {
-                    Text(store.t("usage_tap_refresh"))
-                        .font(.tMeta).foregroundColor(.tMuted)
-                }
-
-                TSecondaryButton(title: store.t("usage_refresh"),
-                                 icon: "arrow.clockwise", fullWidth: true) {
-                    Task { await usage.loadStats() }
-                }
-
-                Divider().background(Color.tBorder)
-
-                toggleRow(store.t("usage_share"), store.t("usage_share_sub"),
-                          $store.shareUsage, log: "Partage d'utilisation")
-            }
-        }
-    }
-
     @ViewBuilder private var debugCard: some View {
         // ── Fonctionnalités en test ─────────────────────────
         // Ce qui marche mais demande encore des retours avant d'être rangé
@@ -1612,7 +1525,7 @@ struct SettingsView: View {
 
     private var versionLabel: String {
         // Même numéro que la source et les versions GitHub (1.1.4…).
-        "\(store.t("version_label")) \(UpdateChecker.installedVersion)"
+        "\(store.t("version_label")) \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")"
     }
 
     /// Lien externe façon bouton (crédits).
@@ -1654,49 +1567,6 @@ struct SettingsView: View {
                     Circle().fill(Color.tPrimary).frame(width: 26, height: 26)
                 }
 
-                // Mise à jour : disponible → bouton ; sinon, vérification manuelle.
-                if let up = updater.available {
-                    Button { UpdateChecker.openSource() } label: {
-                        HStack(spacing: TSpace.sm) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text(store.t("update_available").replacingOccurrences(of: "{v}", with: up.version))
-                                .font(.tLabel)
-                            Spacer()
-                            Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, TSpace.md)
-                        .frame(height: 44)
-                        .background(Color.tPrimary)
-                        .cornerRadius(TRadius.control)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button {
-                        checkingUpdate = true
-                        Task {
-                            await updater.checkIfDue(force: true)
-                            checkingUpdate = false
-                            upToDate = updater.available == nil
-                        }
-                    } label: {
-                        HStack(spacing: TSpace.sm) {
-                            Image(systemName: upToDate ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(store.t(upToDate ? "update_none" : "update_check")).font(.tLabel)
-                            Spacer()
-                            if checkingUpdate { ProgressView().scaleEffect(0.8) }
-                        }
-                        .foregroundColor(.tText)
-                        .padding(.horizontal, TSpace.md)
-                        .frame(height: 44)
-                        .background(Color.tSurface)
-                        .cornerRadius(TRadius.control)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(checkingUpdate)
-                }
                 Text(store.t("about_desc"))
                     .font(.tMeta)
                     .foregroundColor(.tMuted)
@@ -1710,31 +1580,9 @@ struct SettingsView: View {
                 }
                 .font(.system(size: 14, weight: .semibold))
 
-                // Projet vibecodé : dit franchement.
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.tPrimary)
-                    Text(store.t("vibecoded"))
-                        .font(.tMeta)
-                        .foregroundColor(.tMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
                 creditLink(icon: "chevron.left.forwardslash.chevron.right",
                            title: store.t("source_ios"),
                            url: "https://github.com/MXFia19/TwitchUnblock")
-                creditLink(icon: "globe",
-                           title: store.t("web_version"),
-                           url: "https://twitchunblock.vercel.app")
-                creditLink(icon: "bubble.left.and.bubble.right.fill",
-                           title: store.t("discord_join"),
-                           url: kDiscordURL)
-
-                Text(store.t("credits_thanks"))
-                    .font(.tMeta)
-                    .foregroundColor(.tMuted)
-                    .fixedSize(horizontal: false, vertical: true)
                 Text(store.t("not_affiliated"))
                     .font(.tMeta)
                     .foregroundColor(.tMuted.opacity(0.8))
@@ -1781,37 +1629,6 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-    }
-
-    // MARK: – Fidélité des installations
-    @ViewBuilder
-    private func loyaltyBlock(_ s: UsageStats) -> some View {
-        VStack(alignment: .leading, spacing: TSpace.sm) {
-            HStack {
-                Text(store.t("usage_returning"))
-                    .font(.tCardTitle).foregroundColor(.tText)
-                Spacer()
-                Text("\(s.returning) / \(s.known)  ·  \(s.returnRate) %")
-                    .font(.tLabel).foregroundColor(.tPrimary)
-            }
-
-            // Une ligne par tranche, avec la barre ET le chiffre : la longueur
-            // seule se compare mal quand les effectifs sont petits.
-            loyaltyRow(store.t("usage_loyalty_once"),    s.loyalty.once,    s.loyalty.total, .tMuted)
-            loyaltyRow(store.t("usage_loyalty_few"),     s.loyalty.few,     s.loyalty.total, .tOutplayer)
-            loyaltyRow(store.t("usage_loyalty_regular"), s.loyalty.regular, s.loyalty.total, .tPurple)
-            loyaltyRow(store.t("usage_loyalty_daily"),   s.loyalty.daily,   s.loyalty.total, .tSuccess)
-
-            HStack(spacing: TSpace.md) {
-                TMeta(icon: "calendar",
-                      text: "\(store.t("usage_avg_days")) \(String(format: "%.1f", s.avgDays))")
-                if let first = s.oldestFirst {
-                    TMeta(icon: "clock.arrow.circlepath",
-                          text: "\(store.t("usage_since")) \(first)")
-                }
-            }
-            .padding(.top, 2)
         }
     }
 

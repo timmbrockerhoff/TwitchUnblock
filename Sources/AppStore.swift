@@ -397,12 +397,6 @@ final class AppStore: ObservableObject {
                   translucent: translucent)
     }
 
-    // MARK: – Comptage d'utilisation
-    /// Signaler anonymement que cette installation est active.
-    /// Voir Sources/Services/UsageService.swift pour ce qui part réellement.
-    @Published var shareUsage: Bool = false {
-        didSet { UserDefaults.standard.set(shareUsage, forKey: "cfg_share_usage") }
-    }
 
     /// Chaîne à ouvrir dans l'onglet Recherche (depuis le lecteur, l'accueil…).
     /// L'onglet la consomme puis la remet à nil.
@@ -736,7 +730,6 @@ final class AppStore: ObservableObject {
         chatLoadRecent     = ud.object(forKey: "cfg_chat_recent")       as? Bool ?? true
         chatAutocomplete   = ud.object(forKey: "cfg_chat_autocomplete") as? Bool ?? true
         chatShowDeleted    = ud.object(forKey: "cfg_chat_deleted")      as? Bool ?? false
-        shareUsage         = ud.object(forKey: "cfg_share_usage") as? Bool ?? false
         // « zh_hk » importé du site par une version d'avant : ramené à « zh-hk ».
         topLang            = ud.string(forKey: "cfg_top_lang")
             .map { $0.replacingOccurrences(of: "_", with: "-") }
@@ -850,12 +843,6 @@ final class AppStore: ObservableObject {
             // (adoptSyncOwner), pas quand le même renouvelle son jeton.
         }
         twitchToken = token
-        // Compté tout de suite comme compte, sans attendre l'heure suivante :
-        // le Worker reprend l'historique anonyme de l'appareil et l'efface.
-        if isNew {
-            let enabled = shareUsage
-            Task { await UsageService.shared.ping(enabled: enabled, force: true) }
-        }
     }
 
     /// L'historique d'ici reste celui du compte, et une copie en est prise
