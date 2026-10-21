@@ -8,6 +8,8 @@ import SwiftUI
 
 struct HomeView: View {
     let onPlayStream: (String) -> Void
+    /// "Clips" chip: followed channels' clips in the full-screen feed.
+    var onOpenClipFeed: (ClipFeedItem) -> Void = { _ in }
 
     @EnvironmentObject private var store: AppStore
 
@@ -133,6 +135,32 @@ struct HomeView: View {
         .sheet(isPresented: $showHidden) {
             HiddenContentSheet().environmentObject(store)
         }
+    }
+
+    // MARK: – Clips of followed channels
+    /// Last week's most viewed clips of followed channels (live ones first),
+    /// newest first.
+    /// ponytail: 25 channels × 5 clips, one request each; a paged feed if
+    /// that ever feels short.
+    private func followedClips() async -> [ClipData] {
+        var seen = Set<String>()
+        let logins = (allFollowedLive.map { $0.userLogin.lowercased() } + twitchFollowLogins
+                      + store.localFollows.map { $0.lowercased() })
+            .filter { seen.insert($0).inserted }
+            .prefix(25)
+        let clips = await withTaskGroup(of: [ClipData].self) { group in
+            for login in logins {
+                group.addTask {
+                    Array((await getClipsPage(login: login, period: "LAST_WEEK", after: nil))?.clips.prefix(5) ?? [])
+                }
+            }
+            var all: [ClipData] = []
+            for await list in group { all += list }
+            return all
+        }
+        var ids = Set<String>()
+        return clips.filter { ids.insert($0.id).inserted }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     // MARK: – Accueil (avec ou sans compte)
@@ -309,6 +337,12 @@ struct HomeView: View {
                             TChip(title: store.t("home_followed"), isOn: liveTab == 0) { liveTab = 0 }
                             TChip(title: store.t("top_streams"), isOn: liveTab == 1) { liveTab = 1 }
                             TChip(title: store.t("offline_channels"), icon: "moon.fill", isOn: liveTab == 2) { liveTab = 2 }
+                            // Opens the feed right away, like Twitch's Clips tab.
+                            if #available(iOS 17.0, *) {
+                                TChip(title: store.t("clips"), icon: "play.rectangle.on.rectangle.fill", isOn: false) {
+                                    onOpenClipFeed(ClipFeedItem(load: followedClips))
+                                }
+                            }
                         }
                     }
                     // Grille ou liste, au choix (aussi dans Réglages → Général).

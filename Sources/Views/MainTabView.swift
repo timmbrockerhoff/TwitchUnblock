@@ -248,7 +248,8 @@ struct MainTabView: View {
                     // valeurs par défaut (`soft:`) quand une méthode est passée
                     // comme valeur, donc `playLive` vaudrait ici
                     // `(String, Bool) -> Void` et ne collerait pas au callback.
-                    case .home:    HomeView(onPlayStream: { playLive($0) })
+                    case .home:    HomeView(onPlayStream: { playLive($0) },
+                                                onOpenClipFeed: { openClipFeed($0) })
                     case .search:  SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
                                               onPlayLive: { playLive($0) },
                                               onPlayClip: { playClip($0, $1) },
@@ -442,7 +443,7 @@ struct MainTabView: View {
         }
         .fullScreenCover(item: $clipFeed) { item in
             if #available(iOS 17.0, *) {
-                ClipFeedView(clips: item.clips, start: item.start) { clipFeed = nil }
+                ClipFeedView(item: item) { clipFeed = nil }
                     .environmentObject(store)
             }
         }
@@ -1345,17 +1346,21 @@ struct MainTabView: View {
     /// arrows and the end of a clip move through it.
     private func playClipQueue(_ list: [ClipData], _ index: Int) {
         guard list.indices.contains(index) else { return }
-        // Swipeable full-screen feed, as in the Twitch app. Anything playing
-        // stops: two sounds at once otherwise.
+        // Swipeable full-screen feed, like TikTok (iOS 17+).
         if #available(iOS 17.0, *) {
-            if playerMode != nil { stopPlayer() }
-            clipFeed = ClipFeedItem(clips: list, start: index)
+            openClipFeed(ClipFeedItem(clips: list, start: index))
             return
         }
         vodQueue = []
         clipQueue = list
         let clip = list[index]
         startPlayback(.clip(slug: clip.id, title: clip.title))
+    }
+    /// Clip feed over everything. Anything playing stops: two sounds at once
+    /// otherwise.
+    private func openClipFeed(_ item: ClipFeedItem) {
+        if playerMode != nil { stopPlayer() }
+        clipFeed = item
     }
     /// Neighbouring clip of the list (delta −1 / +1). `keepVisibility`: the
     /// automatic advance at the end of a clip leaves a reduced player reduced.
