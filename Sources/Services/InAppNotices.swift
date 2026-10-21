@@ -11,11 +11,10 @@ import UserNotifications
 /// retour dans l'app.
 struct InAppNotice: Identifiable, Codable, Equatable {
     enum Kind: String, Codable {
-        case feedback, dropReady, dropClaimed, download
+        case dropReady, dropClaimed, download
 
         var icon: String {
             switch self {
-            case .feedback:    return "bubble.left.and.bubble.right.fill"
             case .dropReady:   return "gift.fill"
             case .dropClaimed: return "checkmark.seal.fill"
             case .download:    return "arrow.down.circle.fill"
@@ -24,7 +23,6 @@ struct InAppNotice: Identifiable, Codable, Equatable {
 
         var tint: Color {
             switch self {
-            case .feedback:                return .tPrimary
             case .dropReady, .dropClaimed: return .tPurple
             case .download:                return .tSuccess
             }
@@ -94,12 +92,9 @@ final class InAppNotices: ObservableObject {
         }
     }
 
-    /// Bandeau touché : ce qu'il annonce (« Mes signalements »).
+    /// Bandeau touché : il se ferme.
     func open(_ notice: InAppNotice) {
         dismiss()
-        if notice.kind == .feedback {
-            NotificationCenter.default.post(name: .openMyFeedback, object: nil)
-        }
     }
 
     /// Retour dans l'app : les avis arrivés en arrière-plan sans permission

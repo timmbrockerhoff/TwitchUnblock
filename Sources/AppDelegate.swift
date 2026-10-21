@@ -41,11 +41,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .openLiveChannel, object: nil, userInfo: ["login": login])
             }
-        } else if response.notification.request.content.userInfo["feedback"] != nil {
-            // Réponse à un retour : « Mes signalements ».
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .openMyFeedback, object: nil)
-            }
         }
         completionHandler()
     }

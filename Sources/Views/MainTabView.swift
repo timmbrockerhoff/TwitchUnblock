@@ -73,12 +73,6 @@ struct MainTabView: View {
     @State private var showSleepSheet  = false
     @State private var showSettings    = false
     @State private var showPlayerMenu  = false
-    /// Formulaire de retour, et ce qui se lisait quand on l'a ouvert depuis
-    /// le lecteur (joint au message).
-    @State private var showFeedback    = false
-    /// « Mes signalements », ouvert par la notification d'une réponse.
-    @State private var showMyFeedback  = false
-    @State private var feedbackContext: String? = nil
     /// Qualité retenue par le lecteur immersif (vide = meilleure disponible).
     @State private var immersiveQuality = ""
     /// Largeur du chat au début d'un glissement : la translation du geste est
@@ -199,27 +193,6 @@ struct MainTabView: View {
         return nil
     }
 
-    /// Ce qui se lit, joint à un signalement fait depuis le lecteur, avec ce
-    /// qui suffit à classer un retour de lecture : qualité, source du direct,
-    /// mode faible latence, lecteur immersif ou natif.
-    /// Exemple : « live caedrel · chunked · as · ll=1 · imm=1 ».
-    private var playerFeedbackContext: String? {
-        guard playerMode != nil else { return nil }
-        let parts: [String?] = [isLivePlaying ? "live" : "vod", playerChannelLogin,
-                                isLivePlaying ? nil : currentVodId]
-        var details: [String] = []
-        // Le lecteur natif choisit sa qualité lui-même : on ne la connaît pas ici.
-        if store.immersivePlayer, let links = qualityLinks {
-            let q = currentQuality(links)
-            if !q.isEmpty { details.append(q) }
-        }
-        if let source = menuLiveSource { details.append(source) }
-        if isLivePlaying { details.append("ll=\(store.lowLatency ? 1 : 0)") }
-        else if playbackSpeed != 1 { details.append(String(format: "×%g", playbackSpeed)) }
-        details.append("imm=\(store.immersivePlayer ? 1 : 0)")
-        return ([parts.compactMap { $0 }.joined(separator: " ")] + details).joined(separator: " · ")
-    }
-
     /// Écran gardé allumé : seulement quand une vidéo joue (ou va jouer),
     /// lecteur affiché. Il l'était tant qu'un lecteur existait — en pause,
     /// réduit, en erreur, en audio seul : téléphone posé, jusqu'à vider la
@@ -276,8 +249,7 @@ struct MainTabView: View {
 
             VStack(spacing: 0) {
                 HeaderView(title: activeTab.label(store),
-                           onOpenSettings: { showSettings = true },
-                           onFeedback: { feedbackContext = nil; showFeedback = true })
+                           onOpenSettings: { showSettings = true })
                     .zIndex(10)
 
                 Group {
@@ -368,10 +340,6 @@ struct MainTabView: View {
                 onSettings: { showPlayerMenu = false
                               DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                                   showSettings = true } },
-                onFeedback: { showPlayerMenu = false
-                              feedbackContext = playerFeedbackContext
-                              DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                  showFeedback = true } },
                 liveSource: menuLiveSource,
                 onSelectSource: { id in
                     showPlayerMenu = false
@@ -433,13 +401,6 @@ struct MainTabView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .inAppNoticeHost()
-        }
-        // Signaler un bug ou proposer une idée (en-tête, menu du lecteur).
-        .sheet(isPresented: $showFeedback) {
-            FeedbackSheet(context: feedbackContext)
-                .inAppNoticeHost()
-                .environmentObject(store)
-                .presentationDetents([.large])
         }
         // Invitation au Discord : à chaque lancement à partir du 2ᵉ, tant
         // qu'on n'a pas choisi « Ne plus afficher » (ou rejoint), et jamais en
@@ -553,21 +514,11 @@ struct MainTabView: View {
             if let remaining = note.userInfo?["remaining"] as? [MutedRange] { vodMuted = remaining }
             vodUnmuted = note.userInfo?["restored"] as? Int ?? 0
         }
-        // Notification touchée (direct, réponse à un retour) : ce qui est
+        // Notification touchée (direct) : ce qui est
         // ouvert ici se ferme d'abord (voir afterClosingPresentations).
         .onReceive(NotificationCenter.default.publisher(for: .openLiveChannel)) { note in
             guard let login = note.userInfo?["login"] as? String, !login.isEmpty else { return }
             afterClosingPresentations { playLive(login) }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openMyFeedback)) { _ in
-            guard !showMyFeedback else { return }
-            afterClosingPresentations { showMyFeedback = true }
-        }
-        .sheet(isPresented: $showMyFeedback) {
-            NavigationStack { MyFeedbackList() }
-                .inAppNoticeHost()
-                .environmentObject(store)
-                .preferredColorScheme(.dark)
         }
         // Réglage rapide du minuteur depuis le lecteur.
         .sheet(isPresented: $showSleepSheet) {
@@ -608,12 +559,10 @@ struct MainTabView: View {
     /// (SwiftUI refuse une seconde feuille, « Mes signalements » ne s'ouvrait
     /// pas). Tout se ferme, puis l'action part une fois la fermeture finie.
     private func afterClosingPresentations(_ action: @escaping () -> Void) {
-        let open = showSettings || showFeedback || showMyFeedback || showPlayerMenu
+        let open = showSettings || showPlayerMenu
             || showDownloadSheet || showSleepSheet || channelSheet != nil || showMultiLive
         guard open else { action(); return }
         showSettings = false
-        showFeedback = false
-        showMyFeedback = false
         showPlayerMenu = false
         showDownloadSheet = false
         showSleepSheet = false

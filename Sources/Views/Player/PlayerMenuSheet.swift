@@ -20,8 +20,6 @@ struct PlayerMenuSheet: View {
     var onBackToLive:  () -> Void = {}
     var onSleepTimer:  () -> Void = {}
     var onSettings:    () -> Void = {}
-    /// Signaler un problème : le formulaire, avec ce qui se lit.
-    var onFeedback:    () -> Void = {}
     /// Direct : source qui sert le flux (« as », « al »…) ; nil hors direct.
     var liveSource: String? = nil
     /// Changer de source : le direct est relancé par elle.
@@ -179,9 +177,6 @@ struct PlayerMenuSheet: View {
                     divider
                     row(icon: "gearshape.fill", title: store.t("settings"),
                         action: onSettings)
-                    divider
-                    row(icon: "ladybug.fill", title: store.t("report_problem"),
-                        tint: .tLive, action: onFeedback)
                 }
                 .padding(.vertical, TSpace.sm)
             }
