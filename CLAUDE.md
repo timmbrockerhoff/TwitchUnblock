@@ -57,12 +57,14 @@ English, short, explaining *why*.
     Streams/Categories segment.
   - Clips: a channel's clip list opens `ClipFeedView` (iOS 17+), a vertical TikTok-style
     feed, one looping player at a time; iOS 16 keeps the old player path.
+  - Home "Du folgst" ends with "Ansehen fortsetzen" (history VODs watched > 1 min, with
+    progress bar); stream rows show the category as a grey pill.
 
 ## Open ideas (not done)
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Twitch look-alike, next: Home "Du folgst" (avatar/verified rows + "Ansehen fortsetzen"),
+- Twitch look-alike, next: Home "Du folgst" avatar/verified rows (needs avatars fetched),
   Profile tab (replaces Library; settings, drops, downloads, history), Home "Live" and "Clips"
   feeds, Browse "Live-Kanäle" tab + filter menu, Activity tab, player & chat (needs screenshots).
 - Feature ideas discussed: feed filter by words/channels, per-channel playback speed,
