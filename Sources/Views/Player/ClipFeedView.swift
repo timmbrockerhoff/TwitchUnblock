@@ -98,8 +98,7 @@ final class ClipFeedPlayers: ObservableObject {
 }
 
 /// Clips as a full-screen vertical feed, swiped up/down like TikTok. The
-/// whole frame shows over a blurred copy of it; pinching zooms in up to a
-/// screen-filling crop, and the zoom is remembered.
+/// video fills the screen (sides cropped); a button shows the whole frame.
 @available(iOS 17.0, *)
 struct ClipFeedView: View {
     let load: (() async -> [ClipData])?
@@ -110,8 +109,7 @@ struct ClipFeedView: View {
     @State private var loading: Bool
     @State private var current: String?
     @StateObject private var pool = ClipFeedPlayers()
-    /// 0 = whole frame, 1 = fills the screen (sides cropped).
-    @AppStorage("clip_feed_zoom") private var zoom: Double = 0
+    @State private var wholeImage = false
 
     init(item: ClipFeedItem, onClose: @escaping () -> Void) {
         load = item.load
@@ -176,7 +174,7 @@ struct ClipFeedView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(clips) { clip in
                         ClipFeedPage(clip: clip, isCurrent: current == clip.id, insets: insets,
-                                     pool: pool, zoom: $zoom)
+                                     pool: pool, wholeImage: $wholeImage)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(clip.id)
                     }
@@ -200,11 +198,9 @@ private struct ClipFeedPage: View {
     /// Safe area of the screen: the page itself runs under the bars.
     let insets: EdgeInsets
     @ObservedObject var pool: ClipFeedPlayers
-    @Binding var zoom: Double
+    @Binding var wholeImage: Bool
 
     @EnvironmentObject private var store: AppStore
-    /// Zoom when the pinch began.
-    @State private var pinchStart: Double?
 
     private static let isoFormatter = ISO8601DateFormatter()
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -224,64 +220,36 @@ private struct ClipFeedPage: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            // Scale at which a 16:9 frame fills the page's height.
-            let fillScale = max(1, geo.size.height / (geo.size.width * 9 / 16))
-            let scale = 1 + zoom * (fillScale - 1)
-            ZStack {
-                Color.black
-                // Blurred copy behind the whole frame, as in TikTok.
-                thumbnail(.fill)
-                    .blur(radius: 30)
-                    .overlay(Color.black.opacity(0.35))
-                ZStack {
-                    thumbnail(.fit)
-                    if let player = pool.players[clip.id] {
-                        PlayerLayerView(player: player, background: .clear)
-                    }
-                }
-                .scaleEffect(scale)
-                if isCurrent && pool.players[clip.id] == nil && !pool.failed.contains(clip.id) {
-                    ProgressView().tint(.white)
-                }
-                if pool.failed.contains(clip.id) {
-                    Text(store.t("err_clip"))
-                        .font(.tBody).foregroundColor(.white)
-                        .padding(TSpace.md)
-                        .background(Color.black.opacity(0.6), in: Capsule())
-                }
-                if isCurrent && pool.paused {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(.white.opacity(0.85))
-                        .shadow(radius: 8)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
+        ZStack {
+            Color.black
+            // Thumbnail under the clear video layer until the first frame.
+            AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
+                img.resizable().aspectRatio(contentMode: wholeImage ? .fit : .fill)
+            } placeholder: { Color.black }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
-            .contentShape(Rectangle())
-            .onTapGesture { if pool.players[clip.id] != nil { pool.togglePause() } }
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { v in
-                        let start = pinchStart ?? scale
-                        pinchStart = start
-                        let s = min(fillScale, max(1, start * v.magnification))
-                        zoom = fillScale > 1 ? (s - 1) / (fillScale - 1) : 0
-                    }
-                    .onEnded { _ in pinchStart = nil }
-            )
-            .overlay(alignment: .bottom) { bottomBar }
+            if let player = pool.players[clip.id] {
+                PlayerLayerView(player: player, fill: !wholeImage, background: .clear)
+            } else if isCurrent && !pool.failed.contains(clip.id) {
+                ProgressView().tint(.white)
+            }
+            if pool.failed.contains(clip.id) {
+                Text(store.t("err_clip"))
+                    .font(.tBody).foregroundColor(.white)
+                    .padding(TSpace.md)
+                    .background(Color.black.opacity(0.6), in: Capsule())
+            }
+            if isCurrent && pool.paused {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.white.opacity(0.85))
+                    .shadow(radius: 8)
+                    .allowsHitTesting(false)
+            }
         }
-    }
-
-    private func thumbnail(_ mode: ContentMode) -> some View {
-        AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
-            img.resizable().aspectRatio(contentMode: mode)
-        } placeholder: { Color.clear }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture { if pool.players[clip.id] != nil { pool.togglePause() } }
+        .overlay(alignment: .bottom) { bottomBar }
     }
 
     /// Channel, title and meta on the left, actions on the right, over a
@@ -308,13 +276,9 @@ private struct ClipFeedPage: View {
                 Button { pool.muted.toggle() } label: {
                     Image(systemName: pool.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 }
-                // Jumps between the whole frame and a filled screen; pinching
-                // picks anything in between.
-                Button {
-                    withAnimation(.easeInOut(duration: 0.25)) { zoom = zoom > 0.5 ? 0 : 1 }
-                } label: {
-                    Image(systemName: zoom > 0.5 ? "arrow.down.right.and.arrow.up.left"
-                                                 : "arrow.up.left.and.arrow.down.right")
+                Button { wholeImage.toggle() } label: {
+                    Image(systemName: wholeImage ? "arrow.up.left.and.arrow.down.right"
+                                                 : "arrow.down.right.and.arrow.up.left")
                 }
                 if let url = URL(string: "https://clips.twitch.tv/\(clip.id)") {
                     ShareLink(item: url) { Image(systemName: "arrowshape.turn.up.right.fill") }
