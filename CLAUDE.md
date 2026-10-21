@@ -44,16 +44,27 @@ English, short, explaining *why*.
 - Services: staggered live-source race (official Twitch only after proxies fail), parallel
   Luminous mirrors, 15 s request timeouts, parallel chunk fetches, login no longer hangs,
   download backoff with Retry-After.
-- Privacy: usage ping no longer sends the Twitch OAuth token (salted hash instead) and is
-  opt-in (default off).
-- Fork-specific: upstream update prompt disabled (`UpdateChecker.updateChecksEnabled = false`).
-- New: swipe left/right (or arrows) between a channel's clips; auto-advance at clip end.
-- Removed dead code and 51 unused localization keys; per-language string tables are typed.
+- Removed dead code and 51 unused localization keys.
+- German only (2026-10-21): `Sources/Localization/GermanStrings.swift` is the single string
+  table; fr/en/es/ru and all language pickers are gone. `Lang` has one case (`.de`), kept only
+  because formatters/backends take its locale code. New strings: add them there, in German.
+- Removed upstream-developer features: bug report/feedback (form, inbox, admin), announcements,
+  polls, update checker + changelog, usage ping/stats, Discord invite. Keep it that way; the
+  MIT credit to MXFia19 + source link stays in Settings → Other.
+- Twitch look-alike work (user sends screenshots of the Twitch iOS app as reference; viewer
+  features only, no creator/upsell UI; hidden VODs and ad-free live must stay):
+  - Browse tab: categories in a 3-column box-art grid under the search field; Home lost its
+    Streams/Categories segment.
+  - Clips: a channel's clip list opens `ClipFeedView` (iOS 17+), a vertical TikTok-style
+    feed, one looping player at a time; iOS 16 keeps the old player path.
 
 ## Open ideas (not done)
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
-- Move strings to a String Catalog; share IRC parsing/image cache with the tvOS target.
+- Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
+- Twitch look-alike, next: Home "Du folgst" (avatar/verified rows + "Ansehen fortsetzen"),
+  Profile tab (replaces Library; settings, drops, downloads, history), Home "Live" and "Clips"
+  feeds, Browse "Live-Kanäle" tab + filter menu, Activity tab, player & chat (needs screenshots).
 - Feature ideas discussed: feed filter by words/channels, per-channel playback speed,
   quality by Wi-Fi/cellular.
 
@@ -61,3 +72,7 @@ English, short, explaining *why*.
 - There is no way to run the app in this environment; verify by building (push → check.yml)
   and keep changes small and reviewable. The user tests on their iPhone.
 - Commit messages: explain the bug/cost and the fix.
+- Pushing while a check build runs cancels it (`cancel-in-progress`): wait, or batch commits.
+- After a green build the user wants the IPA copied to iCloud Drive:
+  `gh release download latest-optimize -p TwitchUnblock.ipa` →
+  `~/Library/Mobile Documents/com~apple~CloudDocs/TwitchUnblock.ipa`.
