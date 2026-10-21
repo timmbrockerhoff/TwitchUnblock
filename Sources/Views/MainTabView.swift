@@ -109,8 +109,6 @@ struct MainTabView: View {
     @State private var loadGeneration = 0
     /// Page d'une chaîne ouverte en feuille (sans passer par l'onglet Recherche).
     @State private var channelSheet: ChannelSheetItem? = nil
-    /// Visite guidée du tout premier lancement (revue depuis les réglages).
-    @AppStorage("onboarding_done") private var onboardingDone = false
     /// Clip en cours : VOD d'origine et position, pour en rejouer le chat.
     @State private var clipVodId: String? = nil
     @State private var clipOffset: Double = 0
@@ -231,14 +229,6 @@ struct MainTabView: View {
             case .home:    return store.t("tab_home")
             case .search:  return store.t("tab_search")
             case .library: return store.t("tab_library")
-            }
-        }
-        /// Onglets que la visite guidée fait toucher.
-        var tourTarget: TourTarget? {
-            switch self {
-            case .home:    return nil
-            case .search:  return .tabSearch
-            case .library: return .tabLibrary
             }
         }
     }
@@ -401,29 +391,6 @@ struct MainTabView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .inAppNoticeHost()
-        }
-        // Visite guidée (premier lancement, ou revue depuis les réglages) :
-        // par-dessus tout, elle éclaire les vrais boutons de l'app, dont les
-        // positions remontent par `TourAnchorKey`.
-        .overlayPreferenceValue(TourAnchorKey.self) { anchors in
-            Group {
-                if !onboardingDone {
-                    GeometryReader { proxy in
-                        OnboardingTour(rects: anchors.mapValues { proxy[$0] },
-                                       size: proxy.size,
-                                       activeTab: $activeTab) {
-                            withAnimation(.easeInOut(duration: 0.3)) { onboardingDone = true }
-                        }
-                    }
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                }
-            }
-        }
-        // Visite relancée pendant une lecture : le lecteur se réduit, sinon
-        // il cacherait les boutons montrés.
-        .onChange(of: onboardingDone) { done in
-            if !done { withAnimation(.easeInOut(duration: 0.2)) { playerVisible = false } }
         }
         // Notification « en live » touchée : on ouvre le direct.
         // Page d'une chaîne demandée (pseudo dans le lecteur, accueil…) :
@@ -1814,7 +1781,6 @@ struct CustomTabBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .tourAnchor(tab.tourTarget)
             }
         }
     }

@@ -224,7 +224,6 @@ struct SearchView: View {
                         Task { await submit() }
                     }
                 }
-                .tourAnchor(.searchField)
 
                 // Indique ce qui va se passer : l'utilisateur n'a pas à deviner.
                 if !query.trimmingCharacters(in: .whitespaces).isEmpty {

@@ -741,11 +741,6 @@ final class AppStore: ObservableObject {
             guard let id = d["id"] else { return nil }
             return TwitchCategory(id: id, name: d["name"] ?? "", boxArtURL: d["box"] ?? "")
         }
-        // Le tutoriel est pour le tout premier lancement : une installation qui
-        // a déjà servi (mise à jour) ne le voit pas.
-        if ud.object(forKey: "onboarding_done") == nil && ud.integer(forKey: "launch_count") > 0 {
-            ud.set(true, forKey: "onboarding_done")
-        }
         homeListLayout     = ud.bool(forKey: "cfg_home_list")
         showRecentChannels = ud.object(forKey: "cfg_recent") as? Bool ?? true
         // Qualité préférée ; avant elle, seul l'audio seul était retenu.

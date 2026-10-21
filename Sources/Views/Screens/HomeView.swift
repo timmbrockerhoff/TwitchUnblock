@@ -311,7 +311,6 @@ struct HomeView: View {
                             TChip(title: store.t("offline_channels"), icon: "moon.fill", isOn: liveTab == 2) { liveTab = 2 }
                         }
                     }
-                    .tourAnchor(.homeTabs)
                     // Grille ou liste, au choix (aussi dans Réglages → Général).
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { store.homeListLayout.toggle() }
