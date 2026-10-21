@@ -444,8 +444,15 @@ struct MainTabView: View {
         }
         .fullScreenCover(item: $clipFeed) { item in
             if #available(iOS 17.0, *) {
-                ClipFeedView(item: item) { clipFeed = nil }
-                    .environmentObject(store)
+                ClipFeedView(item: item) {
+                    // Already slid out by the edge swipe: no slide-down on top.
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { clipFeed = nil }
+                }
+                .environmentObject(store)
+                // The app shows behind while the edge swipe pulls the feed away.
+                .presentationBackground(.clear)
             }
         }
         // Réglage rapide du minuteur depuis le lecteur.

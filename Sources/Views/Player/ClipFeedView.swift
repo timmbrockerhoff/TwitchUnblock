@@ -19,10 +19,6 @@ final class ClipFeedPlayers: ObservableObject {
     @Published private(set) var playbacks: [String: ClipPlayback] = [:]
     @Published private(set) var failed: Set<String> = []
     @Published private(set) var paused = false
-    /// Shared by all clips: muting one keeps the next ones muted.
-    @Published var muted = false {
-        didSet { players.values.forEach { $0.isMuted = muted } }
-    }
     private var loopers: [String: AVPlayerLooper] = [:]
     private var linkTasks: [String: Task<ClipPlayback?, Never>] = [:]
     private var kept: Set<String> = []
@@ -78,7 +74,6 @@ final class ClipFeedPlayers: ObservableObject {
             return
         }
         let q = AVQueuePlayer()
-        q.isMuted = muted
         loopers[id] = AVPlayerLooper(player: q, templateItem: AVPlayerItem(url: url))
         players[id] = q
         syncPlayback()
@@ -97,8 +92,8 @@ final class ClipFeedPlayers: ObservableObject {
     }
 }
 
-/// Clips as a full-screen vertical feed, swiped up/down like TikTok. The
-/// video fills the screen (sides cropped); a button shows the whole frame.
+/// Clips as a full-screen vertical feed, swiped up/down like TikTok, always
+/// showing the whole frame. No buttons: a swipe from the left edge closes it.
 @available(iOS 17.0, *)
 struct ClipFeedView: View {
     let load: (() async -> [ClipData])?
@@ -109,7 +104,8 @@ struct ClipFeedView: View {
     @State private var loading: Bool
     @State private var current: String?
     @StateObject private var pool = ClipFeedPlayers()
-    @State private var wholeImage = false
+    /// Edge swipe in progress: the feed follows the finger to the right.
+    @State private var dragX: CGFloat = 0
 
     init(item: ClipFeedItem, onClose: @escaping () -> Void) {
         load = item.load
@@ -133,19 +129,9 @@ struct ClipFeedView: View {
                     feed(insets: geo.safeAreaInsets)
                 }
             }
+            .offset(x: dragX)
+            .overlay(alignment: .leading) { edgeSwipe(width: geo.size.width) }
             .ignoresSafeArea()
-            .overlay(alignment: .topLeading) {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 40, height: 40)
-                        .background(Color.black.opacity(0.35), in: Circle())
-                }
-                .padding(.leading, TSpace.lg)
-                .padding(.top, TSpace.xs)
-                .accessibilityLabel(store.t("close"))
-            }
         }
         .statusBarHidden()
         .preferredColorScheme(.dark)
@@ -168,13 +154,34 @@ struct ClipFeedView: View {
         }
     }
 
+    /// Thin strip on the left edge, like the system back swipe: past a third
+    /// of the screen (or flicked), the feed slides out and closes.
+    private func edgeSwipe(width: CGFloat) -> some View {
+        Color.clear
+            .frame(width: 24)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { v in dragX = max(0, v.translation.width) }
+                    .onEnded { v in
+                        if v.translation.width > width / 3 || v.predictedEndTranslation.width > width / 2 {
+                            withAnimation(.easeOut(duration: 0.2)) { dragX = width }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { onClose() }
+                        } else {
+                            withAnimation(.spring(duration: 0.25)) { dragX = 0 }
+                        }
+                    }
+            )
+            .accessibilityAction(named: Text(store.t("close")), onClose)
+    }
+
     private func feed(insets: EdgeInsets) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(clips) { clip in
                         ClipFeedPage(clip: clip, isCurrent: current == clip.id, insets: insets,
-                                     pool: pool, wholeImage: $wholeImage)
+                                     pool: pool)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(clip.id)
                     }
@@ -198,7 +205,6 @@ private struct ClipFeedPage: View {
     /// Safe area of the screen: the page itself runs under the bars.
     let insets: EdgeInsets
     @ObservedObject var pool: ClipFeedPlayers
-    @Binding var wholeImage: Bool
 
     @EnvironmentObject private var store: AppStore
 
@@ -227,12 +233,12 @@ private struct ClipFeedPage: View {
             Color.black
                 .overlay {
                     AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
-                        img.resizable().aspectRatio(contentMode: wholeImage ? .fit : .fill)
+                        img.resizable().aspectRatio(contentMode: .fit)
                     } placeholder: { Color.black }
                 }
                 .clipped()
             if let player = pool.players[clip.id] {
-                PlayerLayerView(player: player, fill: !wholeImage, background: .clear)
+                PlayerLayerView(player: player, background: .clear)
             } else if isCurrent && !pool.failed.contains(clip.id) {
                 ProgressView().tint(.white)
             }
@@ -255,42 +261,24 @@ private struct ClipFeedPage: View {
         .overlay(alignment: .bottom) { bottomBar }
     }
 
-    /// Channel, title and meta on the left, actions on the right, over a
-    /// dark gradient so the text stays readable on bright frames.
+    /// Channel, title and meta over a dark gradient, so the text stays
+    /// readable on bright frames.
     private var bottomBar: some View {
-        HStack(alignment: .bottom, spacing: TSpace.md) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(pool.playbacks[clip.id]?.broadcasterName ?? " ")
-                    .font(.system(size: 17, weight: .bold))
-                Text(clip.title)
-                    .font(.system(size: 15))
-                    .lineLimit(2)
-                if !meta.isEmpty {
-                    Text(meta)
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.75))
-                        .lineLimit(1)
-                }
+        VStack(alignment: .leading, spacing: 5) {
+            Text(pool.playbacks[clip.id]?.broadcasterName ?? " ")
+                .font(.system(size: 17, weight: .bold))
+            Text(clip.title)
+                .font(.system(size: 15))
+                .lineLimit(2)
+            if !meta.isEmpty {
+                Text(meta)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.75))
+                    .lineLimit(1)
             }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(spacing: 26) {
-                Button { pool.muted.toggle() } label: {
-                    Image(systemName: pool.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                }
-                Button { wholeImage.toggle() } label: {
-                    Image(systemName: wholeImage ? "arrow.up.left.and.arrow.down.right"
-                                                 : "arrow.down.right.and.arrow.up.left")
-                }
-                if let url = URL(string: "https://clips.twitch.tv/\(clip.id)") {
-                    ShareLink(item: url) { Image(systemName: "arrowshape.turn.up.right.fill") }
-                }
-            }
-            .font(.system(size: 26, weight: .semibold))
-            .foregroundColor(.white)
-            .buttonStyle(.plain)
         }
+        .foregroundColor(.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .shadow(color: .black.opacity(0.7), radius: 4)
         .padding(.horizontal, TSpace.lg)
         .padding(.top, 60)
