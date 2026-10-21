@@ -80,13 +80,15 @@ struct PlayerLayerView: UIViewRepresentable {
     /// noires, au prix du haut et du bas de l'image. Du 16:9 dans un écran de
     /// téléphone en paysage (≈2.16) ne peut pas faire les deux.
     var fill: Bool = false
+    /// Clear lets a thumbnail behind show until the first frame is decoded.
+    var background: UIColor = .black
     var onLayer: ((AVPlayerLayer) -> Void)? = nil
 
     func makeUIView(context: Context) -> PlayerLayerUIView {
         let v = PlayerLayerUIView()
         v.playerLayer.player = player
         v.playerLayer.videoGravity = fill ? .resizeAspectFill : .resizeAspect
-        v.backgroundColor = .black
+        v.backgroundColor = background
         onLayer?(v.playerLayer)
         return v
     }

@@ -10,30 +10,96 @@ struct ClipFeedItem: Identifiable {
     var load: (() async -> [ClipData])? = nil
 }
 
-/// Playback links of the feed's clips, fetched once; the next clip is asked
-/// for ahead so a swipe starts playing without waiting for Twitch.
+/// Players of the clip on screen and its two neighbours, kept at feed level:
+/// pages off screen don't exist yet (LazyVStack), so they can't preload
+/// themselves. A swipe then lands on a player that has already buffered.
 @MainActor
-final class ClipPlaybackCache {
-    private var tasks: [String: Task<ClipPlayback?, Never>] = [:]
+final class ClipFeedPlayers: ObservableObject {
+    @Published private(set) var players: [String: AVQueuePlayer] = [:]
+    @Published private(set) var playbacks: [String: ClipPlayback] = [:]
+    @Published private(set) var failed: Set<String> = []
+    @Published private(set) var paused = false
+    /// Shared by all clips: muting one keeps the next ones muted.
+    @Published var muted = false {
+        didSet { players.values.forEach { $0.isMuted = muted } }
+    }
+    private var loopers: [String: AVPlayerLooper] = [:]
+    private var linkTasks: [String: Task<ClipPlayback?, Never>] = [:]
+    private var kept: Set<String> = []
+    private var current: String?
+    private var quality = "source"
 
-    func playback(_ slug: String) async -> ClipPlayback? {
-        if let task = tasks[slug] { return await task.value }
-        let task = Task { await getClip(slug: slug) }
-        tasks[slug] = task
+    /// `keep`: clips that get a player (others are dropped); `links`: clips
+    /// whose playback links are only fetched ahead.
+    func focus(_ id: String, keep: [String], links: [String], quality: String) {
+        current = id
+        self.quality = quality
+        kept = Set(keep)
+        paused = false
+        for (k, p) in players where !kept.contains(k) {
+            p.pause()
+            players[k] = nil
+            loopers[k] = nil
+        }
+        failed.subtract(keep)   // a failed clip is retried when swiped to again
+        for k in keep where players[k] == nil { Task { await makePlayer(k) } }
+        for k in links { Task { _ = await link(k) } }
+        syncPlayback()
+    }
+
+    func togglePause() {
+        paused.toggle()
+        syncPlayback()
+    }
+
+    func stopAll() {
+        players.values.forEach { $0.pause() }
+        players = [:]
+        loopers = [:]
+        kept = []
+    }
+
+    private func link(_ id: String) async -> ClipPlayback? {
+        if let task = linkTasks[id] { return await task.value }
+        let task = Task { await getClip(slug: id) }
+        linkTasks[id] = task
         let result = await task.value
-        if result == nil { tasks[slug] = nil }   // a failure may be retried
+        if let result { playbacks[id] = result } else { linkTasks[id] = nil }
         return result
     }
 
-    func prefetch(_ slug: String) {
-        guard tasks[slug] == nil else { return }
-        Task { _ = await playback(slug) }
+    private func makePlayer(_ id: String) async {
+        let pb = await link(id)
+        // Swiped far away meanwhile, or another call already made it.
+        guard kept.contains(id), players[id] == nil else { return }
+        guard let links = pb?.links,
+              let url = URL(string: links[preferredQualityKey(Array(links.keys), pref: quality)] ?? "") else {
+            failed.insert(id)
+            return
+        }
+        let q = AVQueuePlayer()
+        q.isMuted = muted
+        loopers[id] = AVPlayerLooper(player: q, templateItem: AVPlayerItem(url: url))
+        players[id] = q
+        syncPlayback()
+    }
+
+    /// Only the clip on screen plays; neighbours wait, buffered, at their start.
+    private func syncPlayback() {
+        for (k, p) in players {
+            if k == current && !paused {
+                p.play()
+            } else {
+                p.pause()
+                if k != current { p.seek(to: .zero) }
+            }
+        }
     }
 }
 
 /// Clips as a full-screen vertical feed, swiped up/down like TikTok. The
-/// video fills the screen (sides cropped); a button shows the whole frame.
-/// Only the clip on screen has a player, and it loops.
+/// whole frame shows over a blurred copy of it; pinching zooms in up to a
+/// screen-filling crop, and the zoom is remembered.
 @available(iOS 17.0, *)
 struct ClipFeedView: View {
     let load: (() async -> [ClipData])?
@@ -43,10 +109,9 @@ struct ClipFeedView: View {
     @State private var clips: [ClipData]
     @State private var loading: Bool
     @State private var current: String?
-    /// Shared by all pages: muting one keeps the next ones muted.
-    @State private var muted = false
-    @State private var wholeImage = false
-    @State private var cache = ClipPlaybackCache()
+    @StateObject private var pool = ClipFeedPlayers()
+    /// 0 = whole frame, 1 = fills the screen (sides cropped).
+    @AppStorage("clip_feed_zoom") private var zoom: Double = 0
 
     init(item: ClipFeedItem, onClose: @escaping () -> Void) {
         load = item.load
@@ -92,14 +157,17 @@ struct ClipFeedView: View {
             current = clips.first?.id
             loading = false
         }
-        .onChange(of: current) { _, id in
-            // Next clip's links asked for ahead of the swipe.
-            guard let id, let i = clips.firstIndex(where: { $0.id == id }),
-                  clips.indices.contains(i + 1) else { return }
-            cache.prefetch(clips[i + 1].id)
+        .onChange(of: current, initial: true) { _, id in
+            guard let id, let i = clips.firstIndex(where: { $0.id == id }) else { return }
+            let keep = clips[max(0, i - 1)...min(clips.count - 1, i + 1)].map(\.id)
+            let links = clips.indices.contains(i + 2) ? [clips[i + 2].id] : []
+            pool.focus(id, keep: keep, links: links, quality: store.preferredQuality)
         }
         .onAppear { PlaybackAudio.shared.claim("clips") }
-        .onDisappear { PlaybackAudio.shared.release("clips") }
+        .onDisappear {
+            pool.stopAll()
+            PlaybackAudio.shared.release("clips")
+        }
     }
 
     private func feed(insets: EdgeInsets) -> some View {
@@ -107,8 +175,8 @@ struct ClipFeedView: View {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(clips) { clip in
-                        ClipFeedPage(clip: clip, active: current == clip.id, insets: insets,
-                                     cache: cache, muted: $muted, wholeImage: $wholeImage)
+                        ClipFeedPage(clip: clip, isCurrent: current == clip.id, insets: insets,
+                                     pool: pool, zoom: $zoom)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(clip.id)
                     }
@@ -128,19 +196,15 @@ struct ClipFeedView: View {
 @available(iOS 17.0, *)
 private struct ClipFeedPage: View {
     let clip: ClipData
-    let active: Bool
+    let isCurrent: Bool
     /// Safe area of the screen: the page itself runs under the bars.
     let insets: EdgeInsets
-    let cache: ClipPlaybackCache
-    @Binding var muted: Bool
-    @Binding var wholeImage: Bool
+    @ObservedObject var pool: ClipFeedPlayers
+    @Binding var zoom: Double
 
     @EnvironmentObject private var store: AppStore
-    @State private var playback: ClipPlayback?
-    @State private var player: AVQueuePlayer?
-    @State private var looper: AVPlayerLooper?
-    @State private var failed = false
-    @State private var paused = false
+    /// Zoom when the pinch began.
+    @State private var pinchStart: Double?
 
     private static let isoFormatter = ISO8601DateFormatter()
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -160,44 +224,64 @@ private struct ClipFeedPage: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black
-            if let player {
-                PlayerLayerView(player: player, fill: !wholeImage)
-            } else {
-                AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
-                    img.resizable().aspectRatio(contentMode: wholeImage ? .fit : .fill)
-                } placeholder: { Color.black }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                if active && !failed { ProgressView().tint(.white) }
+        GeometryReader { geo in
+            // Scale at which a 16:9 frame fills the page's height.
+            let fillScale = max(1, geo.size.height / (geo.size.width * 9 / 16))
+            let scale = 1 + zoom * (fillScale - 1)
+            ZStack {
+                Color.black
+                // Blurred copy behind the whole frame, as in TikTok.
+                thumbnail(.fill)
+                    .blur(radius: 30)
+                    .overlay(Color.black.opacity(0.35))
+                ZStack {
+                    thumbnail(.fit)
+                    if let player = pool.players[clip.id] {
+                        PlayerLayerView(player: player, background: .clear)
+                    }
+                }
+                .scaleEffect(scale)
+                if isCurrent && pool.players[clip.id] == nil && !pool.failed.contains(clip.id) {
+                    ProgressView().tint(.white)
+                }
+                if pool.failed.contains(clip.id) {
+                    Text(store.t("err_clip"))
+                        .font(.tBody).foregroundColor(.white)
+                        .padding(TSpace.md)
+                        .background(Color.black.opacity(0.6), in: Capsule())
+                }
+                if isCurrent && pool.paused {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 60))
+                        .foregroundColor(.white.opacity(0.85))
+                        .shadow(radius: 8)
+                        .allowsHitTesting(false)
+                }
             }
-            if failed {
-                Text(store.t("err_clip"))
-                    .font(.tBody).foregroundColor(.white)
-                    .padding(TSpace.md)
-                    .background(Color.black.opacity(0.6), in: Capsule())
-            }
-            if paused {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(.white.opacity(0.85))
-                    .shadow(radius: 8)
-                    .allowsHitTesting(false)
-            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+            .contentShape(Rectangle())
+            .onTapGesture { if pool.players[clip.id] != nil { pool.togglePause() } }
+            .gesture(
+                MagnifyGesture()
+                    .onChanged { v in
+                        let start = pinchStart ?? scale
+                        pinchStart = start
+                        let s = min(fillScale, max(1, start * v.magnification))
+                        zoom = fillScale > 1 ? (s - 1) / (fillScale - 1) : 0
+                    }
+                    .onEnded { _ in pinchStart = nil }
+            )
+            .overlay(alignment: .bottom) { bottomBar }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard let player else { return }
-            paused.toggle()
-            paused ? player.pause() : player.play()
-        }
-        .overlay(alignment: .bottom) { bottomBar }
-        .task(id: active) {
-            if active { await start() } else { stop() }
-        }
-        .onChange(of: muted) { _, m in player?.isMuted = m }
-        .onDisappear { stop() }
+    }
+
+    private func thumbnail(_ mode: ContentMode) -> some View {
+        AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
+            img.resizable().aspectRatio(contentMode: mode)
+        } placeholder: { Color.clear }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 
     /// Channel, title and meta on the left, actions on the right, over a
@@ -205,7 +289,7 @@ private struct ClipFeedPage: View {
     private var bottomBar: some View {
         HStack(alignment: .bottom, spacing: TSpace.md) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(playback?.broadcasterName ?? " ")
+                Text(pool.playbacks[clip.id]?.broadcasterName ?? " ")
                     .font(.system(size: 17, weight: .bold))
                 Text(clip.title)
                     .font(.system(size: 15))
@@ -221,12 +305,16 @@ private struct ClipFeedPage: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 26) {
-                Button { muted.toggle() } label: {
-                    Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                Button { pool.muted.toggle() } label: {
+                    Image(systemName: pool.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 }
-                Button { wholeImage.toggle() } label: {
-                    Image(systemName: wholeImage ? "arrow.up.left.and.arrow.down.right"
-                                                 : "arrow.down.right.and.arrow.up.left")
+                // Jumps between the whole frame and a filled screen; pinching
+                // picks anything in between.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { zoom = zoom > 0.5 ? 0 : 1 }
+                } label: {
+                    Image(systemName: zoom > 0.5 ? "arrow.down.right.and.arrow.up.left"
+                                                 : "arrow.up.left.and.arrow.down.right")
                 }
                 if let url = URL(string: "https://clips.twitch.tv/\(clip.id)") {
                     ShareLink(item: url) { Image(systemName: "arrowshape.turn.up.right.fill") }
@@ -244,30 +332,5 @@ private struct ClipFeedPage: View {
             LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
-    }
-
-    private func start() async {
-        failed = false
-        paused = false
-        if playback == nil { playback = await cache.playback(clip.id) }
-        guard !Task.isCancelled, active, player == nil else { return }
-        guard let links = playback?.links,
-              let url = URL(string: links[preferredQualityKey(Array(links.keys), pref: store.preferredQuality)] ?? "") else {
-            failed = true
-            return
-        }
-        let q = AVQueuePlayer()
-        q.isMuted = muted
-        looper = AVPlayerLooper(player: q, templateItem: AVPlayerItem(url: url))
-        player = q
-        q.play()
-    }
-
-    /// Off screen: drop the player so only one clip decodes at a time.
-    private func stop() {
-        player?.pause()
-        looper = nil
-        player = nil
-        paused = false
     }
 }
