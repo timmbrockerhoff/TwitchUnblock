@@ -6,7 +6,7 @@ import Foundation
 let kRussianStrings: [String: String] = [
     "title": "Twitch без подписки",
     "tab_home": "Главная",
-    "tab_search": "Поиск",
+    "tab_search": "Обзор",
     "tab_library": "Мои VOD",
     "settings": "Настройки",
     "ph_keyword": "Ключевое слово (напр.: хоррор)",
@@ -445,8 +445,6 @@ let kRussianStrings: [String: String] = [
     "vods_search_older": "Искать в более старых VOD",
     "follow_failed": "Twitch не применил это изменение отслеживания.",
     "err_bad_vod": "Неверная ссылка или ID VOD.",
-    "search_empty_title": "Найдите канал или вставьте ссылку",
-    "search_empty_msg": "Введите ник стримера или вставьте ссылку / ID VOD — приложение распознаёт и то и другое.",
     "no_followed_live": "Ни один из ваших каналов не в эфире",
     "no_followed_live_msg": "А пока загляните в топ или в категории.",
     "history_vods_empty_msg": "Здесь появятся VOD, которые вы запускаете, с продолжением просмотра.",

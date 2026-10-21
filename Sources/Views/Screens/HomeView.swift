@@ -45,7 +45,6 @@ struct HomeView: View {
     /// s'affichait le temps de la première réponse.
     @State private var loadingTop      = true
     @State private var errorFollowed: String? = nil
-    @State private var section: HomeSection = .live
     @State private var showWebLogin = false
     @Environment(\.scenePhase) private var scenePhase
     /// Dernier chargement des lives : relus au retour dans l'app et toutes
@@ -58,32 +57,14 @@ struct HomeView: View {
 
     enum TopLang: Hashable { case local, all }
 
-    enum HomeSection: String, CaseIterable, Hashable {
-        case live, categories
-        func label(_ store: AppStore) -> String {
-            switch self {
-            case .live:       return store.t("streams")
-            case .categories: return store.t("categories")
-            }
-        }
-    }
-
     private let columns = [GridItem(.flexible(), alignment: .top),
                            GridItem(.flexible(), alignment: .top)]
 
     var body: some View {
-        // Avec ou sans compte : sans, lives et catégories passent par des
-        // requêtes publiques, et l'accueil invite à se connecter.
-        VStack(spacing: 0) {
-            TSegmented(items: HomeSection.allCases,
-                       selection: $section) { $0.label(store) }
-
-            if section == .live {
-                liveSection
-            } else {
-                CategoriesView(onPlayStream: onPlayStream)
-            }
-        }
+        // Avec ou sans compte : sans, les lives passent par des requêtes
+        // publiques, et l'accueil invite à se connecter.
+        // Categories moved to the Browse tab, as in the Twitch app.
+        liveSection
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.tDark)
         .onAppear {

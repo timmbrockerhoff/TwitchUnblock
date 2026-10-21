@@ -492,7 +492,8 @@ struct CategoryCardView: View {
 
     var body: some View {
         Button(action: onPress) {
-            VStack(alignment: .leading, spacing: 0) {
+            // Twitch style: bare box art, name and viewers right under it.
+            VStack(alignment: .leading, spacing: 3) {
                 AsyncImage(url: URL(string: sharpBoxArt(category.boxArtURL))) { img in
                     img.resizable().aspectRatio(3/4, contentMode: .fill)
                 } placeholder: {
@@ -500,34 +501,30 @@ struct CategoryCardView: View {
                         .overlay(Image(systemName: "gamecontroller")
                             .font(.system(size: 20)).foregroundColor(.tMuted.opacity(0.5)))
                 }
-                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(alignment: .topLeading) {
-                    if isHidden { HiddenBadge().padding(TSpace.sm) }
+                    if isHidden { HiddenBadge().padding(TSpace.xs) }
                 }
+                .padding(.bottom, 3)
 
-                // Nom puis audience, sous la jaquette : l'affiche reste lisible.
+                Text(category.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.tText)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
                 // L'audience arrive après la grille (requête séparée) : sa
                 // ligne garde sa place pour que les cartes ne sautent pas.
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(category.name)
-                        .font(.tCardTitle)
-                        .foregroundColor(.tText)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .frame(height: 36, alignment: .top)
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.tLive).frame(width: 6, height: 6)
-                        Text(category.viewers.map { formatViewers($0) } ?? " ")
-                            .font(.tMeta).foregroundColor(.tMuted)
-                    }
-                    .opacity(category.viewers == nil ? 0 : 1)
-                    .animation(.easeOut(duration: 0.2), value: category.viewers)
+                HStack(spacing: 4) {
+                    Circle().fill(Color.tLive).frame(width: 6, height: 6)
+                    Text(category.viewers.map { formatViewers($0) } ?? " ")
+                        .font(.system(size: 12)).foregroundColor(.tMuted)
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(TSpace.md)
+                .opacity(category.viewers == nil ? 0 : 1)
+                .animation(.easeOut(duration: 0.2), value: category.viewers)
             }
-            .background(Color.tCard)
-            .cornerRadius(TRadius.card)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .opacity(isHidden ? 0.5 : 1)
         }
         .buttonStyle(.plain)

@@ -152,7 +152,8 @@ struct CategoriesView: View {
             .sorted { ($0.viewers ?? 0) > ($1.viewers ?? 0) }
     }
 
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    /// Three narrow box-art columns, as in the Twitch app.
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: TSpace.sm, alignment: .top), count: 3)
 
     var body: some View {
         Group {
@@ -220,7 +221,7 @@ struct CategoriesView: View {
             }
         } else {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: TSpace.md) {
+                LazyVGrid(columns: columns, spacing: TSpace.lg) {
                     ForEach(list) { cat in
                         CategoryCardView(category: cat) { selected = cat }
                     }
@@ -285,7 +286,7 @@ struct CategoriesView: View {
                 let shown = search.isEmpty ? categories.filter { store.showsCategory($0) } : categories
                 let hiddenCount = categories.count - shown.count
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: TSpace.md) {
+                    LazyVGrid(columns: columns, spacing: TSpace.lg) {
                         ForEach(shown) { cat in
                             CategoryCardView(category: cat, hideable: true) { selected = cat }
                         }

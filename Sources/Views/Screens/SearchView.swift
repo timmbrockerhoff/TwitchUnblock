@@ -244,6 +244,10 @@ struct SearchView: View {
             .zIndex(10)
             }
 
+            if browsing {
+                // Idle Browse tab shows the category grid, like Twitch's.
+                CategoriesView(onPlayStream: onPlayLive)
+            } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: TSpace.lg) {
 
@@ -265,15 +269,12 @@ struct SearchView: View {
                                     action: retryAction)
                     } else if !searchedName.isEmpty {
                         results
-                    } else if !queryFocused, query.isEmpty, recentChannelItems.isEmpty {
-                        TEmptyState(icon: "magnifyingglass",
-                                    title: store.t("search_empty_title"),
-                                    message: store.t("search_empty_msg"))
                     }
 
                     Spacer(minLength: 40)
                 }
                 .padding(.top, TSpace.sm)
+            }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -291,6 +292,12 @@ struct SearchView: View {
             recoverTask?.cancel()
             recoverTask = nil
         }
+    }
+
+    /// Nothing searched and the field not in use: the tab browses categories.
+    private var browsing: Bool {
+        initialChannel == nil && !queryFocused && query.isEmpty
+            && searchedName.isEmpty && !loading && errorMsg == nil
     }
 
     // MARK: – Champ + suggestions
@@ -312,7 +319,10 @@ struct SearchView: View {
 
             if !query.isEmpty {
                 Button {
+                    // Also leaves the channel page, back to browsing.
                     query = ""; suggestions = []
+                    searchedName = ""; errorMsg = nil
+                    recoverTask?.cancel(); recoverTask = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 15)).foregroundColor(.tMuted)

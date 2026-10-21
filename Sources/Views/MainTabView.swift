@@ -241,14 +241,14 @@ struct MainTabView: View {
 
         var icon: String {
             switch self {
-            case .home:    return "play.tv"
+            case .home:    return "house"
             case .search:  return "magnifyingglass"
             case .library: return "clock.arrow.circlepath"
             }
         }
         var iconFilled: String {
             switch self {
-            case .home:    return "play.tv.fill"
+            case .home:    return "house.fill"
             case .search:  return "magnifyingglass"
             case .library: return "clock.arrow.circlepath"
             }

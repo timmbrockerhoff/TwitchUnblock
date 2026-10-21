@@ -246,7 +246,7 @@ enum Lang: String, CaseIterable, Identifiable {
 // [Lang: [String: String]] literal of ~2,500 entries is slow to type-check.
 private let kFrenchStrings: [String: String] = [
         "title": "Regarder Twitch sans Sub",
-        "tab_home": "Accueil", "tab_search": "Recherche", "tab_library": "Mes VODs",
+        "tab_home": "Accueil", "tab_search": "Parcourir", "tab_library": "Mes VODs",
         "settings": "Paramètres",
         "ph_keyword": "Mot-clé (ex: horreur)",
         "btn_unlock": "Déverrouiller", "btn_search": "Chercher",
@@ -493,8 +493,6 @@ private let kFrenchStrings: [String: String] = [
         "vods_search_older": "Chercher dans les VODs plus anciennes",
         "follow_failed": "Twitch n'a pas pris en compte ce suivi.",
         "err_bad_vod": "Lien ou ID de VOD invalide.",
-        "search_empty_title": "Cherche une chaîne ou colle un lien",
-        "search_empty_msg": "Tape un nom de streamer, ou colle le lien / l'ID d'une VOD : l'app reconnaît les deux.",
         "no_followed_live": "Aucune de vos chaînes n'est en direct",
         "no_followed_live_msg": "Jetez un œil au Top ou aux catégories en attendant.",
         "history_vods_empty_msg": "Les VODs que vous lancez apparaîtront ici, avec la reprise de lecture.",
@@ -778,7 +776,7 @@ private let kFrenchStrings: [String: String] = [
 
 private let kEnglishStrings: [String: String] = [
         "title": "Watch Twitch No Sub",
-        "tab_home": "Home", "tab_search": "Search", "tab_library": "My VODs",
+        "tab_home": "Home", "tab_search": "Browse", "tab_library": "My VODs",
         "settings": "Settings",
         "ph_keyword": "Keyword (ex: horror)",
         "btn_unlock": "Unlock", "btn_search": "Search",
@@ -1025,8 +1023,6 @@ private let kEnglishStrings: [String: String] = [
         "vods_search_older": "Search older VODs",
         "follow_failed": "Twitch didn't apply this follow change.",
         "err_bad_vod": "Invalid VOD link or ID.",
-        "search_empty_title": "Search a channel or paste a link",
-        "search_empty_msg": "Type a streamer name, or paste a VOD link / ID — the app recognises both.",
         "no_followed_live": "None of your channels are live",
         "no_followed_live_msg": "Have a look at the Top or the categories meanwhile.",
         "history_vods_empty_msg": "VODs you play show up here, with resume playback.",
@@ -1310,7 +1306,7 @@ private let kEnglishStrings: [String: String] = [
 
 private let kSpanishStrings: [String: String] = [
         "title": "Ver Twitch sin Sub",
-        "tab_home": "Inicio", "tab_search": "Buscar", "tab_library": "Mis VODs",
+        "tab_home": "Inicio", "tab_search": "Explorar", "tab_library": "Mis VODs",
         "settings": "Ajustes",
         "ph_keyword": "Palabra (ej: horror)",
         "btn_unlock": "Desbloquear", "btn_search": "Buscar",
@@ -1557,8 +1553,6 @@ private let kSpanishStrings: [String: String] = [
         "vods_search_older": "Buscar en VODs más antiguos",
         "follow_failed": "Twitch no aplicó este cambio de seguimiento.",
         "err_bad_vod": "Enlace o ID de VOD no válido.",
-        "search_empty_title": "Busca un canal o pega un enlace",
-        "search_empty_msg": "Escribe el nombre de un streamer o pega el enlace / ID de un VOD: la app reconoce ambos.",
         "no_followed_live": "Ninguno de tus canales está en directo",
         "no_followed_live_msg": "Echa un vistazo al Top o a las categorías mientras tanto.",
         "history_vods_empty_msg": "Los VODs que reproduzcas aparecerán aquí, con reanudación.",
