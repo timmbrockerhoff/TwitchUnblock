@@ -53,6 +53,7 @@ let kGermanStrings: [String: String] = [
     "show_logs": "Systemprotokolle anzeigen",
     "connected": "Verbunden",
     "history": "Verlauf",
+    "continue_watching": "Ansehen fortsetzen",
     "vods": "VODs",
     "channels": "Kanäle",
     "twitch_account": "Twitch-Konto",

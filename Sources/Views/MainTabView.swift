@@ -249,6 +249,7 @@ struct MainTabView: View {
                     // comme valeur, donc `playLive` vaudrait ici
                     // `(String, Bool) -> Void` et ne collerait pas au callback.
                     case .home:    HomeView(onPlayStream: { playLive($0) },
+                                                onPlayVod: { playVod($0, $1, $2, $3) },
                                                 onOpenClipFeed: { openClipFeed($0) })
                     case .search:  SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
                                               onPlayLive: { playLive($0) },

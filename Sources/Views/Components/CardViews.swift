@@ -679,11 +679,15 @@ struct StreamRowView: View {
                         .foregroundColor(.tMuted)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
+                    // Grey pill, as in the Twitch app's lists.
                     if !stream.gameName.isEmpty {
                         Text(stream.gameName)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.tPurple)
+                            .foregroundColor(.tText)
                             .lineLimit(1)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Color.tSurface, in: Capsule())
+                            .padding(.top, 2)
                     }
                     if !stream.tags.isEmpty {
                         TagChips(tags: stream.tags).padding(.top, 2)

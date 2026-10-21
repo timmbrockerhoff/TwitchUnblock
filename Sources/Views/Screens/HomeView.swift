@@ -8,6 +8,8 @@ import SwiftUI
 
 struct HomeView: View {
     let onPlayStream: (String) -> Void
+    /// "Ansehen fortsetzen": a VOD from the history, resumed where it stopped.
+    var onPlayVod: (String, String?, String?, String?) -> Void = { _, _, _, _ in }
     /// "Clips" chip: followed channels' clips in the full-screen feed.
     var onOpenClipFeed: (ClipFeedItem) -> Void = { _ in }
 
@@ -366,6 +368,8 @@ struct HomeView: View {
                 default: followedTab
                 }
 
+                if liveTab == 0 { continueWatching }
+
                 Spacer(minLength: 40)
             }
         }
@@ -405,6 +409,29 @@ struct HomeView: View {
             TEmptyState(icon: "moon.zzz",
                         title: store.t("no_followed_live"),
                         message: store.t("no_followed_live_msg"))
+        }
+    }
+
+    // MARK: – Ansehen fortsetzen
+    /// Started VODs from the history, newest first, as on Twitch's Home.
+    /// ponytail: "started" = over a minute watched; finished ones stay until
+    /// the history drops them (hiding them needs every VOD's duration first).
+    @ViewBuilder private var continueWatching: some View {
+        let items = Array(store.history
+            .filter { $0.type == .vod && store.getVodProgress($0.term) > 60 }
+            .prefix(10))
+        if !items.isEmpty {
+            TSectionHeader(store.t("continue_watching"), icon: "play.circle") { EmptyView() }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: TSpace.md) {
+                    ForEach(items) { item in
+                        ResumeVodCard(item: item) {
+                            onPlayVod(item.term, item.display, item.thumb, item.streamer)
+                        }
+                    }
+                }
+                .padding(.horizontal, TSpace.lg)
+            }
         }
     }
 
@@ -718,5 +745,59 @@ struct HomeView: View {
               let list = await getFollowedCategoriesGQL(webToken: web),
               store.twitchWebToken == web else { return }
         store.accountFollowedCategoryIds = Set(list.map(\.id))
+    }
+}
+
+/// One "Ansehen fortsetzen" card: thumbnail with the watched part as a bar.
+private struct ResumeVodCard: View {
+    let item: HistoryItem
+    let onTap: () -> Void
+
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject private var metaStore = VodMetaStore.shared
+
+    private var ratio: Double? {
+        guard let total = metaStore.meta(item.term)?.lengthSeconds, total > 0 else { return nil }
+        return min(1, store.getVodProgress(item.term) / Double(total))
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: TSpace.xs) {
+                ZStack(alignment: .bottom) {
+                    AsyncImage(url: URL(string: item.thumb ?? "")) { img in
+                        img.resizable().aspectRatio(16/9, contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(Color.tSurface)
+                    }
+                    if let ratio {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Color.black.opacity(0.5)
+                                Color.tPrimary.frame(width: geo.size.width * ratio)
+                            }
+                        }
+                        .frame(height: 4)
+                    }
+                }
+                .frame(width: 220, height: 124)
+                .clipped()
+                .cornerRadius(6)
+
+                Text(item.display)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.tText)
+                    .lineLimit(1)
+                if let streamer = item.streamer {
+                    Text(streamer)
+                        .font(.system(size: 13))
+                        .foregroundColor(.tMuted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 220, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .task { await metaStore.load(item.term) }
     }
 }
