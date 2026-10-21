@@ -221,13 +221,16 @@ private struct ClipFeedPage: View {
 
     var body: some View {
         ZStack {
+            // Thumbnail under the clear video layer until the first frame. In
+            // an overlay: a filled image laid out directly widened the page
+            // past the screen and pushed the buttons on the right off it.
             Color.black
-            // Thumbnail under the clear video layer until the first frame.
-            AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
-                img.resizable().aspectRatio(contentMode: wholeImage ? .fit : .fill)
-            } placeholder: { Color.black }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
+                .overlay {
+                    AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
+                        img.resizable().aspectRatio(contentMode: wholeImage ? .fit : .fill)
+                    } placeholder: { Color.black }
+                }
+                .clipped()
             if let player = pool.players[clip.id] {
                 PlayerLayerView(player: player, fill: !wholeImage, background: .clear)
             } else if isCurrent && !pool.failed.contains(clip.id) {
