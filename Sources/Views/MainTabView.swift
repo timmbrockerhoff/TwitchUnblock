@@ -13,6 +13,8 @@ struct MainTabView: View {
     /// Channel clip list the current clip was opened from: swipes and the
     /// arrows move through it, and the next clip starts when one ends.
     @State private var clipQueue: [ClipData] = []
+    /// Channel clips opened as the vertical feed (iOS 17+).
+    @State private var clipFeed: ClipFeedItem? = nil
     @State private var qualityLinks: QualityLinks? = nil
     /// Hauteur et cadence de chaque qualité (mêmes clés que `qualityLinks`),
     /// pour la qualité préférée ; vide quand la source ne les donne pas.
@@ -491,7 +493,12 @@ struct MainTabView: View {
             SearchView(onPlayVod: { id, t, th, s in channelSheet = nil; playVod(id, t, th, s) },
                        onPlayLive: { l in channelSheet = nil; playLive(l) },
                        onPlayClip: { slug, t in channelSheet = nil; playClip(slug, t) },
-                       onPlayClipList: { list, i in channelSheet = nil; playClipQueue(list, i) },
+                       onPlayClipList: { list, i in
+                           // The feed is a full-screen cover: it can only
+                           // open once the sheet is gone.
+                           channelSheet = nil
+                           DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { playClipQueue(list, i) }
+                       },
                        onPlayQueue: { list, s in channelSheet = nil; playQueue(list, s) },
                        onRecovered: { rec in channelSheet = nil; playRecovered(rec) },
                        initialChannel: item.login,
@@ -519,6 +526,12 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openLiveChannel)) { note in
             guard let login = note.userInfo?["login"] as? String, !login.isEmpty else { return }
             afterClosingPresentations { playLive(login) }
+        }
+        .fullScreenCover(item: $clipFeed) { item in
+            if #available(iOS 17.0, *) {
+                ClipFeedView(clips: item.clips, start: item.start) { clipFeed = nil }
+                    .environmentObject(store)
+            }
         }
         // Réglage rapide du minuteur depuis le lecteur.
         .sheet(isPresented: $showSleepSheet) {
@@ -559,11 +572,12 @@ struct MainTabView: View {
     /// (SwiftUI refuse une seconde feuille, « Mes signalements » ne s'ouvrait
     /// pas). Tout se ferme, puis l'action part une fois la fermeture finie.
     private func afterClosingPresentations(_ action: @escaping () -> Void) {
-        let open = showSettings || showPlayerMenu
+        let open = showSettings || showPlayerMenu || clipFeed != nil
             || showDownloadSheet || showSleepSheet || channelSheet != nil || showMultiLive
         guard open else { action(); return }
         showSettings = false
         showPlayerMenu = false
+        clipFeed = nil
         showDownloadSheet = false
         showSleepSheet = false
         channelSheet = nil
@@ -1418,6 +1432,13 @@ struct MainTabView: View {
     /// arrows and the end of a clip move through it.
     private func playClipQueue(_ list: [ClipData], _ index: Int) {
         guard list.indices.contains(index) else { return }
+        // Swipeable full-screen feed, as in the Twitch app. Anything playing
+        // stops: two sounds at once otherwise.
+        if #available(iOS 17.0, *) {
+            if playerMode != nil { stopPlayer() }
+            clipFeed = ClipFeedItem(clips: list, start: index)
+            return
+        }
         vodQueue = []
         clipQueue = list
         let clip = list[index]
