@@ -228,13 +228,13 @@ extension Color {
 
 // MARK: – Language
 enum Lang: String, CaseIterable, Identifiable {
-    case fr, en, es, ru
+    case de, fr, en, es, ru
     var id: String { rawValue }
     var flag: String {
-        switch self { case .fr: "🇫🇷"; case .en: "🇬🇧"; case .es: "🇪🇸"; case .ru: "🇷🇺" }
+        switch self { case .de: "🇩🇪"; case .fr: "🇫🇷"; case .en: "🇬🇧"; case .es: "🇪🇸"; case .ru: "🇷🇺" }
     }
     var label: String {
-        switch self { case .fr: "Français"; case .en: "English"; case .es: "Español"; case .ru: "Русский" }
+        switch self { case .de: "Deutsch"; case .fr: "Français"; case .en: "English"; case .es: "Español"; case .ru: "Русский" }
     }
     /// Traduite avec l'IA, sans relecture : on le dit à côté du choix de
     /// langue, avec un lien pour signaler les erreurs.
@@ -1835,6 +1835,8 @@ private let kSpanishStrings: [String: String] = [
 ]
 
 private let translations: [Lang: [String: String]] = [
+    // German: own file (Localization/GermanStrings.swift).
+    .de: kGermanStrings,
     .fr: kFrenchStrings,
     .en: kEnglishStrings,
     .es: kSpanishStrings,

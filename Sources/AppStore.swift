@@ -6,7 +6,7 @@ final class AppStore: ObservableObject {
 
     // MARK: – Language
     /// L'anglais par défaut : l'app n'est pas réservée à un public français.
-    @Published var lang: Lang = .en {
+    @Published var lang: Lang = .de {
         didSet { UserDefaults.standard.set(lang.rawValue, forKey: "lang") }
     }
 
