@@ -893,7 +893,11 @@ private struct ShelfClipCard: View {
                     .multilineTextAlignment(.leading)
             }
             .frame(width: 130)
+            // The filled thumbnail is wider than the tile (16:9 into 9:16); clipShape only clips
+            // drawing, so without this the next tile's picture took the taps meant for this one.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 }
+
