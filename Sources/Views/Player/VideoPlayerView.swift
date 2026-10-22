@@ -35,15 +35,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     var adBreaks: AdBreakWatcher? = nil
     /// Lecture en cours ou non (pause, fin, échec), à chaque changement.
     var onPlaying: (Bool) -> Void = { _ in }
-    /// Jump inside the current item (broadcast timeline); applied once per id.
-    var seekRequest: SeekRequest? = nil
     /// Tap on the video, seen alongside Apple's own (which shows its controls).
     var onTap: (() -> Void)? = nil
-
-    struct SeekRequest: Equatable {
-        let id: Int
-        let seconds: Double
-    }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
@@ -55,8 +48,6 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         context.coordinator.adBreaks = adBreaks
         context.coordinator.onSpeedChange = onSpeedChange
         context.coordinator.onPlaying = onPlaying
-        // A request made before this player existed is not for it.
-        context.coordinator.lastSeekID = seekRequest?.id ?? 0
         // SwiftUI gestures over the player never see its taps: a UIKit recognizer that
         // runs together with AVKit's own.
         context.coordinator.onTap = onTap
@@ -134,11 +125,6 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
             startPlayer(in: vc, context: context, from: start)
         } else if let player = vc.player {
             coordinator.applyMetadata(nowPlaying, to: player)
-            if let request = seekRequest, request.id != coordinator.lastSeekID {
-                coordinator.lastSeekID = request.id
-                player.seek(to: CMTime(seconds: request.seconds, preferredTimescale: 600),
-                            toleranceBefore: .zero, toleranceAfter: .zero)
-            }
         }
     }
 
@@ -170,8 +156,6 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
 
         /// Adresse demandée pour le lecteur en cours (voir updateUIViewController).
         var requestedURL: URL?
-        /// Last applied NativeVideoPlayer.seekRequest.
-        var lastSeekID = 0
         /// Contenu du lecteur en cours (voir NativeVideoPlayer.contentID).
         var contentID = ""
         /// Lecture d'un direct (journaux LIVE).
@@ -756,7 +740,6 @@ struct VideoPlayerView: View {
     var onTap: (() -> Void)? = nil
     /// Running broadcast with a recording: timeline from its start to now.
     var timeline: BroadcastTimeline? = nil
-    var seekRequest: NativeVideoPlayer.SeekRequest? = nil
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -826,7 +809,6 @@ struct VideoPlayerView: View {
             adBreaks: adBreaks,
             // Audio seul : rien à regarder, l'écran peut s'éteindre.
             onPlaying: { playing in onPlaying(playing && !isAudioQuality(playedQuality)) },
-            seekRequest: seekRequest,
             onTap: onTap
         )
         .aspectRatio(16/9, contentMode: .fit)

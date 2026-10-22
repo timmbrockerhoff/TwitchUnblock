@@ -39,8 +39,6 @@ struct MainTabView: View {
     @State private var liveDvrVideoId: String? = nil    // VOD en cours du live regardé
     @State private var pendingDvrChannel: String? = nil // passe le relais à startPlayback
     @State private var dvrSourceChannel: String? = nil  // on regarde le DVR de cette chaîne
-    /// Jump inside the recording being watched (broadcast timeline).
-    @State private var timelineSeek: NativeVideoPlayer.SeekRequest? = nil
     @State private var currentChannelName: String? = nil
     @State private var currentChannelId: String? = nil   // ← branché sur data.userId
 
@@ -880,8 +878,7 @@ struct MainTabView: View {
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
                 onTap: landscape ? { showLandscapeControls(!landscapeControls) } : nil,
-                timeline: landscape ? nil : broadcastTimeline,
-                seekRequest: timelineSeek
+                timeline: landscape ? nil : broadcastTimeline
             )
         }
     }
@@ -948,6 +945,19 @@ struct MainTabView: View {
                 .tCapsuleShape()
                 .controlSize(.small)
                 .tint(.tPurple)
+            }
+
+            // Watching a running broadcast's recording: one tap back to live.
+            if let backLive = backToLiveAction {
+                Button(action: backLive) {
+                    Label(store.t("live_badge"), systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption.weight(.bold))
+                }
+                .tProminentStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.tLive)
+                .accessibilityLabel(store.t("back_to_live_full"))
             }
 
             playerMoreMenu(landscape: landscape)
@@ -1319,12 +1329,8 @@ struct MainTabView: View {
                 playVod(dvr, statusTitle, nil, ch, soft: true)
             }, onLive: {})
         }
-        if let ch = dvrSourceChannel, currentVodId != nil {
-            return BroadcastTimeline(startedAt: start, position: vodPlaybackTime, onSeek: { t in
-                timelineSeek = .init(id: (timelineSeek?.id ?? 0) + 1, seconds: t)
-                vodPlaybackTime = t
-            }, onLive: { playLive(ch, soft: true) })
-        }
+        // In the recording, Apple's own scrubber in the video is the only timeline; the header's
+        // LIVE button goes back.
         return nil
     }
 

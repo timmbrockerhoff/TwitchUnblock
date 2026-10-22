@@ -84,8 +84,10 @@ English, short, explaining *why*.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
 - Live rewind (Apple's player): `BroadcastTimeline` under the video spans the broadcast from
-  `liveStartedAt` to now; dragging back opens the running recording (`liveDvrVideoId`) at that
-  offset, inside the recording it seeks via `NativeVideoPlayer.seekRequest`, LIVE pill returns.
+  `liveStartedAt` to now, shown only while live (Apple's player has no scrubber for the live
+  stream); dragging back opens the running recording (`liveDvrVideoId`) at that offset. In the
+  recording only Apple's in-video scrubber shows (user wants one time display); a red LIVE
+  button in the header returns.
   It is a DragGesture, not `Slider`: on iOS 27 Slider lost the end of a drag when rebuilt.
   `liveStartedAt` is kept when switching to the recording. "Von Anfang an" button is gone.
 - Portrait player (Apple's): video edge to edge 16:9, timeline under it in Apple Music style
