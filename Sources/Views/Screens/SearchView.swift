@@ -97,7 +97,12 @@ struct SearchView: View {
     // Suggestions de chaînes pendant la frappe
     @State private var suggestions: [AutocompleteSuggestion] = []
     @State private var suggestTask: Task<Void, Never>? = nil
-    @FocusState private var queryFocused: Bool
+    /// System search field in use (iOS 17+ reports it; iOS 16: while there is text).
+    @State private var searchActive = false
+    private var queryFocused: Bool {
+        if #available(iOS 17, *) { return searchActive }
+        return !query.isEmpty
+    }
 
     private let columns = [GridItem(.flexible(), alignment: .top),
                            GridItem(.flexible(), alignment: .top)]
@@ -203,52 +208,22 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
 
-            if initialChannel != nil {
-                // ── En-tête de la feuille « chaîne » ─────────────────────
-                HStack(spacing: TSpace.sm) {
-                    Text(searchedName.isEmpty ? (initialChannel ?? "") : searchedName)
-                        .font(.tSection).foregroundColor(.tText).lineLimit(1)
-                    Spacer(minLength: 0)
-                    TIconButton(icon: "xmark") { onClose?() }
-                }
-                .padding(.horizontal, TSpace.lg)
-                .padding(.top, TSpace.lg)
-                .padding(.bottom, TSpace.sm)
-            } else {
-            // ── Barre de recherche ──────────────────────────────────
-            VStack(spacing: TSpace.sm) {
-                HStack(spacing: TSpace.sm) {
-                    searchField
-                    TPrimaryButton(title: queryIsVod || queryIsClip ? store.t("btn_open") : store.t("btn_search")) {
-                        queryFocused = false
-                        Task { await submit() }
-                    }
-                }
-
-                // Indique ce qui va se passer : l'utilisateur n'a pas à deviner.
-                if !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    HStack(spacing: TSpace.xs) {
-                        Image(systemName: queryIsClip ? "scissors" : queryIsVod ? "play.rectangle.fill" : "person.fill")
-                            .font(.system(size: 10))
-                        Text(store.t(queryIsClip ? "hint_is_clip" : queryIsVod ? "hint_is_vod" : "hint_is_channel"))
-                            .font(.tMeta)
-                    }
-                    .foregroundColor(.tMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.horizontal, TSpace.lg)
-            .padding(.top, TSpace.md)
-            .padding(.bottom, TSpace.sm)
-            .zIndex(10)
-            }
-
             if browsing {
                 // Idle Browse tab shows the category grid, like Twitch's.
                 CategoriesView(onPlayStream: onPlayLive)
             } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: TSpace.lg) {
+
+                    // Indique ce qui va se passer : l'utilisateur n'a pas à deviner.
+                    if initialChannel == nil, searchedName.isEmpty, !loading,
+                       !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Label(store.t(queryIsClip ? "hint_is_clip" : queryIsVod ? "hint_is_vod" : "hint_is_channel"),
+                              systemImage: queryIsClip ? "scissors" : queryIsVod ? "play.rectangle.fill" : "person.fill")
+                            .font(.tMeta)
+                            .foregroundColor(.tMuted)
+                            .padding(.horizontal, TSpace.lg)
+                    }
 
                     // ── Suggestions de chaînes ──────────────────────
                     if queryFocused, !suggestions.isEmpty, !queryIsVod {
@@ -278,6 +253,20 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.tDark)
+        .modifier(SearchBar(enabled: initialChannel == nil, text: $query, active: $searchActive,
+                            prompt: store.t("ph_search")))
+        .onSubmit(of: .search) { Task { await submit() } }
+        .onChange(of: query) { text in
+            suggest(text)
+            // Cleared or cancelled: leave the channel page, back to browsing.
+            if text.isEmpty {
+                suggestions = []; searchedName = ""; errorMsg = nil
+                recoverTask?.cancel(); recoverTask = nil
+            }
+        }
+        // Channel sheet: its name in the navigation bar, a close button.
+        .modifier(SheetBar(title: initialChannel.map { searchedName.isEmpty ? $0 : searchedName },
+                           onClose: { onClose?() }))
         // Chaîne demandée ailleurs (pseudo dans le lecteur, chaîne hors ligne
         // dans l'accueil) : on l'ouvre directement.
         .onAppear {
@@ -299,47 +288,13 @@ struct SearchView: View {
             && searchedName.isEmpty && !loading && errorMsg == nil
     }
 
-    // MARK: – Champ + suggestions
-    @ViewBuilder private var searchField: some View {
-        HStack(spacing: TSpace.sm) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(queryFocused ? .tPrimary : .tMuted)
-
-            TextField(store.t("ph_search"), text: $query)
-                .font(.tBody)
-                .foregroundColor(.tText)
-                .focused($queryFocused)
-                .autocorrectionDisabled()
-                .autocapitalization(.none)
-                .submitLabel(.search)
-                .onSubmit { queryFocused = false; Task { await submit() } }
-                .onChange(of: query) { suggest($0) }
-
-            if !query.isEmpty {
-                Button {
-                    // Also leaves the channel page, back to browsing.
-                    query = ""; suggestions = []
-                    searchedName = ""; errorMsg = nil
-                    recoverTask?.cancel(); recoverTask = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.subheadline).foregroundColor(.tMuted)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, TSpace.md)
-        .frame(height: 44)
-        .tControlSurface(focused: queryFocused)
-    }
-
+    // MARK: – Suggestions
     @ViewBuilder private var suggestionList: some View {
         VStack(spacing: 0) {
             ForEach(suggestions) { s in
                 Button {
                     query = s.login
-                    queryFocused = false
+                    dismissKeyboard()
                     suggestions = []
                     Task { await searchChannel(s.login) }
                 } label: {
@@ -1107,4 +1062,45 @@ struct SearchView: View {
             await MainActor.run { suggestions = Array(found.prefix(5)) }
         }
     }
+}
+
+/// `.searchable` in the navigation bar; on iOS 17+ it also reports whether the
+/// field is in use, which decides between browsing and suggestions.
+private struct SearchBar: ViewModifier {
+    let enabled: Bool
+    @Binding var text: String
+    @Binding var active: Bool
+    let prompt: String
+
+    func body(content: Content) -> some View {
+        if !enabled {
+            content
+        } else if #available(iOS 17, *) {
+            content.searchable(text: $text, isPresented: $active,
+                               placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+        } else {
+            content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+        }
+    }
+}
+
+/// Navigation bar of the channel sheet; nothing in the Browse tab, whose title is the tab's.
+private struct SheetBar: ViewModifier {
+    let title: String?
+    let onClose: () -> Void
+
+    func body(content: Content) -> some View {
+        if let title {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { TCloseButton(action: onClose) } }
+        } else {
+            content
+        }
+    }
+}
+
+private func dismissKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 }

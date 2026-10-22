@@ -6,10 +6,6 @@ import SwiftUI
 //  les grilles restent alignées quelle que soit la longueur des titres.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Hauteur du bloc texte des cartes en grille : deux lignes de titre + une
-/// ligne de méta. Figée pour garantir l'alignement des colonnes.
-private let cardTextHeight: CGFloat = 56
-
 /// Shared formatters: building them on every card render was costly in
 /// scrolling grids (formatters are expensive to create, cheap to reuse).
 private let cardISOFormatter = ISO8601DateFormatter()
@@ -40,6 +36,8 @@ private struct Thumbnail: View {
 /// seule ligne ; ceux qui ne tiennent pas sont omis, pas tronqués.
 struct TagChips: View {
     let tags: [String]
+    /// Follows the text size, like the caption inside.
+    @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 18
 
     var body: some View {
         OneLineLayout(spacing: 4) {
@@ -49,13 +47,13 @@ struct TagChips: View {
                     .foregroundColor(.tMuted)
                     .lineLimit(1)
                     .padding(.horizontal, 7)
-                    .frame(height: 18)
+                    .frame(height: height)
                     .background(Color.tSurface)
                     .clipShape(Capsule())
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 18)
+        .frame(height: height)
         .clipped()
     }
 }
@@ -144,7 +142,7 @@ struct StreamCardView: View {
                     Text(stream.title)
                         .font(.tCardTitle)
                         .foregroundColor(.tText)
-                        .lineLimit(2)
+                        .lineLimit(2, reservesSpace: true)
                         .multilineTextAlignment(.leading)
 
                     // Le pseudo ouvre la chaîne (comme sur Twitch), la carte le direct.
@@ -159,20 +157,15 @@ struct StreamCardView: View {
                     }
                     .buttonStyle(.plain)
 
-                    if !stream.gameName.isEmpty {
-                        Text(stream.gameName)
-                            .font(.tMeta)
-                            .foregroundColor(.tMuted)
-                            .lineLimit(1)
-                    }
+                    // Category and tag lines are always there (blank if missing):
+                    // the grid stays aligned whatever a stream has.
+                    Text(stream.gameName.isEmpty ? " " : stream.gameName)
+                        .font(.tMeta)
+                        .foregroundColor(.tMuted)
+                        .lineLimit(1)
 
-                    if !stream.tags.isEmpty {
-                        TagChips(tags: stream.tags).padding(.top, 2)
-                    }
+                    TagChips(tags: stream.tags).padding(.top, 2)
                 }
-                // Place des tags réservée sur toutes les cartes : la grille
-                // reste alignée, qu'un live en ait ou non.
-                .frame(height: cardTextHeight + 14 + 22, alignment: .top)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(TSpace.md)
             }
@@ -311,7 +304,7 @@ struct VodCardView: View {
                     Text(vod.title)
                         .font(.tCardTitle)
                         .foregroundColor(.tText)
-                        .lineLimit(2)
+                        .lineLimit(2, reservesSpace: true)
                         .multilineTextAlignment(.leading)
 
                     Text(dateString)
@@ -319,7 +312,6 @@ struct VodCardView: View {
                         .foregroundColor(.tMuted)
                         .lineLimit(1)
                 }
-                .frame(height: cardTextHeight, alignment: .top)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(TSpace.md)
             }
@@ -390,7 +382,7 @@ struct UnlistedVodCardView: View {
                     Text(stream.title.isEmpty ? stream.login : stream.title)
                         .font(.tCardTitle)
                         .foregroundColor(.tText)
-                        .lineLimit(2)
+                        .lineLimit(2, reservesSpace: true)
                         .multilineTextAlignment(.leading)
 
                     Text(meta)
@@ -398,7 +390,6 @@ struct UnlistedVodCardView: View {
                         .foregroundColor(.tMuted)
                         .lineLimit(1)
                 }
-                .frame(height: cardTextHeight, alignment: .top)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(TSpace.md)
             }
@@ -462,10 +453,9 @@ struct ClipCardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(clip.title)
                         .font(.tCardTitle).foregroundColor(.tText)
-                        .lineLimit(2).multilineTextAlignment(.leading)
+                        .lineLimit(2, reservesSpace: true).multilineTextAlignment(.leading)
                     Text(meta).font(.tMeta).foregroundColor(.tMuted).lineLimit(1)
                 }
-                .frame(height: cardTextHeight, alignment: .top)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(TSpace.md)
             }
@@ -494,13 +484,16 @@ struct CategoryCardView: View {
         Button(action: onPress) {
             // Twitch style: bare box art, name and viewers right under it.
             VStack(alignment: .leading, spacing: 3) {
-                AsyncImage(url: URL(string: sharpBoxArt(category.boxArtURL))) { img in
-                    img.resizable().aspectRatio(3/4, contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(Color.tSurface).aspectRatio(3/4, contentMode: .fill)
-                        .overlay(Image(systemName: "gamecontroller")
-                            .font(.title3).foregroundColor(.tMuted.opacity(0.5)))
-                }
+                Color.tSurface
+                    .aspectRatio(3/4, contentMode: .fit)
+                    .overlay {
+                        AsyncImage(url: URL(string: sharpBoxArt(category.boxArtURL))) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: {
+                            Image(systemName: "gamecontroller")
+                                .font(.title3).foregroundColor(.tMuted.opacity(0.5))
+                        }
+                    }
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     if isHidden { HiddenBadge().padding(TSpace.xs) }
@@ -510,7 +503,7 @@ struct CategoryCardView: View {
                 Text(category.name)
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(.tText)
-                    .lineLimit(2)
+                    .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
                 // L'audience arrive après la grille (requête séparée) : sa
                 // ligne garde sa place pour que les cartes ne sautent pas.

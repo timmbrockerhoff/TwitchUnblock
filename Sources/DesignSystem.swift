@@ -205,6 +205,23 @@ struct TIconButton: View {
     }
 }
 
+/// Close button for a sheet's toolbar: the system xmark on iOS 26, "Schließen" before.
+struct TCloseButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            Button(role: .close, action: action)
+        } else {
+            Button(kGermanStrings["close"] ?? "", action: action).fontWeight(.semibold)
+        }
+        #else
+        Button(kGermanStrings["close"] ?? "", action: action)
+        #endif
+    }
+}
+
 // MARK: – Pastille sélectionnable
 /// Filter chip as in Apple Music / Podcasts: filled capsule when on, tinted when off.
 struct TChip: View {

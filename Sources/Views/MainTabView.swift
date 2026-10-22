@@ -403,6 +403,7 @@ struct MainTabView: View {
             channelSheet = ChannelSheetItem(login: login)
         }
         .sheet(item: $channelSheet) { item in
+            NavigationStack {
             SearchView(onPlayVod: { id, t, th, s in channelSheet = nil; playVod(id, t, th, s) },
                        onPlayLive: { l in channelSheet = nil; playLive(l) },
                        onPlayClip: { slug, t in channelSheet = nil; playClip(slug, t) },
@@ -416,6 +417,7 @@ struct MainTabView: View {
                        onRecovered: { rec in channelSheet = nil; playRecovered(rec) },
                        initialChannel: item.login,
                        onClose: { channelSheet = nil })
+            }
                 .inAppNoticeHost()
                 .environmentObject(store)
                 .presentationDragIndicator(.visible)
