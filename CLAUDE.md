@@ -70,6 +70,9 @@ English, short, explaining *why*.
   video, immersive "⋯" sheet = grouped List with `.menu` pickers, chat follow/jump/send buttons
   in system style; mini player = `tabViewBottomAccessory` + `.tabBarMinimizeBehavior(.onScrollDown)`
   on iOS 26.1+ (`TabAccessory`), the old floating bar below that.
+  Home (2026-10-22) = shelves like Apple's TV app (`TShelf`): Jetzt live · Du folgst, Ansehen
+  fortsetzen, Clips deiner Kanäle (9:16, opens the clip feed), Top-Streams (language menu),
+  Offline avatars; "Alle" pushes the old full lists (grid/list toggle in their toolbar).
 - Earlier Twitch look-alike work (user sends screenshots of the Twitch iOS app as reference; viewer
   features only, no creator/upsell UI; hidden VODs and ad-free live must stay):
   - Browse tab: categories in a 3-column box-art grid under the search field; Home lost its

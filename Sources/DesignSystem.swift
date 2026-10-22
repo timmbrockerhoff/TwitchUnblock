@@ -283,6 +283,43 @@ struct TSegmented<Item: Hashable>: View {
     }
 }
 
+// MARK: – Regal (Startseite)
+/// A horizontally swiped row under a title, as in Apple's TV app. `accessory` sits after the title
+/// (a menu, say); "Alle ›" opens the full list when `onSeeAll` is given.
+struct TShelf<Accessory: View, Content: View>: View {
+    let title: String
+    var onSeeAll: (() -> Void)? = nil
+    @ViewBuilder var accessory: Accessory
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: TSpace.sm) {
+            HStack(spacing: TSpace.sm) {
+                Text(title).font(.tSection).foregroundColor(.tText)
+                accessory
+                Spacer(minLength: TSpace.sm)
+                if let onSeeAll {
+                    Button(kGermanStrings["see_all"] ?? "", action: onSeeAll)
+                        .font(.subheadline)
+                        .tint(.tPrimary)
+                }
+            }
+            .padding(.horizontal, TSpace.lg)
+            .accessibilityAddTraits(.isHeader)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: TSpace.md) { content }
+                    .padding(.horizontal, TSpace.lg)
+            }
+        }
+    }
+}
+
+extension TShelf where Accessory == EmptyView {
+    init(title: String, onSeeAll: (() -> Void)? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title: title, onSeeAll: onSeeAll, accessory: { EmptyView() }, content: content)
+    }
+}
+
 // MARK: – Champ de recherche
 /// Looks like the system search field; screens with one main search use `.searchable`.
 struct TSearchField: View {

@@ -27,7 +27,12 @@ struct HomeView: View {
     @State private var followsLoaded = false
     @State private var followsFailed = false
     /// Sous-onglet des lives : 0 = suivies en live, 1 = top, 2 = suivies hors ligne.
-    @AppStorage("home_live_tab") private var liveTab = 0
+    /// Full list behind a shelf's "Alle" (the former tabs).
+    enum Detail: Hashable { case followed, top, offline }
+    @State private var detail: Detail? = nil
+    /// Followed channels' clips for their shelf, loaded when it first shows.
+    @State private var shelfClips: [ClipData] = []
+    @State private var shelfClipsLoaded = false
     @State private var topStreams:      [TwitchStream] = []
     /// Sans compte : curseur de la page suivante du top (pages de 30,
     /// « Charger plus »), remis à zéro à chaque rechargement de la 1ʳᵉ page.
@@ -323,46 +328,13 @@ struct HomeView: View {
                         .padding(.top, TSpace.md)
                 }
 
-                // ── Suivies | Top | Hors ligne : des onglets plutôt qu'à la
-                // suite. Les chaînes hors ligne ont le leur : « Suivies » ne
-                // montre plus que ce qui est en direct. ──
-                HStack(spacing: TSpace.sm) {
-                    // Défile si les trois ne tiennent pas (langue, grand texte).
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: TSpace.sm) {
-                            TChip(title: store.t("home_followed"), isOn: liveTab == 0) { liveTab = 0 }
-                            TChip(title: store.t("top_streams"), isOn: liveTab == 1) { liveTab = 1 }
-                            TChip(title: store.t("offline_channels"), icon: "moon.fill", isOn: liveTab == 2) { liveTab = 2 }
-                            // Opens the feed right away, like Twitch's Clips tab.
-                            if #available(iOS 17.0, *) {
-                                TChip(title: store.t("clips"), icon: "play.rectangle.on.rectangle.fill", isOn: false) {
-                                    onOpenClipFeed(ClipFeedItem(load: followedClips))
-                                }
-                            }
-                        }
-                    }
-                    // Grille ou liste, au choix (aussi dans Réglages → Général).
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { store.homeListLayout.toggle() }
-                    } label: {
-                        Image(systemName: store.homeListLayout ? "square.grid.2x2" : "list.bullet")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.tMuted)
-                            .frame(width: 32, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(store.t(store.homeListLayout ? "layout_grid" : "layout_list"))
-                }
-                .padding(.horizontal, TSpace.lg)
-                .padding(.top, TSpace.md)
-
-                switch liveTab {
-                case 1:  topTab
-                case 2:  offlineTab
-                default: followedTab
-                }
-
-                if liveTab == 0 { continueWatching }
+                // ── Shelves, as in Apple's TV app: everything at a glance, "Alle"
+                // opens the full list (grid/list, paging, hiding). ──
+                liveShelf
+                continueWatching
+                clipsShelf
+                topShelf
+                offlineShelf
 
                 Spacer(minLength: 40)
             }
@@ -370,6 +342,156 @@ struct HomeView: View {
         // Tâche détachée : tirer pour rafraîchir annule sa propre tâche dès que
         // la vue se redessine, et la requête annulée vidait les suivis locaux.
         .refreshable { await Task { await loadAll(isRefresh: true) }.value }
+        // Clips of the followed channels, once they are known (outside the lazy stack: a view of
+        // zero height in it never ran its task).
+        .task(id: followsLoaded) {
+            guard followsLoaded, !shelfClipsLoaded else { return }
+            shelfClipsLoaded = true
+            shelfClips = await followedClips()
+        }
+        .navigationDestination(isPresented: Binding(get: { detail != nil },
+                                                    set: { if !$0 { detail = nil } })) {
+            detailPage
+        }
+    }
+
+    // MARK: – Regale
+    @ViewBuilder private var liveShelf: some View {
+        let followed = allFollowedLive
+        if followed.isEmpty {
+            // Nothing followed yet: the login card above says it all. Otherwise one quiet line
+            // (the full states stay behind "Alle").
+            if store.twitchToken != nil || !store.localFollows.isEmpty {
+                VStack(alignment: .leading, spacing: TSpace.xs) {
+                    TSectionHeader(store.t("home_live_now"), icon: "dot.radiowaves.left.and.right")
+                    Group {
+                        if (loadingFollowed || !followsLoaded) && offlineChannels.isEmpty {
+                            ProgressView()
+                        } else {
+                            Text(store.t(followsFailed || errorFollowed != nil ? "err_loading" : "no_followed_live"))
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.tMuted)
+                    .padding(.horizontal, TSpace.lg)
+                }
+            }
+        } else {
+            TShelf(title: "\(store.t("home_live_now")) · \(store.t("home_followed"))",
+                   onSeeAll: { detail = .followed }) {
+                ForEach(followed) { stream in
+                    StreamCardView(stream: stream, pinnable: true) { onPlayStream(stream.userLogin) }
+                        .frame(width: 300)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var clipsShelf: some View {
+        // The clip feed needs iOS 17.
+        if #available(iOS 17.0, *), !shelfClips.isEmpty {
+            TShelf(title: store.t("home_clips")) {
+                ForEach(Array(shelfClips.prefix(20).enumerated()), id: \.element.id) { index, clip in
+                    ShelfClipCard(clip: clip) {
+                        onOpenClipFeed(ClipFeedItem(clips: shelfClips, start: index))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var topShelf: some View {
+        let top = HiddenContent.fill(top: topStreams, keep: store.showsStream, limit: 20)
+        if loadingTop && topStreams.isEmpty {
+            TLoader()
+        } else if !top.streams.isEmpty {
+            TShelf(title: store.t("top_streams"), onSeeAll: { detail = .top }) {
+                // Language in a menu by the title, instead of two chips.
+                Menu {
+                    Picker("", selection: Binding(get: { topLang }, set: { lang in
+                        topLang = lang
+                        Task { await loadTopStreams(lang) }
+                    })) {
+                        Text(TopLanguage.name(TopLanguage.resolved(store.topLang), in: store.lang)).tag(TopLang.local)
+                        Text(store.t("top_world")).tag(TopLang.all)
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Text(topLang == .local ? TopLanguage.name(TopLanguage.resolved(store.topLang), in: store.lang)
+                                               : store.t("top_world"))
+                        Image(systemName: "chevron.down").imageScale(.small)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.tMuted)
+                }
+            } content: {
+                ForEach(top.streams) { stream in
+                    StreamCardView(stream: stream, hideable: true) { onPlayStream(stream.userLogin) }
+                        .frame(width: 240)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var offlineShelf: some View {
+        if !offlineChannels.isEmpty {
+            TShelf(title: "\(store.t("offline_channels")) · \(offlineChannels.count)",
+                   onSeeAll: { detail = .offline }) {
+                ForEach(sortedOffline) { ch in
+                    Button { store.openChannelPage(ch.login) } label: {
+                        VStack(spacing: TSpace.xs) {
+                            AsyncImage(url: URL(string: ch.avatar)) { img in
+                                img.resizable().scaledToFill()
+                            } placeholder: {
+                                Circle().fill(Color.tSurface)
+                            }
+                            .frame(width: 64, height: 64)
+                            .clipShape(Circle())
+                            Text(ch.name)
+                                .font(.caption)
+                                .foregroundColor(.tText)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 72)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { PinStreamerMenuButton(login: ch.login) }
+                }
+            }
+        }
+    }
+
+    /// The former tabs, behind "Alle".
+    @ViewBuilder private var detailPage: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: TSpace.lg) {
+                switch detail {
+                case .top:     topTab
+                case .offline: offlineTab
+                default:       followedTab
+                }
+                Spacer(minLength: 40)
+            }
+            .padding(.top, TSpace.sm)
+        }
+        .refreshable { await Task { await loadAll(isRefresh: true) }.value }
+        .background(Color.tDark)
+        .navigationTitle(detail == .top ? store.t("top_streams")
+                         : detail == .offline ? store.t("offline_channels") : store.t("home_followed"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if detail != .offline {
+                // Grille ou liste, au choix (aussi dans Réglages → Général).
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { store.homeListLayout.toggle() }
+                    } label: {
+                        Image(systemName: store.homeListLayout ? "square.grid.2x2" : "list.bullet")
+                    }
+                    .accessibilityLabel(store.t(store.homeListLayout ? "layout_grid" : "layout_list"))
+                }
+            }
+        }
     }
 
     // MARK: – Onglet « Suivies » (en direct seulement)
@@ -398,7 +520,7 @@ struct HomeView: View {
             TEmptyState(icon: "moon.zzz",
                         title: store.t("no_followed_live"),
                         message: store.t("no_followed_live_msg"),
-                        actionTitle: "\(store.t("see_offline")) · \(offlineChannels.count)") { liveTab = 2 }
+                        actionTitle: "\(store.t("see_offline")) · \(offlineChannels.count)") { detail = .offline }
         } else {
             TEmptyState(icon: "moon.zzz",
                         title: store.t("no_followed_live"),
@@ -755,11 +877,24 @@ private struct ResumeVodCard: View {
         return min(1, store.getVodProgress(item.term) / Double(total))
     }
 
+    /// History entries saved without a picture (a live's recording opened from the player) take
+    /// Twitch's one; size placeholders filled in.
+    private var thumb: String {
+        let saved = item.thumb ?? ""
+        var url = saved.isEmpty ? (metaStore.meta(item.term)?.thumb ?? "") : saved
+        // Recording still running: Twitch only has a placeholder ("processing", 404); the live preview fits.
+        if url.isEmpty || url.contains("processing") || url.contains("404"), let login = item.streamer?.lowercased(), !login.isEmpty {
+            url = "https://static-cdn.jtvnw.net/previews-ttv/live_user_\(login)-320x180.jpg"
+        }
+        return url.replacingOccurrences(of: "%{width}", with: "320")
+            .replacingOccurrences(of: "%{height}", with: "180")
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: TSpace.xs) {
                 ZStack(alignment: .bottom) {
-                    AsyncImage(url: URL(string: item.thumb ?? "")) { img in
+                    AsyncImage(url: URL(string: thumb)) { img in
                         img.resizable().aspectRatio(16/9, contentMode: .fill)
                     } placeholder: {
                         Rectangle().fill(Color.tSurface)
@@ -793,5 +928,39 @@ private struct ResumeVodCard: View {
         }
         .buttonStyle(.plain)
         .task { await metaStore.load(item.term) }
+    }
+}
+
+/// Upright clip tile for the home shelf; opens the clip feed at this clip.
+private struct ShelfClipCard: View {
+    let clip: ClipData
+    let onPress: () -> Void
+
+    var body: some View {
+        Button(action: onPress) {
+            VStack(alignment: .leading, spacing: TSpace.xs) {
+                Color.tSurface
+                    .aspectRatio(9 / 16, contentMode: .fit)
+                    .overlay {
+                        AsyncImage(url: URL(string: clip.thumbnailURL)) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: { EmptyView() }
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        Label(formatViewers(clip.viewCount), systemImage: "eye.fill")
+                            .font(.tBadge).foregroundColor(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 4))
+                            .padding(TSpace.sm)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: TRadius.control, style: .continuous))
+                Text(clip.title)
+                    .font(.tMeta).foregroundColor(.tText)
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(width: 130)
+        }
+        .buttonStyle(.plain)
     }
 }
