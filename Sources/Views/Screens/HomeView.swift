@@ -33,6 +33,11 @@ struct HomeView: View {
     /// Followed channels' clips for their shelf, loaded when it first shows.
     @State private var shelfClips: [ClipData] = []
     @State private var shelfClipsLoaded = false
+    /// The shelf's clips per followed login (ClipData has no channel field).
+    @State private var clipsByLogin: [String: [ClipData]] = [:]
+    /// Channel picked in the shelf's menu (nil = all, mixed), and its own longer list.
+    @State private var clipChannel: String? = nil
+    @State private var channelClips: [ClipData] = []
     @State private var topStreams:      [TwitchStream] = []
     /// Sans compte : curseur de la page suivante du top (pages de 30,
     /// « Charger plus »), remis à zéro à chaque rechargement de la 1ʳᵉ page.
@@ -149,25 +154,50 @@ struct HomeView: View {
     /// newest first.
     /// ponytail: 25 channels × 5 clips, one request each; a paged feed if
     /// that ever feels short.
-    private func followedClips() async -> [ClipData] {
+    /// Clips of the followed channels (5 each, last week), per login.
+    private func followedClips() async -> [String: [ClipData]] {
         var seen = Set<String>()
         let logins = (allFollowedLive.map { $0.userLogin.lowercased() } + twitchFollowLogins
                       + store.localFollows.map { $0.lowercased() })
             .filter { seen.insert($0).inserted }
             .prefix(25)
-        let clips = await withTaskGroup(of: [ClipData].self) { group in
+        return await withTaskGroup(of: (String, [ClipData]).self) { group in
             for login in logins {
                 group.addTask {
-                    Array((await getClipsPage(login: login, period: "LAST_WEEK", after: nil))?.clips.prefix(5) ?? [])
+                    (login, Array((await getClipsPage(login: login, period: "LAST_WEEK", after: nil))?.clips.prefix(5) ?? []))
                 }
             }
-            var all: [ClipData] = []
-            for await list in group { all += list }
-            return all
+            var byLogin: [String: [ClipData]] = [:]
+            for await (login, list) in group { byLogin[login] = list }
+            return byLogin
         }
+    }
+
+    /// All channels mixed, newest first.
+    private func mixedClips(_ byLogin: [String: [ClipData]]) -> [ClipData] {
         var ids = Set<String>()
-        return clips.filter { ids.insert($0.id).inserted }
+        return byLogin.values.joined().filter { ids.insert($0.id).inserted }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// One channel picked: its few clips right away, then a full page (last month when the
+    /// last week has none).
+    private func pickClipChannel(_ login: String?) {
+        clipChannel = login
+        guard let login else { channelClips = []; return }
+        channelClips = clipsByLogin[login] ?? []
+        Task {
+            var clips = await getClipsPage(login: login, period: "LAST_WEEK", after: nil)?.clips ?? []
+            if clips.isEmpty { clips = await getClipsPage(login: login, period: "LAST_MONTH", after: nil)?.clips ?? [] }
+            if clipChannel == login, !clips.isEmpty { channelClips = Array(clips.prefix(20)) }
+        }
+    }
+
+    /// Display name of a followed login (live or offline list), else the login.
+    private func channelName(_ login: String) -> String {
+        allFollowedLive.first { $0.userLogin.lowercased() == login }?.userName
+            ?? offlineChannels.first { $0.login.lowercased() == login }?.name
+            ?? login
     }
 
     // MARK: – Accueil (avec ou sans compte)
@@ -347,7 +377,8 @@ struct HomeView: View {
         .task(id: followsLoaded) {
             guard followsLoaded, !shelfClipsLoaded else { return }
             shelfClipsLoaded = true
-            shelfClips = await followedClips()
+            clipsByLogin = await followedClips()
+            shelfClips = mixedClips(clipsByLogin)
         }
         .navigationDestination(isPresented: Binding(get: { detail != nil },
                                                     set: { if !$0 { detail = nil } })) {
@@ -390,10 +421,35 @@ struct HomeView: View {
     @ViewBuilder private var clipsShelf: some View {
         // The clip feed needs iOS 17.
         if #available(iOS 17.0, *), !shelfClips.isEmpty {
+            let clips = clipChannel == nil ? shelfClips : channelClips
             TShelf(title: store.t("home_clips")) {
-                ForEach(Array(shelfClips.prefix(20).enumerated()), id: \.element.id) { index, clip in
-                    ShelfClipCard(clip: clip) {
-                        onOpenClipFeed(ClipFeedItem(clips: shelfClips, start: index))
+                // One channel or all mixed, in a menu by the title (like Top-Streams' language).
+                Menu {
+                    Picker("", selection: Binding(get: { clipChannel }, set: { pickClipChannel($0) })) {
+                        Text(store.t("clips_all_channels")).tag(String?.none)
+                        ForEach(clipsByLogin.keys.sorted { channelName($0).localizedCaseInsensitiveCompare(channelName($1)) == .orderedAscending },
+                                id: \.self) { login in
+                            Text(channelName(login)).tag(String?.some(login))
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Text(clipChannel.map(channelName) ?? store.t("clips_all_channels"))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down").imageScale(.small)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.tMuted)
+                }
+            } content: {
+                if clips.isEmpty {
+                    Text(store.t("no_clips"))
+                        .font(.subheadline).foregroundColor(.tMuted)
+                } else {
+                    ForEach(Array(clips.prefix(20).enumerated()), id: \.element.id) { index, clip in
+                        ShelfClipCard(clip: clip) {
+                            onOpenClipFeed(ClipFeedItem(clips: clips, start: index))
+                        }
                     }
                 }
             }

@@ -241,6 +241,7 @@ let kGermanStrings: [String: String] = [
     "home_followed": "Du folgst",
     "home_live_now": "Jetzt live",
     "home_clips": "Clips deiner Kanäle",
+    "clips_all_channels": "Alle Kanäle",
     "see_all": "Alle",
     "see_offline": "Offline-Kanäle ansehen",
     "offline_all_live": "Alle deine gefolgten Kanäle sind live!",
