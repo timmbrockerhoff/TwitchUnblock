@@ -29,6 +29,16 @@ mkdir -p "$WORK"
 git archive HEAD | tar -x -C "$WORK"
 cd "$WORK"
 
+# Local-only app icon (assets/local/, ignored by Git): replaces the default icon in this build
+# only, so an icon that must not be published (a brand's logo) never reaches the public repo.
+if [ -f "$REPO/assets/local/icon.png" ]; then
+  cp "$REPO/assets/local/icon.png" assets/icon.png
+  for v in dark tinted; do
+    [ -f "$REPO/assets/local/AppIcon-$v.png" ] && cp "$REPO/assets/local/AppIcon-$v.png" "assets/icons/AppIcon-$v.png"
+  done
+  echo "Local app icon from assets/local/"
+fi
+
 # ── Icons (check.yml: Create App Icon Folder) ──
 CAT=Sources/Assets.xcassets
 make_icon() {
