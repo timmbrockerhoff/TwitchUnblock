@@ -472,7 +472,7 @@ struct MainTabView: View {
                 }, onOpenChannel: { login in
                     // The feed is closing: the channel sheet waits for it to be gone.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { store.openChannelPage(login) }
-                }, onOpenVod: { pb, landscape in
+                }, onOpenVod: { pb in
                     guard let vod = pb.vodId, let offset = pb.vodOffset else { return }
                     // Its resume point becomes the clip's moment: the VOD opens right there.
                     store.setVodProgress(vod, time: offset)
@@ -482,8 +482,6 @@ struct MainTabView: View {
                         let meta = VodMetaStore.shared.meta(vod)
                         try? await Task.sleep(nanoseconds: 400_000_000)
                         playVod(vod, meta?.title, meta?.thumb, meta?.streamer ?? pb.broadcasterName)
-                        // Watched sideways: the player's own landscape (its "Hochformat" item turns back).
-                        if landscape { rotatePlayer(toLandscape: true) }
                     }
                 })
                 .environmentObject(store)

@@ -185,8 +185,7 @@ struct ClipFeedView: View {
     let onClose: () -> Void
     /// The clip's channel page, or its whole VOD from the clip's moment (the feed closes first).
     var onOpenChannel: (String) -> Void = { _ in }
-    /// `landscape`: the clip was watched sideways, the VOD stays sideways.
-    var onOpenVod: (ClipPlayback, _ landscape: Bool) -> Void = { _, _ in }
+    var onOpenVod: (ClipPlayback) -> Void = { _ in }
 
     @EnvironmentObject private var store: AppStore
     @State private var clips: [ClipData]
@@ -195,12 +194,10 @@ struct ClipFeedView: View {
     @StateObject private var pool = ClipFeedPlayers()
     /// Edge swipe in progress: the feed follows the finger to the right.
     @State private var dragX: CGFloat = 0
-    /// Turned to landscape by the button: back to portrait on close.
-    @State private var rotated = false
 
     init(item: ClipFeedItem, onClose: @escaping () -> Void,
          onOpenChannel: @escaping (String) -> Void = { _ in },
-         onOpenVod: @escaping (ClipPlayback, Bool) -> Void = { _, _ in }) {
+         onOpenVod: @escaping (ClipPlayback) -> Void = { _ in }) {
         load = item.load
         self.onClose = onClose
         self.onOpenChannel = onOpenChannel
@@ -257,7 +254,6 @@ struct ClipFeedView: View {
         .onDisappear {
             pool.stopAll()
             PlaybackAudio.shared.release("clips")
-            if rotated { rotate(toLandscape: false) }
         }
     }
 
@@ -271,26 +267,13 @@ struct ClipFeedView: View {
         }
     }
 
-    /// Closes, then `then` once a turn back to portrait has settled: the player opened during
-    /// the turn came up reduced.
+    /// Closes the feed, then opens what was asked for (channel, VOD).
     private func leave(then: @escaping () -> Void) {
-        let turning = rotated
         close()
-        DispatchQueue.main.asyncAfter(deadline: .now() + (turning ? 0.6 : 0), execute: then)
+        then()
     }
 
-    private func close() {
-        if rotated { rotate(toLandscape: false) }
-        onClose()
-    }
-
-    /// Works with the rotation lock on too (same as the player's rotate item).
-    private func rotate(toLandscape: Bool) {
-        rotated = toLandscape
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene }).first else { return }
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: toLandscape ? .landscapeRight : .portrait)) { _ in }
-    }
+    private func close() { onClose() }
 
     /// Thin strip on the left edge, like the system back swipe: past a third
     /// of the screen (or flicked), the feed slides out and closes.
@@ -313,13 +296,11 @@ struct ClipFeedView: View {
             .accessibilityAction(named: Text(store.t("close")), close)
     }
 
-    private var currentPlayback: ClipPlayback? { current.flatMap { pool.playbacks[$0] } }
-
     private func openChannel(_ login: String) { leave { onOpenChannel(login) } }
 
     // MARK: Top bar
-    /// As in Apple's own full-screen video: close top left, sound and a "⋯" menu top right;
-    /// the rarer actions live in the menu, nothing sits on the picture's sides.
+    /// As in Apple's own full-screen video: close top left, sound top right; nothing on the
+    /// picture's sides. Turning the phone turns the feed (no rotate button).
     private func topBar(insets: EdgeInsets, landscape: Bool) -> some View {
         HStack(spacing: TSpace.sm) {
             TIconButton(icon: "xmark", tint: .white, size: 36) { close() }
@@ -330,29 +311,6 @@ struct ClipFeedView: View {
                 pool.showChrome(autoHide: landscape)
             }
             .accessibilityLabel(store.t(pool.muted ? "clip_sound_on" : "clip_sound_off"))
-            Menu {
-                if let pb = currentPlayback, pb.vodId != nil, pb.vodOffset != nil {
-                    Button {
-                        // Sideways: no turn back, the player takes the landscape over.
-                        rotated = false
-                        leave { onOpenVod(pb, landscape) }
-                    } label: { Label(store.t("clip_full_vod"), systemImage: "play.rectangle") }
-                }
-                if let id = current, let url = URL(string: "https://clips.twitch.tv/\(id)") {
-                    ShareLink(item: url) { Label(store.t("share"), systemImage: "square.and.arrow.up") }
-                }
-                Button { rotate(toLandscape: !landscape) } label: {
-                    Label(store.t(landscape ? "rotate_portrait" : "rotate_landscape"),
-                          systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .tGlass(in: Circle(), fallback: .black.opacity(0.4))
-            }
-            .accessibilityLabel(store.t("more"))
         }
         .padding(.horizontal, max(max(insets.leading, insets.trailing), TSpace.lg))
         .padding(.top, insets.top + TSpace.sm)
@@ -365,7 +323,8 @@ struct ClipFeedView: View {
                     ForEach(clips) { clip in
                         ClipFeedPage(clip: clip, isCurrent: current == clip.id, insets: insets,
                                      landscape: landscape, pool: pool,
-                                     onOpenChannel: openChannel)
+                                     onOpenChannel: openChannel,
+                                     onOpenVod: { pb in leave { onOpenVod(pb) } })
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(clip.id)
                     }
@@ -391,6 +350,7 @@ private struct ClipFeedPage: View {
     let landscape: Bool
     @ObservedObject var pool: ClipFeedPlayers
     let onOpenChannel: (String) -> Void
+    let onOpenVod: (ClipPlayback) -> Void
 
     @EnvironmentObject private var store: AppStore
 
@@ -478,33 +438,57 @@ private struct ClipFeedPage: View {
     }
 
     /// Channel, title and meta over a dark gradient, so the text stays
-    /// readable on bright frames; the progress line above them.
+    /// readable on bright frames; share at their right, the progress line under them.
     private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            // The channel's name opens it, like an artist's name in Apple Music.
-            Button {
-                if let login = playback?.broadcasterLogin, !login.isEmpty { onOpenChannel(login) }
-            } label: {
-                Text(playback?.broadcasterName ?? " ")
-                    .font(.system(size: 17, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            Text(clip.title)
-                .font(.system(size: 15))
-                .lineLimit(landscape ? 1 : 2)
-            if !meta.isEmpty {
-                Text(meta)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.75))
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: TSpace.sm) {
+            HStack(alignment: .bottom, spacing: TSpace.md) {
+                VStack(alignment: .leading, spacing: 5) {
+                    // The channel's name opens it, like an artist's name in Apple Music.
+                    Button {
+                        if let login = playback?.broadcasterLogin, !login.isEmpty { onOpenChannel(login) }
+                    } label: {
+                        Text(playback?.broadcasterName ?? " ")
+                            .font(.system(size: 17, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    Text(clip.title)
+                        .font(.system(size: 15))
+                        .lineLimit(landscape ? 1 : 2)
+                    if !meta.isEmpty {
+                        Text(meta)
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.75))
+                            .lineLimit(1)
+                    }
+                    // The VOD the clip comes from, from the clip's moment (only when Twitch knows it).
+                    if let pb = playback, pb.vodId != nil, pb.vodOffset != nil {
+                        Button { onOpenVod(pb) } label: {
+                            Label(store.t("clip_full_vod"), systemImage: "play.fill")
+                                .font(.footnote.weight(.semibold))
+                                .padding(.horizontal, TSpace.md).padding(.vertical, 7)
+                                .tGlass(in: Capsule(), fallback: .black.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, TSpace.xs)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Share bottom right, level with the text.
+                if let url = URL(string: "https://clips.twitch.tv/\(clip.id)") {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .tGlass(in: Circle(), fallback: .black.opacity(0.4))
+                    }
+                    .accessibilityLabel(store.t("share"))
+                }
             }
             if isCurrent {
                 ClipProgressLine(progress: pool.progress) { pool.seek($0) }
-                    .padding(.top, TSpace.xs)
             }
         }
         .foregroundColor(.white)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .shadow(color: .black.opacity(0.7), radius: 4)
         .padding(.leading, max(insets.leading, TSpace.lg))
         .padding(.trailing, max(insets.trailing, TSpace.lg))

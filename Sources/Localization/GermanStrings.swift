@@ -246,7 +246,6 @@ let kGermanStrings: [String: String] = [
     "clip_sound_off": "Ton aus",
     "clip_sound_on": "Ton an",
     "share": "Teilen",
-    "more": "Mehr",
     "see_all": "Alle",
     "see_offline": "Offline-Kanäle ansehen",
     "offline_all_live": "Alle deine gefolgten Kanäle sind live!",
