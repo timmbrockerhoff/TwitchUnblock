@@ -97,6 +97,10 @@ struct SearchView: View {
     // Suggestions de chaînes pendant la frappe
     @State private var suggestions: [AutocompleteSuggestion] = []
     @State private var suggestTask: Task<Void, Never>? = nil
+    /// Categories matching what is typed (same field as channels).
+    @State private var categoryResults: [TwitchCategory] = []
+    /// Category page pushed on the tab's stack (idle grid or search results).
+    @State private var openedCategory: TwitchCategory? = nil
     /// System search field in use (iOS 17+ reports it; iOS 16: while there is text).
     @State private var searchActive = false
     private var queryFocused: Bool {
@@ -210,7 +214,7 @@ struct SearchView: View {
 
             if browsing {
                 // Idle Browse tab shows the category grid, like Twitch's.
-                CategoriesView(onPlayStream: onPlayLive)
+                CategoriesView(onOpen: { openedCategory = $0 })
             } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: TSpace.lg) {
@@ -228,6 +232,19 @@ struct SearchView: View {
                     // ── Suggestions de chaînes ──────────────────────
                     if queryFocused, !suggestions.isEmpty, !queryIsVod {
                         suggestionList
+                    }
+
+                    // ── Catégories ──────────────────────────────────
+                    if searchedName.isEmpty, !loading, !categoryResults.isEmpty {
+                        TShelf(title: store.t("categories")) {
+                            ForEach(categoryResults) { cat in
+                                CategoryCardView(category: cat, hideable: true) {
+                                    dismissKeyboard()
+                                    openedCategory = cat
+                                }
+                                .frame(width: 110)
+                            }
+                        }
                     }
 
                     // ── Chaînes récentes ────────────────────────────
@@ -260,8 +277,16 @@ struct SearchView: View {
             suggest(text)
             // Cleared or cancelled: leave the channel page, back to browsing.
             if text.isEmpty {
-                suggestions = []; searchedName = ""; errorMsg = nil
+                suggestions = []; categoryResults = []; searchedName = ""; errorMsg = nil
                 recoverTask?.cancel(); recoverTask = nil
+            }
+        }
+        .navigationDestination(isPresented: Binding(get: { openedCategory != nil },
+                                                    set: { if !$0 { openedCategory = nil } })) {
+            if let cat = openedCategory {
+                CategoryStreamsView(category: cat,
+                                    followedOnTwitch: store.accountFollowedCategoryIds.contains(cat.id),
+                                    onPlayStream: onPlayLive)
             }
         }
         // Channel sheet: its name in the navigation bar, a close button.
@@ -1045,17 +1070,28 @@ struct SearchView: View {
         }
     }
 
-    /// Suggestions de chaînes, différées de 300 ms pour ne pas appeler à chaque frappe.
+    /// Suggestions de chaînes et catégories, différées de 300 ms pour ne pas appeler à chaque frappe.
     private func suggest(_ text: String) {
         suggestTask?.cancel()
         let t = text.trimmingCharacters(in: .whitespaces)
-        guard t.count >= 2, !queryIsVod, !queryIsClip else { suggestions = []; return }
+        guard t.count >= 2, !queryIsVod, !queryIsClip else { suggestions = []; categoryResults = []; return }
         suggestTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            let found = await searchUsersGQL(t)
+            async let users = searchUsersGQL(t)
+            // GQL ranks like Twitch ("valorant" → VALORANT first); Helix only as a fallback.
+            async let cats = searchCategoriesGQL(query: t)
+            let found = await users
+            var categories = await cats
+            if categories == nil, let token = store.twitchToken {
+                categories = try? await searchCategories(token: token, query: t)
+            }
             guard !Task.isCancelled else { return }
-            await MainActor.run { suggestions = Array(found.prefix(5)) }
+            let ranked = rankCategories(categories ?? [], for: t)
+            await MainActor.run {
+                suggestions = Array(found.prefix(5))
+                categoryResults = Array(ranked.prefix(12))
+            }
         }
     }
 }

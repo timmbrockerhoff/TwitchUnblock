@@ -114,7 +114,8 @@ private struct PullToReload<Content: View>: View {
 
 // MARK: – Grille des catégories
 struct CategoriesView: View {
-    let onPlayStream: (String) -> Void
+    /// Category tapped: SearchView pushes its page (search results open them too).
+    let onOpen: (TwitchCategory) -> Void
 
     @EnvironmentObject private var store: AppStore
 
@@ -125,28 +126,23 @@ struct CategoriesView: View {
     @State private var loading      = false
     @State private var loadingMore  = false
     @State private var errorMsg: String? = nil
-    @State private var search       = ""
-    @State private var searchTask: Task<Void, Never>? = nil
-    /// Recherche en route (indicateur dans le champ).
-    @State private var searching    = false
-    /// Numéro du dernier chargement de la grille (top, recherche, frappe) :
-    /// une réponse plus ancienne ne remplace pas la grille, et seul le plus
-    /// récent conclut (chargeur, indicateur, erreur).
+    /// Numéro du dernier chargement du top : une réponse plus ancienne ne
+    /// remplace pas la grille.
     @State private var gridGen      = 0
-    @State private var selected: TwitchCategory? = nil
-    /// 0 = catégories suivies, 1 = toutes.
-    @AppStorage("cat_tab") private var tab = 1
     /// Suivies sur Twitch (session web), complétées par celles de l'appareil.
     @State private var twitchFollowed: [TwitchCategory] = []
     @State private var followedViewers: [String: Int] = [:]
     @State private var loadingFollowed = false
+    @State private var showFollowed = false
     /// Feuille des chaînes et catégories masquées (ligne « N masqués · Gérer »).
     @State private var showHidden = false
 
-    /// Suivies : Twitch puis appareil, sans doublon.
+    /// Suivies : Twitch puis appareil, sans doublon. One unfollowed on Twitch from its page
+    /// leaves `accountFollowedCategoryIds` and drops out here right away.
     private var followedList: [TwitchCategory] {
         var seen = Set<String>()
-        return (twitchFollowed + store.followedCategories)
+        return (twitchFollowed.filter { store.accountFollowedCategoryIds.contains($0.id) }
+                + store.followedCategories)
             .filter { seen.insert($0.id).inserted }
             .map { c in var c = c; c.viewers = c.viewers ?? followedViewers[c.id]; return c }
             .sorted { ($0.viewers ?? 0) > ($1.viewers ?? 0) }
@@ -156,22 +152,34 @@ struct CategoriesView: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: TSpace.sm, alignment: .top), count: 3)
 
     var body: some View {
-        Group {
-            if let cat = selected {
-                CategoryStreamsView(category: cat,
-                                    followedOnTwitch: twitchFollowed.contains { $0.id == cat.id }
-                                        || store.accountFollowedCategoryIds.contains(cat.id),
-                                    onBack: { selected = nil },
-                                    onPlayStream: onPlayStream,
-                                    onTwitchUnfollowed: { twitchFollowed.removeAll { $0.id == cat.id } })
-            } else {
-                browser
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: TSpace.xl) {
+                let followed = followedList
+                if !followed.isEmpty {
+                    TShelf(title: store.t("cat_yours"), onSeeAll: { showFollowed = true }) {
+                        ForEach(followed) { cat in
+                            CategoryCardView(category: cat) { onOpen(cat) }
+                                .frame(width: 110)
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: TSpace.sm) {
+                    Text(store.t("categories")).font(.tSection).foregroundColor(.tText)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.horizontal, TSpace.lg)
+                    topGrid
+                }
+                Spacer(minLength: 40)
             }
+            .padding(.top, TSpace.sm)
         }
+        // Tâche détachée : voir PullToReload.
+        .refreshable { await Task { await loadTop(); await loadFollowed() }.value }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.tDark)
+        .navigationDestination(isPresented: $showFollowed) { followedPage }
         .onAppear {
-            // Grille vide (première ouverture, retour d'une catégorie après
-            // une recherche sans résultat) : ce qui était demandé.
-            if categories.isEmpty { Task { await reload() } }
+            if categories.isEmpty { Task { await loadTop() } }
             Task { await loadFollowed() }
         }
         .onChange(of: store.followedCategories.map(\.id)) { _ in Task { await loadFollowed() } }
@@ -209,143 +217,81 @@ struct CategoriesView: View {
         if !counts.isEmpty { followedViewers = counts }
     }
 
-    // MARK: – Onglet « Suivies »
-    @ViewBuilder private var followedGrid: some View {
+    // MARK: – « Alle » des suivies
+    @ViewBuilder private var followedPage: some View {
         let list = followedList
-        if loadingFollowed && list.isEmpty {
-            Spacer(); TLoader(); Spacer()
-        } else if list.isEmpty {
-            PullToReload(reload: { await loadFollowed() }) {
+        Group {
+            if loadingFollowed && list.isEmpty {
+                TLoader()
+            } else if list.isEmpty {
                 TEmptyState(icon: "heart", title: store.t("cat_followed_empty"),
                             message: store.t(store.twitchWebToken == nil ? "cat_followed_empty_msg_local" : "cat_followed_empty_msg"))
-            }
-        } else {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: TSpace.lg) {
-                    ForEach(list) { cat in
-                        CategoryCardView(category: cat) { selected = cat }
-                    }
-                }
-                .padding(.horizontal, TSpace.lg)
-                .padding(.top, TSpace.md)
-                Spacer(minLength: 40)
-            }
-            .refreshable { await Task { await loadFollowed() }.value }
-        }
-    }
-
-    // MARK: – Liste / recherche
-    @ViewBuilder private var browser: some View {
-        VStack(spacing: 0) {
-            // Suivies | Toutes
-            HStack(spacing: TSpace.sm) {
-                TChip(title: store.t("cat_followed"), isOn: tab == 0) { tab = 0 }
-                TChip(title: store.t("cat_all"), isOn: tab == 1) { tab = 1 }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, TSpace.lg)
-            .padding(.top, TSpace.md)
-
-            if tab == 0 {
-                followedGrid
             } else {
-                allBrowser
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.tDark)
-    }
-
-    @ViewBuilder private var allBrowser: some View {
-        VStack(spacing: 0) {
-            TSearchField(text: $search, placeholder: store.t("cat_search_ph"), busy: searching)
-                .padding(.horizontal, TSpace.lg)
-                .padding(.top, TSpace.md)
-                .onChange(of: search) { runSearch($0) }
-
-            // Recherche en route sur une grille vide : pas « Aucun résultat »
-            // avant la réponse.
-            if loading || (searching && categories.isEmpty && errorMsg == nil) {
-                Spacer()
-                TLoader()
-                Spacer()
-            } else if let err = errorMsg {
-                // « Réessayer », ou tirer : ce qui était demandé (la recherche
-                // en cours, sinon le top).
-                PullToReload(reload: { await reload() }) {
-                    TEmptyState(icon: "exclamationmark.triangle", title: err,
-                                actionTitle: store.t("retry")) { Task { await reload() } }
-                }
-            } else if categories.isEmpty {
-                PullToReload(reload: { await reload() }) {
-                    TEmptyState(icon: "magnifyingglass", title: store.t("no_result"))
-                }
-            } else {
-                // Sans recherche, les catégories masquées sont écartées ; une
-                // recherche les montre toutes, les masquées atténuées.
-                let shown = search.isEmpty ? categories.filter { store.showsCategory($0) } : categories
-                let hiddenCount = categories.count - shown.count
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: TSpace.lg) {
-                        ForEach(shown) { cat in
-                            CategoryCardView(category: cat, hideable: true) { selected = cat }
+                        ForEach(list) { cat in
+                            CategoryCardView(category: cat) { onOpen(cat) }
                         }
                     }
                     .padding(.horizontal, TSpace.lg)
                     .padding(.top, TSpace.md)
-
-                    if hiddenCount > 0 {
-                        HiddenFooter(count: hiddenCount) { showHidden = true }
-                    }
-
-                    // Pagination : uniquement sur le Top (la recherche n'en a pas).
-                    if search.isEmpty {
-                        if cursor != nil {
-                            TLoadMoreButton(busy: loadingMore) { Task { await loadMore() } }
-                        } else if locked {
-                            if store.twitchToken != nil {
-                                // Connecté depuis le refus : Helix reprend du début.
-                                TLoadMoreButton(busy: loadingMore) {
-                                    cursor = .helix(nil); locked = false
-                                    Task { await loadMore() }
-                                }
-                            } else {
-                                TListEndNote(key: "more_needs_login")
-                            }
-                        }
-                    }
-
                     Spacer(minLength: 40)
                 }
-                // Pendant une recherche, c'est elle qui se relance (le top
-                // s'affichait sous « minecraft »). Tâche détachée : voir
-                // PullToReload.
-                .refreshable { await Task { await reload() }.value }
+                .refreshable { await Task { await loadFollowed() }.value }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.tDark)
+        .navigationTitle(store.t("cat_yours"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: – Top
+    @ViewBuilder private var topGrid: some View {
+        if loading {
+            TLoader().frame(maxWidth: .infinity).padding(.top, TSpace.xl)
+        } else if let err = errorMsg {
+            TEmptyState(icon: "exclamationmark.triangle", title: err,
+                        actionTitle: store.t("retry")) { Task { await loadTop() } }
+        } else {
+            // Les catégories masquées sont écartées.
+            let shown = categories.filter { store.showsCategory($0) }
+            LazyVGrid(columns: columns, spacing: TSpace.lg) {
+                ForEach(shown) { cat in
+                    CategoryCardView(category: cat, hideable: true) { onOpen(cat) }
+                }
+            }
+            .padding(.horizontal, TSpace.lg)
+
+            if categories.count > shown.count {
+                HiddenFooter(count: categories.count - shown.count) { showHidden = true }
+            }
+            if cursor != nil {
+                TLoadMoreButton(busy: loadingMore) { Task { await loadMore() } }
+            } else if locked {
+                if store.twitchToken != nil {
+                    // Connecté depuis le refus : Helix reprend du début.
+                    TLoadMoreButton(busy: loadingMore) {
+                        cursor = .helix(nil); locked = false
+                        Task { await loadMore() }
+                    }
+                } else {
+                    TListEndNote(key: "more_needs_login")
+                }
+            }
+        }
     }
 
     // MARK: – Chargements
-    /// Recharge ce qui est affiché : la recherche en cours, sinon le top.
-    @MainActor private func reload() async {
-        searchTask?.cancel()
-        let q = search.trimmingCharacters(in: .whitespaces)
-        if q.isEmpty { await loadTop() } else { await performSearch(q) }
-    }
-
     @MainActor private func loadTop() async {
         gridGen += 1
         let gen = gridGen
-        searching = false
         if categories.isEmpty { loading = true }
         errorMsg = nil
         guard let token = store.twitchToken else {
             // Sans compte : GQL public, audience comprise, par pages de 100 ;
             // la suite passe par le Client-ID d'Android (loadMore).
             let page = await getTopCategoriesPageGQL(after: nil)
-            // Une recherche est partie entre-temps : c'est elle qui conclut.
             guard gen == gridGen else { return }
             if let page {
                 categories = page.categories
@@ -404,77 +350,22 @@ struct CategoriesView: View {
                 guard let p = try? await getTopCategories(token: token, cursor: after) else { return nil }
                 return (p.categories, p.cursor)
             })
-        // Recherche ou rechargement entre-temps : la grille n'est plus celle
-        // de ce curseur.
-        guard gen == gridGen, search.isEmpty else { return }
+        // Rechargement entre-temps : la grille n'est plus celle de ce curseur.
+        guard gen == gridGen else { return }
         categories += result.fresh
         cursor = result.cursor
         locked = result.locked
         await loadViewers()
     }
-
-    /// Recherche différée de 350 ms : évite un appel par frappe.
-    private func runSearch(_ text: String) {
-        searchTask?.cancel()
-        // Ce qui est en route (top, recherche précédente) est dépassé.
-        gridGen += 1
-        let q = text.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else {
-            searching = false
-            searchTask = Task { await loadTop() }
-            return
-        }
-        searching = true
-        searchTask = Task {
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
-            await performSearch(q)
-        }
-    }
-
-    /// Recherche de catégories, sans délai (frappe après 350 ms, « Réessayer »,
-    /// tirer pour rafraîchir). GQL d'abord, avec ou sans compte : le
-    /// classement de Twitch (« valorant » donne VALORANT en tête) et des
-    /// jaquettes nettes. Helix classait mal et renvoyait des vignettes de
-    /// 52×72 : il ne sert plus que de secours, si GQL ne répond pas.
-    @MainActor private func performSearch(_ q: String) async {
-        gridGen += 1
-        let gen = gridGen
-        searching = true
-        errorMsg = nil
-        var result = await searchCategoriesGQL(query: q)
-        if result == nil, gen == gridGen, let token = store.twitchToken {
-            result = try? await searchCategories(token: token, query: q)
-        }
-        // Frappe ou rechargement plus récent : c'est lui qui conclut.
-        guard gen == gridGen else { return }
-        searching = false
-        loading = false
-        guard let list = result else {
-            // Échec : on le dit, au lieu de laisser le top (ou l'ancienne
-            // recherche) sous ce qu'on vient de taper.
-            errorMsg = store.t("err_loading")
-            return
-        }
-        categories = rankCategories(list, for: q)
-        cursor     = nil
-        // La recherche passe par Helix elle aussi : mêmes cartes, donc
-        // même complément d'audience.
-        await loadViewers()
-    }
 }
 
-// MARK: – Lives d'une catégorie
 struct CategoryStreamsView: View {
     let category: TwitchCategory
     /// Suivie sur le compte Twitch (session web) : le cœur est plein, et le
     /// toucher la retire de Twitch (après confirmation) au lieu d'en faire un
     /// doublon sur l'appareil qu'on ne pouvait plus enlever des suivies.
     var followedOnTwitch = false
-    let onBack: () -> Void
     let onPlayStream: (String) -> Void
-    /// Retirée de Twitch ici : la liste des suivies l'enlève tout de suite.
-    var onTwitchUnfollowed: () -> Void = {}
 
     @EnvironmentObject private var store: AppStore
 
@@ -506,30 +397,6 @@ struct CategoryStreamsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-
-            // ── En-tête : retour + nom de la catégorie ──────────────
-            HStack(spacing: TSpace.sm) {
-                Button(action: onBack) {
-                    HStack(spacing: TSpace.xs) {
-                        Image(systemName: "chevron.left").font(.footnote.weight(.bold))
-                        Text(store.t("categories")).font(.tLabel)
-                    }
-                    .foregroundColor(.tPrimary)
-                }
-                .buttonStyle(.plain)
-
-                Text(category.name)
-                    .font(.tSection)
-                    .foregroundColor(.tText)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                hideButton
-                followButton
-            }
-            .padding(.horizontal, TSpace.lg)
-            .padding(.top, TSpace.md)
-            .padding(.bottom, TSpace.sm)
-
             hiddenStrip
 
             if unfollowFailed {
@@ -607,8 +474,17 @@ struct CategoryStreamsView: View {
                 .refreshable { await Task { await load() }.value }
             }
         }
+        .padding(.top, TSpace.sm)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.tDark)
+        .navigationTitle(category.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                hideButton
+                followButton
+            }
+        }
         .onAppear { if streams.isEmpty { Task { await load() } } }
         .sheet(isPresented: $showHidden) {
             HiddenContentSheet().environmentObject(store)
@@ -640,18 +516,11 @@ struct CategoryStreamsView: View {
             }
             withAnimation(.easeInOut(duration: 0.15)) { store.toggleCategoryFollow(category) }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: on ? "heart.fill" : "heart")
-                Text(store.t(on ? "following" : "follow")).font(.footnote.weight(.bold))
-            }
-            .foregroundColor(on ? .tDanger : .tPrimary)
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background((on ? Color.tDanger : Color.tPrimary).opacity(0.14))
-            .clipShape(Capsule())
+            Image(systemName: on ? "heart.fill" : "heart")
         }
-        .buttonStyle(.plain)
+        .tint(on ? .tDanger : .tPrimary)
+        .accessibilityLabel(store.t(on ? "following" : "follow"))
         .disabled(unfollowBusy)
-        .opacity(unfollowBusy ? 0.5 : 1)
         .confirmationDialog(
             store.t("unfollow_confirm").replacingOccurrences(of: "{c}", with: category.name),
             isPresented: $confirmTwitchUnfollow, titleVisibility: .visible
@@ -678,25 +547,26 @@ struct CategoryStreamsView: View {
         leftOnTwitch = true
         store.accountFollowedCategoryIds.remove(category.id)
         if store.isCategoryFollowed(category.id) { store.toggleCategoryFollow(category) }
-        onTwitchUnfollowed()
     }
 
     /// Masquer la catégorie (œil barré) ; rien si elle est suivie, ni si elle
     /// est déjà masquée (la pastille « Masquée · Réafficher » est en dessous).
     @ViewBuilder private var hideButton: some View {
         if !store.followsCategory(category.id) && !store.hidden.hides(category: category.id) {
-            TIconButton(icon: "eye.slash", size: 30) {
+            Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 withAnimation(.easeInOut(duration: 0.15)) {
                     store.hideCategory(id: category.id, name: category.name, box: category.boxArtURL)
                 }
+            } label: {
+                Image(systemName: "eye.slash")
             }
             .accessibilityLabel(store.t("hide_this_category"))
         }
     }
 
     /// Catégorie masquée : « Masquée · Réafficher », sur sa propre ligne sous
-    /// l'en-tête (dans l'en-tête, avec le nom et Suivre, elle serait coupée).
+    /// la barre de navigation.
     @ViewBuilder private var hiddenStrip: some View {
         if isHiddenHere {
             HStack {
