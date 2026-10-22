@@ -246,13 +246,10 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button { Task { await handleLogin() } } label: {
                     Text(store.t("btn_login_twitch"))
-                        .font(.subheadline.weight(.bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color.tPrimary)
-                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .tProminentStyle()
+                .tCapsuleShape()
+                .tint(.tPrimary)
             }
             Spacer(minLength: 0)
         }
@@ -282,13 +279,10 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button { showWebLogin = true } label: {
                     Text(store.t(expired ? "web_reconnect" : "web_banner_btn"))
-                        .font(.subheadline.weight(.bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color.tPrimary)
-                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .tProminentStyle()
+                .tCapsuleShape()
+                .tint(.tPrimary)
                 .padding(.top, 2)
             }
             Spacer(minLength: 0)

@@ -12,7 +12,7 @@ let kGermanStrings: [String: String] = [
     "btn_search": "Suchen",
     "btn_watch_live": "Live ansehen",
     "btn_logout": "Abmelden",
-    "btn_login_twitch": "🟣 Mit Twitch anmelden",
+    "btn_login_twitch": "Mit Twitch anmelden",
     "btn_clear": "Löschen",
     "loading": "Wird geladen...",
     "loading_vod": "VOD wird geladen...",

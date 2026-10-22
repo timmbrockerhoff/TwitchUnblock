@@ -61,6 +61,11 @@ English, short, explaining *why*.
   (`AccountButton`) in the nav bar opens settings; light/dark follows the system (`tDark`,
   `tCard`, `tSurface`, `tBorder`, `tText`, `tMuted` are system colors), only the accent stays a
   user choice; background themes removed. The player stays dark (`.environment(\.colorScheme, .dark)`).
+  Then (same day): DesignSystem wraps system pieces (text styles, `tProminentStyle`/
+  `tBorderedStyle` = glass on iOS 26, capsule `TChip`, segmented `TSegmented`,
+  `ContentUnavailableView`, `TCloseButton`, `tSheetBar` for sheets); Liquid Glass opt-in removed;
+  168 fixed font sizes → text styles (player/chat excluded: own font-size setting); Browse uses
+  `.searchable`; Settings = NavigationStack + inset grouped List + Form sections.
 - Earlier Twitch look-alike work (user sends screenshots of the Twitch iOS app as reference; viewer
   features only, no creator/upsell UI; hidden VODs and ad-free live must stay):
   - Browse tab: categories in a 3-column box-art grid under the search field; Home lost its
@@ -74,10 +79,9 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Apple-style redesign, next: `.searchable` instead of `TSearchField`, `Picker(.segmented)` for
-  chips/segments, `Form` for Settings, Dynamic Type fonts instead of fixed sizes (394 ad-hoc
-  `.font(.system(size:))`), mini player as `tabViewBottomAccessory` on iOS 26, sheets/views
-  that still assume a dark background.
+- Apple-style redesign, next: player + chat overlay and MultiLive (still custom, dark),
+  Drops/ChannelPoints panels as Form/List, mini player as `tabViewBottomAccessory` on iOS 26,
+  chat sheets' custom capsule buttons.
 - Feature ideas discussed: feed filter by words/channels, per-channel playback speed,
   quality by Wi-Fi/cellular.
 
