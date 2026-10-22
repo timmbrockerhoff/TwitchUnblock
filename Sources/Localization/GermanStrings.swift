@@ -242,7 +242,6 @@ let kGermanStrings: [String: String] = [
     "home_live_now": "Jetzt live",
     "home_clips": "Clips deiner Kanäle",
     "clips_all_channels": "Alle Kanäle",
-    "clip_channel": "Kanal öffnen",
     "clip_full_vod": "Ganzes VOD ab hier",
     "clip_sound_off": "Ton aus",
     "clip_sound_on": "Ton an",

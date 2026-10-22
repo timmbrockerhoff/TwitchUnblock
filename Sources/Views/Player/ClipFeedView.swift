@@ -338,11 +338,6 @@ struct ClipFeedView: View {
                         leave { onOpenVod(pb, landscape) }
                     } label: { Label(store.t("clip_full_vod"), systemImage: "play.rectangle") }
                 }
-                if let login = currentPlayback?.broadcasterLogin, !login.isEmpty {
-                    Button { openChannel(login) } label: {
-                        Label(store.t("clip_channel"), systemImage: "person.crop.circle")
-                    }
-                }
                 if let id = current, let url = URL(string: "https://clips.twitch.tv/\(id)") {
                     ShareLink(item: url) { Label(store.t("share"), systemImage: "square.and.arrow.up") }
                 }
