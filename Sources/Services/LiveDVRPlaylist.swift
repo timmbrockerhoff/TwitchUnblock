@@ -148,18 +148,33 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         let adsNow = liveText.contains("stitched-ad")
             || Self.segments(liveText, base: s.live, skipAds: false).count > live.count
         var fill: [Segment] = []
-        if adsNow, let url = await backupURL(s), let text = await fetch(url) {
+        if adsNow, let url = backupURL(s), let text = await fetch(url) {
             fill = Self.segments(text, base: url, skipAds: true).map { var seg = $0; seg.backup = true; return seg }
             // The backup got the break too: a fresh one next time.
             if text.contains("stitched-ad") { lock.withLock { s.backup = nil } }
         }
+        let pastSegments = pastText.flatMap { t in s.recording.map { Self.segments(t, base: $0, skipAds: false) } }
+        // A pre-roll with no usable recording: without its ads nothing is left to play, and
+        // Apple's player refuses an empty playlist for good. Wait a few seconds for a backup
+        // here; none → the ads themselves, so the stream at least starts.
+        let nothingYet = lock.withLock {
+            s.appended.isEmpty && (s.past ?? pastSegments ?? []).isEmpty
+        }
+        if adsNow, fill.isEmpty, live.isEmpty, nothingYet {
+            if let login = s.login, let url = await Self.within(7, { await adFreeBackupPlaylist(login: login, quality: s.quality) }),
+               let text = await fetch(url) {
+                lock.withLock { s.backup = url }
+                fill = Self.segments(text, base: url, skipAds: true).map { var seg = $0; seg.backup = true; return seg }
+            }
+            if fill.isEmpty { fill = Self.segments(liveText, base: s.live, skipAds: false) }
+        }
         noteBreak(s, adsNow: adsNow, filled: !fill.isEmpty, liveText: liveText)
 
-        let pastSegments = pastText.flatMap { t in s.recording.map { Self.segments(t, base: $0, skipAds: false) } }
         return lock.withLock { () -> String? in
             if s.past == nil {
-                guard let pastSegments, !pastSegments.isEmpty else { return nil }
-                s.past = pastSegments
+                // Recording unreadable or undated: the live stream without its past, rather than
+                // no stream at all (the item failed for good).
+                s.past = pastSegments ?? []
             }
             let past = s.past ?? []
             // Live (and backup) segments after the recording's end, appended once each, in time
@@ -177,20 +192,32 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     // MARK: Ad breaks
-    /// The backup playlist for this session's channel, fetched once per break (retried at most
-    /// every 20 s while none has been found).
-    private func backupURL(_ s: Session) async -> URL? {
+    /// The backup playlist for this session's channel once found. The search (several tokens and
+    /// playlists) runs in the background, retried at most every 20 s: awaiting it here held the
+    /// player's playlist request so long that a stream starting with a pre-roll never started.
+    private func backupURL(_ s: Session) -> URL? {
         guard let login = s.login else { return nil }
-        let (cached, due) = lock.withLock { () -> (URL?, Bool) in
-            if let b = s.backup { return (b, false) }
-            guard Date().timeIntervalSince(s.backupTried) > 20 else { return (nil, false) }
+        return lock.withLock { () -> URL? in
+            if let b = s.backup { return b }
+            guard Date().timeIntervalSince(s.backupTried) > 20 else { return nil }
             s.backupTried = Date()
-            return (nil, true)
+            Task.detached { [weak self] in
+                guard let url = await adFreeBackupPlaylist(login: login, quality: s.quality) else { return }
+                self?.lock.withLock { if s.inBreak { s.backup = url } }
+            }
+            return nil
         }
-        if let cached { return cached }
-        guard due, let url = await adFreeBackupPlaylist(login: login, quality: s.quality) else { return nil }
-        lock.withLock { s.backup = url }
-        return url
+    }
+
+    /// `work`'s result, or nil after `seconds`.
+    private static func within<T: Sendable>(_ seconds: Double, _ work: @escaping @Sendable () async -> T?) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await work() }
+            group.addTask { try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9)); return nil }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Break start/end: statistics per source, and the player view's hint while the gap has
@@ -240,7 +267,7 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
     /// carried forward by duration). Ads and announced-but-unfinished segments are left out.
     private static func segments(_ text: String, base: URL, skipAds: Bool) -> [Segment] {
         var out: [Segment] = []
-        var nextDate: Date? = nil
+        var nextDate: Date? = Self.undatedStart(text)
         var pendingDuration: Double? = nil
         var pendingIsAd = false
         for raw in text.components(separatedBy: "\n") {
@@ -265,6 +292,28 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         }
         return out
     }
+
+    /// Start of a playlist without any PROGRAM-DATE-TIME (some running recordings): its
+    /// generation time (#ID3-EQUIV-TDTG, UTC, about the live moment) minus its total length.
+    /// ponytail: the recording trails live by a few seconds, so its dates run that much late.
+    private static func undatedStart(_ text: String) -> Date? {
+        guard !text.contains("#EXT-X-PROGRAM-DATE-TIME:"),
+              let r = text.range(of: "#ID3-EQUIV-TDTG:") else { return nil }
+        let value = text[r.upperBound...].prefix { $0 != "\n" && $0 != "\r" }
+        guard let generated = tdtgParser.date(from: String(value)) else { return nil }
+        let total = text.components(separatedBy: "\n")
+            .filter { $0.hasPrefix("#EXTINF:") }
+            .compactMap { Double($0.dropFirst(8).split(separator: ",").first ?? "") }
+            .reduce(0, +)
+        return generated.addingTimeInterval(-total)
+    }
+
+    private static let tdtgParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
 
     private static func render(past: [Segment], live: [Segment]) -> String {
         let longest = (past + live).map(\.duration).max() ?? 10
@@ -296,3 +345,4 @@ private extension Optional {
         return await f(self)
     }
 }
+
