@@ -81,6 +81,9 @@ struct MainTabView: View {
     @State private var immersiveQuality = ""
     /// Portrait: chat hidden from the player's "⋯" menu, stream info in its place.
     @AppStorage("cfg_chat_hidden") private var chatHidden = false
+    /// Landscape (Apple's player): header and timeline float over the video, shown by a tap.
+    @State private var landscapeControls = true
+    @State private var landscapeHideTask: Task<Void, Never>? = nil
     /// Largeur du chat au début d'un glissement : la translation du geste est
     /// relative à son point de départ, que la vue ne connaît plus une fois
     /// qu'elle a commencé à rétrécir.
@@ -301,6 +304,8 @@ struct MainTabView: View {
                 playerOverlay
                     // Video and chat stay dark, like any video app, whatever the system setting.
                     .environment(\.colorScheme, .dark)
+                    // Home indicator fades out while watching, as in Apple's TV app.
+                    .persistentSystemOverlays(playerVisible ? .hidden : .automatic)
                     // Glissé vers le bas : le lecteur suit le doigt.
                     .modifier(PlayerPullEffect(pull: pull))
                     .opacity(playerVisible ? 1 : 0)
@@ -642,7 +647,8 @@ struct MainTabView: View {
             VStack(spacing: 0) {
                 // En immersif, la barre est dessinée par-dessus l'image par le
                 // lecteur lui-même : pas de bandeau séparé ici.
-                if !store.immersivePlayer || chatOnly {
+                // Landscape with Apple's player: the bar floats over the video instead.
+                if (!store.immersivePlayer && !split) || chatOnly {
                     playerTopBar(landscape: split)
                 }
                 if !chatOnly {
@@ -650,10 +656,19 @@ struct MainTabView: View {
                                  controlsInset: controlsInset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .frame(height: videoHeight)
+                        .overlay {
+                            if split && !store.immersivePlayer {
+                                landscapeOverlay(inset: controlsInset)
+                            }
+                        }
+                        // Full height (status bar and home indicator areas); the sides keep
+                        // their safe area so the Dynamic Island never covers the picture.
+                        .ignoresSafeArea(split ? .all : [], edges: .vertical)
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(maxHeight: videoMaxHeight)
+            .background(split ? Color.black : Color.clear)
 
             // Le chat n'est jamais retiré de la hiérarchie : le sortir ferait
             // mourir ChatView, donc couperait la connexion IRC à chaque bascule.
@@ -858,7 +873,8 @@ struct MainTabView: View {
                 onBehind: { updateBehind($0) },
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
-                timeline: broadcastTimeline,
+                onTap: landscape ? { showLandscapeControls(!landscapeControls) } : nil,
+                timeline: landscape ? nil : broadcastTimeline,
                 seekRequest: timelineSeek
             )
         }
@@ -936,8 +952,8 @@ struct MainTabView: View {
         .padding(.horizontal, TSpace.md)
         .padding(.top, TSpace.sm)
         .padding(.bottom, TSpace.sm)
-        .background(Color.tCard)
-        .overlay(Divider().background(Color.tBorder), alignment: .bottom)
+        .background(landscape ? Color.clear : Color.tCard)
+        .overlay(alignment: .bottom) { if !landscape { Divider().background(Color.tBorder) } }
         .contentShape(Rectangle())
         .gesture(topBarPull)
         // Geste interrompu en plein glissé : le lecteur reprend sa place.
@@ -962,13 +978,29 @@ struct MainTabView: View {
                 }
                 .pickerStyle(.menu)
             }
-            Button {
-                withAnimation {
-                    if landscape { _ = store.toggleLandscapeChatVisibility() } else { chatHidden.toggle() }
+            if landscape {
+                Picker(selection: Binding(get: { store.landscapeChat },
+                                          set: { m in withAnimation { store.landscapeChat = m } })) {
+                    ForEach(LandscapeChat.allCases, id: \.self) { m in
+                        Label(store.t(m.labelKey), systemImage: m.icon).tag(m)
+                    }
+                } label: {
+                    Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    Text(store.t(store.landscapeChat.labelKey))
                 }
-            } label: {
-                Label(store.t(chatShown ? "chat_hide" : "chat_show"),
-                      systemImage: chatShown ? "bubble.left.and.text.bubble.right" : "bubble.left.and.bubble.right.fill")
+                .pickerStyle(.menu)
+            } else {
+                Button {
+                    withAnimation { chatHidden.toggle() }
+                } label: {
+                    Label(store.t(chatShown ? "chat_hide" : "chat_show"),
+                          systemImage: chatShown ? "bubble.left.and.text.bubble.right" : "bubble.left.and.bubble.right.fill")
+                }
+            }
+            // Also works with the orientation lock on.
+            Button { rotatePlayer(toLandscape: !landscape) } label: {
+                Label(store.t(landscape ? "rotate_portrait" : "rotate_landscape"),
+                      systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate")
             }
             Button { showSleepSheet = true } label: {
                 Label(store.t("sleep_timer"), systemImage: "moon.zzz")
@@ -981,6 +1013,55 @@ struct MainTabView: View {
                 .tGlass(in: Circle(), fallback: .tSurface)
         }
         .accessibilityLabel(store.t("player_section"))
+    }
+
+    /// Landscape controls over Apple's player: header on top, timeline at the bottom, on dark
+    /// gradients. A tap shows or hides them; they fade out by themselves after a few seconds.
+    private func landscapeOverlay(inset: CGFloat) -> some View {
+        // Shown and hidden by taps on the video (NativeVideoPlayer.onTap, alongside Apple's).
+        ZStack {
+            if landscapeControls {
+                VStack(spacing: 0) {
+                    playerTopBar(landscape: true)
+                        .background(LinearGradient(colors: [.black.opacity(0.7), .clear],
+                                                   startPoint: .top, endPoint: .bottom))
+                    Spacer(minLength: 0)
+                    if let timeline = broadcastTimeline {
+                        timeline
+                            .padding(.bottom, TSpace.sm)
+                            .background(LinearGradient(colors: [.clear, .black.opacity(0.7)],
+                                                       startPoint: .top, endPoint: .bottom))
+                    }
+                }
+                // Clear of a chat laid over the video.
+                .padding(.trailing, inset)
+                // Touching the controls keeps them up.
+                .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in showLandscapeControls(true) })
+                .transition(.opacity)
+            }
+        }
+        .onAppear { showLandscapeControls(true) }
+    }
+
+    private func showLandscapeControls(_ show: Bool) {
+        landscapeHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { landscapeControls = show }
+        guard show else { return }
+        landscapeHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) { landscapeControls = false }
+        }
+    }
+
+    private func rotatePlayer(toLandscape: Bool) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        let target: UIInterfaceOrientationMask = toLandscape ? .landscapeRight : .portrait
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { error in
+            logger.warn("LECTEUR", "Rotation refusée", error.localizedDescription)
+        }
+        UIViewController.attemptRotationToDeviceOrientation()
     }
 
     /// Same choice for both players: the preference is only changed when another one is picked.

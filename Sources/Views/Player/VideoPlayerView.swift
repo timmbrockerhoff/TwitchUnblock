@@ -37,6 +37,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     var onPlaying: (Bool) -> Void = { _ in }
     /// Jump inside the current item (broadcast timeline); applied once per id.
     var seekRequest: SeekRequest? = nil
+    /// Tap on the video, seen alongside Apple's own (which shows its controls).
+    var onTap: (() -> Void)? = nil
 
     struct SeekRequest: Equatable {
         let id: Int
@@ -55,6 +57,13 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         context.coordinator.onPlaying = onPlaying
         // A request made before this player existed is not for it.
         context.coordinator.lastSeekID = seekRequest?.id ?? 0
+        // SwiftUI gestures over the player never see its taps: a UIKit recognizer that
+        // runs together with AVKit's own.
+        context.coordinator.onTap = onTap
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
+        vc.view.addGestureRecognizer(tap)
         // Reprise : la progression enregistrée (une VOD vue jusqu'au bout
         // repart du début).
         startPlayer(in: vc, context: context, from: .init(seconds: savedTime, resume: true))
@@ -107,6 +116,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         let coordinator = context.coordinator
         coordinator.onSpeedChange = onSpeedChange
         coordinator.onPlaying = onPlaying
+        coordinator.onTap = onTap
         // Comparée à l'adresse demandée, pas à celle de l'élément : après un
         // repli AirPlay (playlist du CDN), elles différaient toujours, et le
         // lecteur se recréait à chaque mise à jour — en boucle, jamais lisible.
@@ -145,7 +155,12 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate, UIGestureRecognizerDelegate {
+        var onTap: (() -> Void)?
+        @objc func tapped() { onTap?() }
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
         weak var playerVC: AVPlayerViewController?
         private var timeObserver: Any?
         private var playerRef: AVPlayer?
@@ -738,6 +753,7 @@ struct VideoPlayerView: View {
     var onPlaying: (Bool) -> Void = { _ in }
     /// Annonce brève au lancement (direct servi par le compte, sans pub).
     var notice: String? = nil
+    var onTap: (() -> Void)? = nil
     /// Running broadcast with a recording: timeline from its start to now.
     var timeline: BroadcastTimeline? = nil
     var seekRequest: NativeVideoPlayer.SeekRequest? = nil
@@ -810,7 +826,8 @@ struct VideoPlayerView: View {
             adBreaks: adBreaks,
             // Audio seul : rien à regarder, l'écran peut s'éteindre.
             onPlaying: { playing in onPlaying(playing && !isAudioQuality(playedQuality)) },
-            seekRequest: seekRequest
+            seekRequest: seekRequest,
+            onTap: onTap
         )
         .aspectRatio(16/9, contentMode: .fit)
         .background(Color.black)

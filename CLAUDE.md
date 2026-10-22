@@ -93,6 +93,12 @@ English, short, explaining *why*.
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
   (opacity 0, IRC keeps running); `streamInfo` shows in its place.
+- Landscape player (Apple's): video column full height (vertical safe areas ignored, sides kept
+  for the Dynamic Island), header + timeline as `landscapeOverlay` over the video, shown/hidden
+  by taps via a UIKit recognizer on AVPlayerViewController (`NativeVideoPlayer.onTap`; SwiftUI
+  gestures over it never fire), auto-hide after 4 s. "⋯" menu: chat mode picker (Daneben / Über
+  dem Video / Aus) in landscape, "Querformat/Hochformat" (`requestGeometryUpdate`, works with the
+  rotation lock — also the way to test landscape in the Simulator).
 - Apple-style redesign: all text buttons now use system styles (`tProminentStyle`/
   `tBorderedStyle` + `tCapsuleShape`). Left custom on purpose: chat message rows (own font-size
   setting), thumbnail badges, toasts. Immersive overlay and MultiLive were not checked in the

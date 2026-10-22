@@ -1758,7 +1758,7 @@ struct ImmersivePlayer: View {
                 if isLandscape {
                     overlayButton(icon: chatMode.icon) {
                         onToggleChat()
-                        flash(store.t(chatMode.next.labelKey))
+                        flash("Chat: " + store.t(chatMode.next.labelKey))
                         scheduleAutoHide()
                     }
                 }
@@ -1874,7 +1874,7 @@ struct ImmersivePlayer: View {
     /// Direct en paysage : chat affiché ou masqué, et le nouvel état annoncé.
     private func toggleChatVisibility() {
         let mode = onToggleChatVisibility()
-        flash(store.t(mode.labelKey))
+        flash("Chat: " + store.t(mode.labelKey))
     }
 
     private func overlayButton(icon: String, action: @escaping () -> Void) -> some View {
