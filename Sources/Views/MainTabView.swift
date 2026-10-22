@@ -617,8 +617,7 @@ struct MainTabView: View {
         // Portrait : hauteur 16:9 imposée, le chat prend le reste.
         // Paysage : libre, la colonne donne toute sa hauteur à l'image.
         // Apple's player: the timeline sits under the 16:9 video, outside it.
-        let timelineHeight: CGFloat = !store.immersivePlayer && broadcastTimeline != nil ? BroadcastTimeline.height : 0
-        let videoHeight: CGFloat? = split ? nil : size.width * 9 / 16 + timelineHeight
+        let videoHeight: CGFloat? = split ? nil : size.width * 9 / 16
         let videoMaxHeight: CGFloat? = split ? CGFloat.infinity : nil
         // Largeur réglable, mais jamais sous 220 pt : en deçà les messages se
         // hachent en mots isolés, quel que soit le réglage.
@@ -877,8 +876,7 @@ struct MainTabView: View {
                 onBehind: { updateBehind($0) },
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
-                onTap: landscape ? { showLandscapeControls(!landscapeControls) } : nil,
-                timeline: landscape ? nil : broadcastTimeline
+                onTap: landscape ? { showLandscapeControls(!landscapeControls) } : nil
             )
         }
     }
@@ -1013,6 +1011,9 @@ struct MainTabView: View {
                           systemImage: chatShown ? "bubble.left.and.text.bubble.right" : "bubble.left.and.bubble.right.fill")
                 }
             }
+            if let rewind = rewindAction {
+                Button(action: rewind) { Label(store.t("rewind"), systemImage: "gobackward") }
+            }
             // Also works with the orientation lock on.
             Button { rotatePlayer(toLandscape: !landscape) } label: {
                 Label(store.t(landscape ? "rotate_portrait" : "rotate_landscape"),
@@ -1042,12 +1043,6 @@ struct MainTabView: View {
                         .background(LinearGradient(colors: [.black.opacity(0.7), .clear],
                                                    startPoint: .top, endPoint: .bottom))
                     Spacer(minLength: 0)
-                    if let timeline = broadcastTimeline {
-                        timeline
-                            .padding(.bottom, TSpace.sm)
-                            .background(LinearGradient(colors: [.clear, .black.opacity(0.7)],
-                                                       startPoint: .top, endPoint: .bottom))
-                    }
                 }
                 // Clear of a chat laid over the video.
                 .padding(.trailing, inset)
@@ -1320,18 +1315,17 @@ struct MainTabView: View {
     /// Timeline of a running broadcast (Apple's player): live with its recording known, or
     /// watching that recording. Dragging back from live opens the recording at that point
     /// (soft switch: same channel, only the source changes); inside the recording it seeks.
-    private var broadcastTimeline: BroadcastTimeline? {
-        guard let start = liveStartedAt else { return nil }
-        if case .live? = playerMode, let ch = currentChannelName, let dvr = liveDvrVideoId {
-            return BroadcastTimeline(startedAt: start, position: nil, onSeek: { t in
-                pendingDvrChannel = ch
-                store.setVodProgress(dvr, time: t)
-                playVod(dvr, statusTitle, nil, ch, soft: true)
-            }, onLive: {})
+    /// Live with a recording: switch to it a little behind the live point, where Apple's own
+    /// scrubber in the video spans the whole broadcast (the live stream itself has none).
+    private var rewindAction: (() -> Void)? {
+        guard case .live? = playerMode, let ch = currentChannelName,
+              let dvr = liveDvrVideoId, let start = liveStartedAt else { return nil }
+        return {
+            pendingDvrChannel = ch
+            // The recording ends about a minute behind live.
+            store.setVodProgress(dvr, time: max(0, Date().timeIntervalSince(start) - 120))
+            playVod(dvr, statusTitle, nil, ch, soft: true)
         }
-        // In the recording, Apple's own scrubber in the video is the only timeline; the header's
-        // LIVE button goes back.
-        return nil
     }
 
     private var backToLiveAction: (() -> Void)? {

@@ -738,8 +738,6 @@ struct VideoPlayerView: View {
     /// Annonce brève au lancement (direct servi par le compte, sans pub).
     var notice: String? = nil
     var onTap: (() -> Void)? = nil
-    /// Running broadcast with a recording: timeline from its start to now.
-    var timeline: BroadcastTimeline? = nil
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -758,14 +756,9 @@ struct VideoPlayerView: View {
     private var currentURL: URL? { qualityLinks[playedQuality].flatMap(URL.init) }
 
     var body: some View {
-        // Edge to edge: the video takes the full width, the timeline sits under it.
-        VStack(spacing: 0) {
-            if let url = currentURL {
-                nativePlayer(url: url)
-            }
-            if let timeline {
-                timeline
-            }
+        // Edge to edge; Apple's own controls (Liquid Glass) are the only ones on the video.
+        if let url = currentURL {
+            nativePlayer(url: url)
         }
     }
 

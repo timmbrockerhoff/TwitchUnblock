@@ -83,20 +83,16 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Live rewind (Apple's player): `BroadcastTimeline` under the video spans the broadcast from
-  `liveStartedAt` to now, shown only while live (Apple's player has no scrubber for the live
-  stream); dragging back opens the running recording (`liveDvrVideoId`) at that offset. In the
-  recording only Apple's in-video scrubber shows (user wants one time display); a red LIVE
-  button in the header returns.
-  It is a DragGesture, not `Slider`: on iOS 27 Slider lost the end of a drag when rebuilt.
-  `liveStartedAt` is kept when switching to the recording. "Von Anfang an" button is gone.
-- Portrait player (Apple's): video edge to edge 16:9, timeline under it in Apple Music style
-  (thin bar, time left, LIVE right; area height = 16:9 + `BroadcastTimeline.height`); no options
+- Live rewind (Apple's player): NO custom timeline under/over the video (the user rejected it
+  repeatedly: only Apple's Liquid Glass bar in the video). The live stream has no scrubber, so
+  "⋯" → "Zurückspulen" opens the running recording (`liveDvrVideoId`) ~2 min behind live, where
+  Apple's bar spans the whole broadcast; a red LIVE button in the header returns.
+- Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
   (opacity 0, IRC keeps running); `streamInfo` shows in its place.
 - Landscape player (Apple's): video column full height (vertical safe areas ignored, sides kept
-  for the Dynamic Island), header + timeline as `landscapeOverlay` over the video, shown/hidden
+  for the Dynamic Island), header as `landscapeOverlay` over the video, shown/hidden
   by taps via a UIKit recognizer on AVPlayerViewController (`NativeVideoPlayer.onTap`; SwiftUI
   gestures over it never fire), auto-hide after 4 s. "⋯" menu: chat mode picker (Daneben / Über
   dem Video / Aus) in landscape, "Querformat/Hochformat" (`requestGeometryUpdate`, works with the

@@ -222,7 +222,7 @@ let kGermanStrings: [String: String] = [
     "notices_show": "Banner anzeigen",
     "cache_section": "Cache für Emotes & Abzeichen",
     "vod_chat": "VOD-Chat",
-    "timeline": "Zeitleiste",
+    "rewind": "Zurückspulen",
     "chat_hide": "Chat ausblenden",
     "chat_show": "Chat einblenden",
     "rotate_landscape": "Querformat",
