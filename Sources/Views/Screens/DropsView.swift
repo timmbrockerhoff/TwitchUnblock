@@ -402,12 +402,11 @@ struct DropsPanel: View {
                         }
                     }
                     .font(.tMeta.weight(.bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(Color.tPrimary)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .tProminentStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.tPrimary)
                 .disabled(drops.claiming.contains(d.id))
             }
         }

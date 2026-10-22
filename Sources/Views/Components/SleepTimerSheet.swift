@@ -50,15 +50,11 @@ struct SleepTimerSheet: View {
                         Button { timer.start(minutes: m) } label: {
                             Text(presetLabel(m))
                                 .font(.subheadline.weight(.bold))
-                                .foregroundColor(.tText)
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.tSurface)
-                                .cornerRadius(10)
-                                .overlay(RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.tBorder, lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
+                        .tBorderedStyle()
+                        .tCapsuleShape()
+                        .tint(.secondary)
                     }
                 }
 

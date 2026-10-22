@@ -83,9 +83,11 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Apple-style redesign, next: Drops/ChannelPoints panels as Form/List, chat sheets' and
-  banners' custom capsule buttons. Immersive overlay and MultiLive got glass pills/buttons and
-  white scrubbers but were not checked in the Simulator (the immersive toggle didn't stick there).
+- Apple-style redesign: all text buttons now use system styles (`tProminentStyle`/
+  `tBorderedStyle` + `tCapsuleShape`). Left custom on purpose: chat message rows (own font-size
+  setting), thumbnail badges, toasts. Immersive overlay and MultiLive were not checked in the
+  Simulator (the immersive toggle didn't stick there). Drops/points pages are still card stacks
+  (on `tDark`, since `tCard` disappears on the grouped background in light mode), not Lists.
 - Feature ideas discussed: feed filter by words/channels, per-channel playback speed,
   quality by Wi-Fi/cellular.
 

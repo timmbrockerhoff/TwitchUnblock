@@ -73,13 +73,6 @@ struct ChannelPointsSheet: View {
     var body: some View {
         VStack(spacing: 0) {
 
-            // ── Handle + header ─────────────────────────────────────
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.tBorder)
-                .frame(width: 40, height: 4)
-                .padding(.top, 10)
-                .padding(.bottom, 14)
-
             HStack(spacing: 10) {
                 Image(systemName: "crown.fill")
                     .font(.body.weight(.bold))
@@ -102,9 +95,7 @@ struct ChannelPointsSheet: View {
                             .foregroundColor(.tText)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Color.tSurface)
-                    .cornerRadius(20)
-                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.tBorder, lineWidth: 1))
+                    .background(Color.tSurface, in: Capsule())
                 }
             }
             .padding(.horizontal, 16)
@@ -152,22 +143,13 @@ struct ChannelPointsSheet: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    Button(action: onConnect) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "person.crop.circle.badge.checkmark")
-                            Text(store.t("points_connect_btn")).font(.subheadline.weight(.bold))
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.tPrimary)
-                        .cornerRadius(12)
-                    }
+                    TPrimaryButton(title: store.t("points_connect_btn"),
+                                   icon: "person.crop.circle.badge.checkmark",
+                                   fullWidth: true, action: onConnect)
                 }
                 .padding(14)
                 .background(Color.tCard)
                 .cornerRadius(14)
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.tBorder, lineWidth: 1))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
@@ -251,6 +233,7 @@ struct ChannelPointsSheet: View {
                     withAnimation { redeemResult = nil }
                 }
             }
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -418,12 +401,6 @@ private struct UserInputSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Handle
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.tBorder)
-                .frame(width: 40, height: 4)
-                .padding(.top, 10)
-                .padding(.bottom, 20)
 
             // Titre
             Text(reward.title)
@@ -458,7 +435,6 @@ private struct UserInputSheet: View {
                 .padding(12)
                 .background(Color.tSurface)
                 .cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.tBorder, lineWidth: 1))
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
                 .lineLimit(3...6)

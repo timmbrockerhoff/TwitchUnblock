@@ -148,7 +148,6 @@ struct LogsView: View {
         .padding(10)
         .background(Color.tCard)
         .cornerRadius(8)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.tBorder, lineWidth: 1))
         .overlay(Rectangle().fill(color).frame(width: 3), alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture {

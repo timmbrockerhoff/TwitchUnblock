@@ -710,12 +710,11 @@ struct CategoryStreamsView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
-                    .foregroundColor(.tMuted)
-                    .padding(.horizontal, 14).padding(.vertical, 7)
-                    .background(Color.tSurface)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .tBorderedStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.secondary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, TSpace.lg)
@@ -754,12 +753,13 @@ struct CategoryStreamsView: View {
                     .font(.tLabel).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
-            .foregroundColor(current == nil ? .tMuted : .white)
-            .padding(.horizontal, TSpace.md)
-            .frame(height: 32)
-            .background(current == nil ? Color.tSurface : Color.tPrimary)
-            .cornerRadius(TRadius.chip)
         }
+        // Same look as TChip: filled when a language is set.
+        .menuStyle(.button)
+        .modifier(MenuChipStyle(on: current != nil))
+        .tCapsuleShape()
+        .controlSize(.small)
+        .tint(current == nil ? .secondary : .tPrimary)
     }
 
     @MainActor private func load() async {
@@ -828,5 +828,12 @@ struct CategoryStreamsView: View {
         streams += result.fresh
         cursor = result.cursor
         locked = result.locked
+    }
+}
+
+private struct MenuChipStyle: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
     }
 }

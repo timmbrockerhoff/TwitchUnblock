@@ -309,21 +309,12 @@ struct ChattersSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: TSpace.sm) {
-                Text(store.t("menu_chatters")).font(.tSection).foregroundColor(.tText)
-                if !chat.presentUsers.isEmpty {
-                    Text("\(chat.presentUsers.count)")
-                        .font(.tBadge).foregroundColor(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Color.tPrimary).cornerRadius(8)
-                }
-                Spacer()
-                TIconButton(icon: "xmark") { dismiss() }
-            }
-            .padding(TSpace.lg)
+        sheetContent.tSheetBar(chat.presentUsers.isEmpty ? store.t("menu_chatters")
+                               : "\(store.t("menu_chatters")) · \(chat.presentUsers.count)") { dismiss() }
+    }
 
-            Divider().background(Color.tBorder)
+    private var sheetContent: some View {
+        VStack(spacing: 0) {
 
             if chat.presentUsers.isEmpty {
                 Spacer()

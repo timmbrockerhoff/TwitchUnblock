@@ -302,11 +302,11 @@ struct NoticesHideStrip: View {
                         Image(systemName: "pin.fill").font(.system(size: 9))
                         Text(store.t("pinned_short")).font(.system(size: 10, weight: .bold))
                     }
-                    .foregroundColor(.tPurple)
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Color.tPurple.opacity(0.15)).cornerRadius(6)
                 }
-                .buttonStyle(.plain)
+                .tBorderedStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.tPurple)
                 .fixedSize()
             }
             if !closedKinds.isEmpty {

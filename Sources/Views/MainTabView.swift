@@ -1302,11 +1302,11 @@ struct MainTabView: View {
             Button(action: openMultiLive) {
                 Label(store.t("multi_watch"), systemImage: "play.fill")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12).frame(height: 32)
-                    .background(Capsule().fill(Color.tPrimary))
             }
-            .buttonStyle(.plain)
+            .tProminentStyle()
+            .tCapsuleShape()
+            .controlSize(.small)
+            .tint(.tPrimary)
             TIconButton(icon: "xmark", size: 30) { multi.clear() }
         }
         .padding(.horizontal, TSpace.md)
@@ -1792,12 +1792,16 @@ struct TabAccessory<Accessory: View>: ViewModifier {
     let enabled: Bool
     @ViewBuilder let accessory: () -> Accessory
 
+    // `isEnabled:` ships with the iOS 26.1 SDK (Swift 6.2.1); CI may still build with Xcode 26.0.
     static var available: Bool {
+        #if compiler(>=6.2.1)
         if #available(iOS 26.1, *) { return true }
+        #endif
         return false
     }
 
     func body(content: Content) -> some View {
+        #if compiler(>=6.2.1)
         if #available(iOS 26.1, *) {
             content
                 .tabViewBottomAccessory(isEnabled: enabled, content: accessory)
@@ -1805,5 +1809,8 @@ struct TabAccessory<Accessory: View>: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }

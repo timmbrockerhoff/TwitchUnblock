@@ -1009,10 +1009,11 @@ private struct PredictionCard: View {
                     Button { amount = "\(v)" } label: {
                         Text(v == maxBet ? store.t("pred_all") : Self.short(v))
                             .font(.system(size: 11, weight: .bold)).foregroundColor(.tText)
-                            .padding(.horizontal, 8).frame(height: 26)
-                            .background(Color.tSurface).cornerRadius(6)
                     }
-                    .buttonStyle(.plain)
+                    .tBorderedStyle()
+                    .tCapsuleShape()
+                    .controlSize(.small)
+                    .tint(.secondary)
                 }
             }
             HStack(spacing: 8) {
@@ -1035,12 +1036,11 @@ private struct PredictionCard: View {
                             Text(store.t("pred_bet")).font(.system(size: 12, weight: .bold))
                         }
                     }
-                    .foregroundColor(.white)
-                    .frame(minWidth: 70).frame(height: 30)
-                    .background(valid ? tint : Color.tMuted.opacity(0.5))
-                    .cornerRadius(6)
                 }
-                .buttonStyle(.plain)
+                .tProminentStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(valid ? tint : .gray)
                 .disabled(!valid || events.betting)
             }
             if let code = events.betError {

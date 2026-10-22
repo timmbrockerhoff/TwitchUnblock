@@ -261,7 +261,8 @@ struct SettingsView: View {
                 .padding(.horizontal, TSpace.lg)
                 .padding(.vertical, TSpace.md)
             }
-            .background(Color(.systemGroupedBackground))
+            // tCard is secondarySystemBackground: it needs the plain ground to show in light mode.
+            .background(Color.tDark)
         default:
             Form {
                 // Une vue par ligne : dans un ViewBuilder, deux vues séparées
@@ -455,9 +456,6 @@ struct SettingsView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundColor(.tMuted)
                         }
-                        .padding(12)
-                        .background(Color.tSurface)
-                        .cornerRadius(10)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -676,12 +674,10 @@ struct SettingsView: View {
                     Image(systemName: "bell.badge.fill").font(.footnote.weight(.semibold))
                     Text(store.t("notif_test")).font(.subheadline.weight(.semibold))
                 }
-                .foregroundColor(.tPrimary)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Color.tPrimary.opacity(0.12))
-                .cornerRadius(10)
             }
-            .buttonStyle(.plain)
+            .tBorderedStyle()
+            .tCapsuleShape()
+            .tint(.tPrimary)
             if let notifTestResult {
                 Text(notifTestResult).font(.tMeta).foregroundColor(.tMuted)
             }
@@ -1473,13 +1469,8 @@ struct SettingsView: View {
                             .background(Color.tPrimary)
                             .cornerRadius(8)
                     }
-                    .foregroundColor(.tPrimary)
-                    .padding(.horizontal, TSpace.md)
-                    .frame(height: 44)
-                    .background(Color.tPrimary.opacity(0.12))
-                    .cornerRadius(TRadius.control)
                 }
-                .buttonStyle(.plain)
+                .tint(.tPrimary)
             }
         }
     }

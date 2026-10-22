@@ -524,7 +524,7 @@ struct ChatView: View {
                 }
             }
             .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
+            .presentationDragIndicator(.visible)
         }
         // ── Login web Twitch (capture du cookie auth-token) ──────────
         .sheet(isPresented: $showWebLogin) {
@@ -948,11 +948,11 @@ struct ChatView: View {
                         .font(.system(size: 12, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.tWarning.opacity(0.18))
-                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .tBorderedStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.tWarning)
                 Button {
                     showChatMenu = true
                 } label: {
@@ -1235,11 +1235,11 @@ struct ChatMessageRowContent: View, Equatable {
                     if let raider = message.raider {
                         Button { onOpenChannel(raider) } label: {
                             Text(translate("see_channel", lang)).font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.tPurple)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Color.tPurple.opacity(0.18)).cornerRadius(6)
                         }
-                        .buttonStyle(.plain)
+                        .tBorderedStyle()
+                        .tCapsuleShape()
+                        .controlSize(.small)
+                        .tint(.tPurple)
                     }
                 }
                 .padding(.horizontal, 10).padding(.vertical, 8)
@@ -1467,12 +1467,11 @@ struct ChatRulesSheet: View {
                     done(true)
                 } label: {
                     Text(store.t("chat_rules_accept"))
-                        .font(.tLabel).foregroundColor(.white)
-                        .padding(.horizontal, 18).frame(height: 40)
-                        .background(Color.tPrimary)
-                        .cornerRadius(10)
+                        .font(.tLabel)
                 }
-                .buttonStyle(.plain)
+                .tProminentStyle()
+                .tCapsuleShape()
+                .tint(.tPrimary)
             }
         }
         .padding(20)

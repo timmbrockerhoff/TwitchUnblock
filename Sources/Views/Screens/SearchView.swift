@@ -447,13 +447,10 @@ struct SearchView: View {
                             Text("· " + store.t("on_this_device")).font(.caption).opacity(0.8)
                         }
                     }
-                    .foregroundColor(on ? .tDanger : .tPrimary)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background((on ? Color.tDanger : Color.tPrimary).opacity(0.14))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(on ? Color.tDanger : Color.tPrimary, lineWidth: 1))
                 }
-                .buttonStyle(.plain)
+                .tBorderedStyle()
+                .tCapsuleShape()
+                .tint(on ? .tDanger : .tPrimary)
                 .disabled(follow.busy)
                 .opacity(follow.busy ? 0.5 : 1)
                 .confirmationDialog(
@@ -487,12 +484,11 @@ struct SearchView: View {
                         Text("\(store.t("hidden_badge")) · \(store.t("unhide"))")
                             .font(.footnote.weight(.bold))
                     }
-                    .foregroundColor(.tMuted)
-                    .padding(.horizontal, 14).padding(.vertical, 7)
-                    .background(Color.tSurface)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .tBorderedStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.secondary)
                 .padding(.horizontal, TSpace.lg)
             }
         }
@@ -668,11 +664,11 @@ struct SearchView: View {
                             } label: {
                                 Label(store.t("play_all"), systemImage: "play.fill")
                                     .font(.footnote.weight(.semibold))
-                                    .padding(.horizontal, 12).padding(.vertical, 7)
-                                    .background(Capsule().fill(Color.tPrimary.opacity(0.18)))
-                                    .foregroundColor(.tPrimary)
                             }
-                            .buttonStyle(.plain)
+                            .tBorderedStyle()
+                            .tCapsuleShape()
+                            .controlSize(.small)
+                            .tint(.tPrimary)
                         }
                         .padding(.horizontal, TSpace.lg)
 
