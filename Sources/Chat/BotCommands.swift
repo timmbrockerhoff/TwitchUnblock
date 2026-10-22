@@ -120,16 +120,11 @@ struct BotCommandsSheet: View {
     }
 
     var body: some View {
+        sheetContent.tSheetBar(store.t("bot_commands")) { dismiss() }
+    }
+
+    private var sheetContent: some View {
         VStack(spacing: 0) {
-            HStack(spacing: TSpace.sm) {
-                Image(systemName: "terminal.fill").foregroundColor(.tPrimary)
-                Text(store.t("bot_commands")).font(.tSection).foregroundColor(.tText)
-                Spacer()
-                TIconButton(icon: "xmark") { dismiss() }
-            }
-            .padding(.horizontal, TSpace.lg)
-            .padding(.top, TSpace.lg)
-            .padding(.bottom, TSpace.sm)
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundColor(.tMuted)

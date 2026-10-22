@@ -222,6 +222,17 @@ struct TCloseButton: View {
     }
 }
 
+extension View {
+    /// Sheet chrome: a navigation bar with the title and the close button.
+    func tSheetBar(_ title: String, onClose: @escaping () -> Void) -> some View {
+        NavigationStack {
+            self.navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { TCloseButton(action: onClose) } }
+        }
+    }
+}
+
 // MARK: – Pastille sélectionnable
 /// Filter chip as in Apple Music / Podcasts: filled capsule when on, tinted when off.
 struct TChip: View {

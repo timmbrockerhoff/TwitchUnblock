@@ -44,7 +44,6 @@ struct HiddenContentSheet: View {
                     Text(store.t(hidden.isEmpty ? "hidden_empty" : "hidden_sub"))
                         .font(.tMeta).foregroundColor(.tMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .listRowBackground(Color.tCard)
                 }
 
                 if !hidden.channels.isEmpty {
@@ -74,7 +73,6 @@ struct HiddenContentSheet: View {
                         Button(role: .destructive) { confirmAll = true } label: {
                             Label(store.t("unhide_all"), systemImage: "eye")
                         }
-                        .listRowBackground(Color.tCard)
                     }
                 }
             }
@@ -95,7 +93,6 @@ struct HiddenContentSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .preferredColorScheme(.dark)
     }
 
     /// Nom, et « Réafficher » en bouton et en balayage (pas `.onDelete`,
@@ -133,7 +130,6 @@ struct HiddenContentSheet: View {
             }
             .buttonStyle(.borderless)
         }
-        .listRowBackground(Color.tCard)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button { withAnimation { unhide() } } label: {
                 Label(store.t("unhide"), systemImage: "eye")

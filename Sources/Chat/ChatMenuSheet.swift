@@ -27,20 +27,11 @@ struct ChatMenuSheet: View {
     @State private var busyLabel: String? = nil
 
     var body: some View {
+        sheetContent.tSheetBar("#\(channelName)") { dismiss() }
+    }
+
+    private var sheetContent: some View {
         VStack(spacing: 0) {
-
-            // ── En-tête ─────────────────────────────────────────────
-            HStack(spacing: TSpace.sm) {
-                Text("#\(channelName)")
-                    .font(.tSection).foregroundColor(.tPrimary)
-                Spacer()
-                TIconButton(icon: "xmark") { dismiss() }
-            }
-            .padding(.horizontal, TSpace.lg)
-            .padding(.top, TSpace.lg)
-            .padding(.bottom, TSpace.md)
-
-            Divider().background(Color.tBorder)
 
             ScrollView {
                 VStack(spacing: 0) {

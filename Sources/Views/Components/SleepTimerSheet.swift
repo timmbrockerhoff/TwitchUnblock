@@ -18,24 +18,11 @@ struct SleepTimerSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        sheetContent.tSheetBar(store.t("sleep_timer")) { dismiss() }
+    }
 
-            // ── En-tête ─────────────────────────────────────────────
-            HStack(spacing: 8) {
-                Image(systemName: "moon.zzz.fill")
-                    .font(.subheadline).foregroundColor(.tPurple)
-                Text(store.t("sleep_timer"))
-                    .font(.callout.weight(.bold)).foregroundColor(.tText)
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.subheadline.weight(.bold))
-                        .foregroundColor(.tMuted).frame(width: 30, height: 30)
-                        .background(Color.tSurface).clipShape(Circle())
-                }
-            }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(Color.tCard)
-            Divider().background(Color.tBorder)
+    private var sheetContent: some View {
+        VStack(spacing: 0) {
 
             // Scrollable : au détent « medium », le clavier numérique de la durée
             // personnalisée recouvrirait sinon le bouton Démarrer.

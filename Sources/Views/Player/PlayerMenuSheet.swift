@@ -36,15 +36,11 @@ struct PlayerMenuSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(store.t("player_section")).font(.tSection).foregroundColor(.tText)
-                Spacer()
-                TIconButton(icon: "xmark") { dismiss() }
-            }
-            .padding(TSpace.lg)
+        sheetContent.tSheetBar(store.t("player_section")) { dismiss() }
+    }
 
-            Divider().background(Color.tBorder)
+    private var sheetContent: some View {
+        VStack(spacing: 0) {
 
             ScrollView {
                 VStack(spacing: 0) {

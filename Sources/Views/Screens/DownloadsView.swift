@@ -42,15 +42,11 @@ struct VodDownloadSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(store.t("dl_title")).font(.tSection).foregroundColor(.tText)
-                Spacer()
-                TIconButton(icon: "xmark") { dismiss() }
-            }
-            .padding(TSpace.lg)
+        sheetContent.tSheetBar(store.t("dl_title")) { dismiss() }
+    }
 
-            Divider().background(Color.tBorder)
+    private var sheetContent: some View {
+        VStack(spacing: 0) {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
