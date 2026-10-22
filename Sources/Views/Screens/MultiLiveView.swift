@@ -134,11 +134,8 @@ struct MultiLiveView: View {
 
     private var header: some View {
         HStack(spacing: TSpace.md) {
-            Image(systemName: "square.grid.2x2.fill")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.tPurple)
             VStack(alignment: .leading, spacing: 1) {
-                Text(store.t("multi_title")).font(.tSection).foregroundColor(.tText)
+                Text(store.t("multi_title")).font(.headline).foregroundColor(.tText)
                 Text(store.t("multi_hint")).font(.tMeta).foregroundColor(.tMuted).lineLimit(1)
             }
             Spacer(minLength: TSpace.sm)
@@ -265,8 +262,8 @@ struct MultiLiveTile: View {
             }
             bar
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .clipShape(RoundedRectangle(cornerRadius: TRadius.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: TRadius.chip, style: .continuous)
             .stroke(audible ? Color.tPrimary : Color.clear, lineWidth: 2))
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
@@ -304,7 +301,7 @@ struct MultiLiveTile: View {
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.55)))
+                    .tGlass(in: Circle(), fallback: Color.black.opacity(0.55), clear: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(store.t("multi_pause"))
             } else if model.heldBySystem && scenePhase == .active {
@@ -321,13 +318,11 @@ struct MultiLiveTile: View {
     private func stateButton(_ key: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(store.t(key), systemImage: icon)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.tText)
-                .padding(.horizontal, 12).frame(height: 32)
-                .background(Capsule().stroke(Color.tBorder, lineWidth: 1))
-                .contentShape(Capsule())
+                .font(.footnote.weight(.semibold))
         }
-        .buttonStyle(.plain)
+        .tBorderedStyle()
+        .tCapsuleShape()
+        .tint(.white)
     }
 
     private var bar: some View {
@@ -358,7 +353,7 @@ struct MultiLiveTile: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(.white)
                 .frame(width: 30, height: 30)
-                .background(Circle().fill(Color.black.opacity(0.5)))
+                .tGlass(in: Circle(), fallback: Color.black.opacity(0.5), clear: true)
         }
         .buttonStyle(.plain)
     }
@@ -405,7 +400,7 @@ struct MultiLiveTile: View {
                        model.seek(to: s)
                        scrub = nil
                    })
-                .tint(.tPrimary)
+                .tint(.white)
                 .disabled(model.duration <= 0)
                 .padding(.horizontal, 4)
             Text("\(VodChatService.formatOffset(shown)) / \(VodChatService.formatOffset(model.duration))")
@@ -501,7 +496,8 @@ struct MultiLiveCardToggle: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(.white)
                     .frame(width: 28, height: 28)
-                    .background(Circle().fill(on ? Color.tPrimary : Color.black.opacity(0.65)))
+                    .tGlass(in: Circle(), fallback: on ? Color.tPrimary : Color.black.opacity(0.65),
+                            tint: on ? Color.tPrimary : nil, clear: true)
             }
             .buttonStyle(.plain)
             .disabled(!on && multi.isFull)

@@ -1472,7 +1472,7 @@ struct ImmersivePlayer: View {
 
                 // AirPlay : envoyer la vidéo vers une Apple TV ou une TV compatible.
                 AirPlayButton()
-                    .frame(width: 32, height: 32)
+                    .frame(width: 36, height: 36)
                     .tGlass(in: Circle(), fallback: Color.black.opacity(0.4), clear: true)
                 overlayButton(icon: "ellipsis", action: onMenu)
                 overlayButton(icon: "xmark", action: onClose)
@@ -1521,7 +1521,7 @@ struct ImmersivePlayer: View {
                         }
                     }
                 )
-                .tint(.tPrimary)
+                .tint(.white)
                 // Le tronçon réellement accessible dans le flux est teinté :
                 // au-delà, c'est l'enregistrement qui prendra le relais, avec
                 // le temps de chargement que ça suppose.
@@ -1571,7 +1571,7 @@ struct ImmersivePlayer: View {
                         }
                     }
                 )
-                .tint(.tPrimary)
+                .tint(.white)
                 // Passages au son coupé, en orange sur la piste.
                 .overlay {
                     if !isLive, !mutedRanges.isEmpty, model.endTime > 0 {
@@ -1660,8 +1660,8 @@ struct ImmersivePlayer: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, TSpace.sm)
                             .frame(height: 28)
-                            .background(Color.tLive.opacity(0.85))
-                            .clipShape(Capsule())
+                            .tGlass(in: Capsule(), fallback: Color.tLive.opacity(0.85),
+                                    tint: Color.tLive.opacity(0.7), clear: true)
                         }
                     }
                     .buttonStyle(.plain)
@@ -1703,8 +1703,7 @@ struct ImmersivePlayer: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, TSpace.sm)
                             .frame(height: 28)
-                            .background(Color.black.opacity(0.4))
-                            .clipShape(Capsule())
+                            .tGlass(in: Capsule(), fallback: Color.black.opacity(0.4), clear: true)
                         }
                         .buttonStyle(.plain)
                     }
@@ -1724,8 +1723,7 @@ struct ImmersivePlayer: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, TSpace.sm)
                         .frame(height: 32)
-                        .background(Color.black.opacity(0.4))
-                        .clipShape(Capsule())
+                        .tGlass(in: Capsule(), fallback: Color.black.opacity(0.4), clear: true)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1743,8 +1741,8 @@ struct ImmersivePlayer: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, TSpace.sm)
                         .frame(height: 32)
-                        .background(Color.tLive.opacity(0.35))
-                        .clipShape(Capsule())
+                        .tGlass(in: Capsule(), fallback: Color.tLive.opacity(0.35),
+                                tint: Color.tLive.opacity(0.35), clear: true)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1808,8 +1806,7 @@ struct ImmersivePlayer: View {
         }
         .foregroundColor(.white)
         .padding(.leading, 11).padding(.trailing, 4).frame(height: 32)
-        .background(Color.black.opacity(0.62))
-        .clipShape(Capsule())
+        .tGlass(in: Capsule(), fallback: Color.black.opacity(0.62), clear: true)
         .overlay(Capsule().stroke(Color.tWarning.opacity(0.6), lineWidth: 1))
     }
 
@@ -1824,19 +1821,17 @@ struct ImmersivePlayer: View {
                 .font(.system(size: 14, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button { onRefresh() } label: {
-                Text(store.t("retry"))
-                    .font(.system(size: 13, weight: .bold))
-                    .padding(.horizontal, 16).frame(height: 34)
-                    .background(Capsule().fill(Color.tPrimary))
-            }
-            .buttonStyle(.plain)
+            Button(store.t("retry")) { onRefresh() }
+                .font(.footnote.weight(.bold))
+                .tProminentStyle()
+                .tCapsuleShape()
+                .tint(.tPrimary)
         }
         .foregroundColor(.white)
         .padding(TSpace.md)
         .frame(maxWidth: 300)
-        .background(Color.black.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .tGlass(in: RoundedRectangle(cornerRadius: TRadius.card, style: .continuous),
+                fallback: Color.black.opacity(0.72), clear: true)
         // Centrée sur la partie visible de l'image, comme ▶ (chat superposé).
         .offset(x: -controlsInset / 2)
         .transition(.opacity)
@@ -1885,9 +1880,9 @@ struct ImmersivePlayer: View {
     private func overlayButton(icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.white)
-                .frame(width: 32, height: 32)
+                .frame(width: 36, height: 36)
                 .tGlass(in: Circle(), fallback: Color.black.opacity(0.4), clear: true)
         }
         .buttonStyle(.plain)
