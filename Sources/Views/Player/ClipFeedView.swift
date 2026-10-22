@@ -411,15 +411,13 @@ private struct ClipFeedPage: View {
             if pool.players[clip.id] != nil { pool.togglePause() }
             pool.showChrome(autoHide: landscape)
         }
-        // Held down: 2× until let go (a plain tap still pauses).
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.35)
-                .sequenced(before: DragGesture(minimumDistance: 0))
-                .onChanged { v in
-                    if case .second(true, _) = v, isCurrent, !pool.fast, !pool.paused { pool.setFast(true) }
-                }
-                .onEnded { _ in if pool.fast { pool.setFast(false) } }
-        )
+        // Held down: 2× until let go (a plain tap still pauses). A press that moves fails at
+        // once, so the swipe goes to the feed; a drag gesture here took every swipe.
+        .onLongPressGesture(minimumDuration: 0.35, maximumDistance: 10) {
+            if isCurrent, !pool.paused { pool.setFast(true) }
+        } onPressingChanged: { pressing in
+            if !pressing, pool.fast { pool.setFast(false) }
+        }
         .overlay(alignment: .top) {
             if isCurrent && pool.fast {
                 Label("2×", systemImage: "forward.fill")
