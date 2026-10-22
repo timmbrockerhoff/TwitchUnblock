@@ -96,6 +96,9 @@ English, short, explaining *why*.
   and reviewable. The user tests on their iPhone.
 - Commit messages: explain the bug/cost and the fix.
 - Pushing while a check build runs cancels it (`cancel-in-progress`): wait, or batch commits.
-- After a green build the user wants the IPA copied to iCloud Drive:
-  `gh release download latest-optimize -p TwitchUnblock.ipa` →
-  `~/Library/Mobile Documents/com~apple~CloudDocs/TwitchUnblock.ipa`.
+- The user sideloads the IPA from iCloud Drive. Since 2026-10-22 it is built **locally**
+  (GitHub's macOS runners often queue for a long time): commit + push as usual (CI still runs
+  as a check), then `./buildlocal.sh` — builds the last commit in a temp copy exactly like
+  check.yml (icons, version, plist fixes, buildipa.sh) and copies it to
+  `~/Library/Mobile Documents/com~apple~CloudDocs/TwitchUnblock.ipa` (~1 min). Don't copy the
+  CI IPA there any more.
