@@ -79,6 +79,8 @@ struct MainTabView: View {
     @State private var showPlayerMenu  = false
     /// Qualité retenue par le lecteur immersif (vide = meilleure disponible).
     @State private var immersiveQuality = ""
+    /// Portrait: chat hidden from the player's "⋯" menu, stream info in its place.
+    @AppStorage("cfg_chat_hidden") private var chatHidden = false
     /// Largeur du chat au début d'un glissement : la translation du geste est
     /// relative à son point de départ, que la vue ne connaît plus une fois
     /// qu'elle a commencé à rétrécir.
@@ -315,10 +317,7 @@ struct MainTabView: View {
                 isDvr: dvrSourceChannel != nil,
                 onSelectQuality: { q in
                     // Toucher la qualité déjà cochée ne change pas la préférence.
-                    if q != currentQuality(qualityLinks ?? [:]) {
-                        store.rememberQualityChoice(q, among: Array((qualityLinks ?? [:]).keys), variants: qualityVariants)
-                    }
-                    immersiveQuality = q
+                    selectQuality(q, qualityLinks ?? [:])
                     showPlayerMenu = false
                 },
                 // Pas sur le direct lui-même ; son rembobinage (enregistrement)
@@ -608,7 +607,9 @@ struct MainTabView: View {
                            : AnyLayout(VStackLayout(spacing: 0))
         // Portrait : hauteur 16:9 imposée, le chat prend le reste.
         // Paysage : libre, la colonne donne toute sa hauteur à l'image.
-        let videoHeight: CGFloat? = split ? nil : size.width * 9 / 16
+        // Apple's player: the timeline sits under the 16:9 video, outside it.
+        let timelineHeight: CGFloat = !store.immersivePlayer && broadcastTimeline != nil ? BroadcastTimeline.height : 0
+        let videoHeight: CGFloat? = split ? nil : size.width * 9 / 16 + timelineHeight
         let videoMaxHeight: CGFloat? = split ? CGFloat.infinity : nil
         // Largeur réglable, mais jamais sous 220 pt : en deçà les messages se
         // hachent en mots isolés, quel que soit le réglage.
@@ -626,7 +627,7 @@ struct MainTabView: View {
             guard split, mode != .column else { return chatWidth }
             return CGFloat(0)
         }()
-        let chatVisible = !split || mode != .hidden
+        let chatVisible = split ? mode != .hidden : !chatHidden
         let overlaying  = split && mode == .overlay
         // Le décor ne tient que dans le chat plein cadre ; la transparence ne
         // sert qu'au calque. Le reste (tailles) vient des réglages.
@@ -642,7 +643,7 @@ struct MainTabView: View {
                 // En immersif, la barre est dessinée par-dessus l'image par le
                 // lecteur lui-même : pas de bandeau séparé ici.
                 if !store.immersivePlayer || chatOnly {
-                    playerTopBar
+                    playerTopBar(landscape: split)
                 }
                 if !chatOnly {
                     videoSurface(links: links, landscape: split,
@@ -677,6 +678,7 @@ struct MainTabView: View {
                 .frame(width: chatColumn, alignment: .trailing)
                 .opacity(chatVisible ? 1 : 0)
                 .allowsHitTesting(chatVisible)
+                .overlay { if !split && chatHidden { streamInfo } }
         }
     }
 
@@ -847,8 +849,7 @@ struct MainTabView: View {
                 isLive: linksAreLive,
                 contentID: linksContentID,
                 variants: qualityVariants,
-                compact: false,  // garde qualité / rembobiner ; le bouton Chat, lui,
-                                 // n'a plus lieu d'être (le chat est toujours affiché)
+                quality: currentQuality(links),
                 nowPlaying: nowPlayingMeta,
                 speed: playbackSpeed,
                 onSpeedChange: { setPlaybackSpeed($0) },
@@ -857,7 +858,6 @@ struct MainTabView: View {
                 onBehind: { updateBehind($0) },
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
-                onChat: nil,
                 timeline: broadcastTimeline,
                 seekRequest: timelineSeek
             )
@@ -866,7 +866,7 @@ struct MainTabView: View {
 
     /// Bandeau au-dessus de la vidéo (mode natif) : qui regarde-t-on, et quoi.
     @ViewBuilder
-    private var playerTopBar: some View {
+    private func playerTopBar(landscape: Bool) -> some View {
         HStack(spacing: TSpace.sm) {
             TIconButton(icon: "chevron.down", tint: .tText, size: 32) { reducePlayer() }
                 .accessibilityLabel(store.t("reduce"))
@@ -926,10 +926,9 @@ struct MainTabView: View {
                 .tCapsuleShape()
                 .controlSize(.small)
                 .tint(.tPurple)
-            } else {
-                TIconButton(icon: "moon.zzz", size: 32) { showSleepSheet = true }
-                    .accessibilityLabel(store.t("sleep_timer"))
             }
+
+            playerMoreMenu(landscape: landscape)
 
             TIconButton(icon: "xmark", size: 32) { stopPlayer() }
                 .accessibilityLabel(store.t("close"))
@@ -945,6 +944,104 @@ struct MainTabView: View {
         .onChange(of: topBarDragging) { active in
             if !active, playerVisible, pull.y > 0 { pullPlayer(0) }
         }
+    }
+
+    /// "⋯" of Apple's player: quality, chat, sleep timer (the controls under the video are gone).
+    private func playerMoreMenu(landscape: Bool) -> some View {
+        let chatShown = landscape ? store.landscapeChat != .hidden : !chatHidden
+        return Menu {
+            if let links = qualityLinks, !links.isEmpty {
+                Picker(selection: Binding(get: { currentQuality(links) },
+                                          set: { selectQuality($0, links) })) {
+                    ForEach(sortQualities(Array(links.keys), variants: qualityVariants), id: \.self) {
+                        Text(qualityText($0, store.lang)).tag($0)
+                    }
+                } label: {
+                    Label(store.t("quality"), systemImage: "slider.horizontal.3")
+                    Text(qualityText(currentQuality(links), store.lang))
+                }
+                .pickerStyle(.menu)
+            }
+            Button {
+                withAnimation {
+                    if landscape { _ = store.toggleLandscapeChatVisibility() } else { chatHidden.toggle() }
+                }
+            } label: {
+                Label(store.t(chatShown ? "chat_hide" : "chat_show"),
+                      systemImage: chatShown ? "bubble.left.and.text.bubble.right" : "bubble.left.and.bubble.right.fill")
+            }
+            Button { showSleepSheet = true } label: {
+                Label(store.t("sleep_timer"), systemImage: "moon.zzz")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.tText)
+                .frame(width: 32, height: 32)
+                .tGlass(in: Circle(), fallback: .tSurface)
+        }
+        .accessibilityLabel(store.t("player_section"))
+    }
+
+    /// Same choice for both players: the preference is only changed when another one is picked.
+    private func selectQuality(_ q: String, _ links: QualityLinks) {
+        if q != currentQuality(links) {
+            store.rememberQualityChoice(q, among: Array(links.keys), variants: qualityVariants)
+        }
+        immersiveQuality = q
+    }
+
+    /// Portrait with the chat hidden: who and what is on, like the info under a YouTube video.
+    private var streamInfo: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: TSpace.md) {
+                HStack(spacing: TSpace.md) {
+                    AsyncImage(url: URL(string: liveAvatar ?? "")) { img in
+                        img.resizable().scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "person.crop.circle.fill").resizable()
+                            .foregroundColor(.tMuted)
+                    }
+                    .frame(width: 44, height: 44)
+                    .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(currentChannelName ?? playerChannelLogin ?? "")
+                            .font(.headline).foregroundColor(.tText)
+                        HStack(spacing: TSpace.md) {
+                            if isLivePlaying, let start = liveStartedAt {
+                                LiveUptimeLabel(startedAt: start) { uptime in
+                                    TMeta(icon: "dot.radiowaves.left.and.right", text: uptime, tint: .tLive)
+                                }
+                            }
+                            if isLivePlaying, liveViewerCount > 0 {
+                                TMeta(icon: "eye.fill", text: formatViewers(liveViewerCount))
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text(statusTitle)
+                    .font(.body).foregroundColor(.tText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !liveGame.isEmpty {
+                    Text(liveGame)
+                        .font(.footnote.weight(.semibold)).foregroundColor(.tText)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Color.tSurface, in: Capsule())
+                }
+                if let login = playerChannelLogin {
+                    Button { store.openChannelPage(login) } label: {
+                        Label(store.t("see_channel"), systemImage: "person.crop.square")
+                    }
+                    .tBorderedStyle()
+                    .tCapsuleShape()
+                    .tint(.tPrimary)
+                }
+            }
+            .padding(TSpace.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.tDark)
     }
 
     /// Previous / next clip arrow of the top bar; dimmed at the list's ends.

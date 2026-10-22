@@ -88,6 +88,11 @@ English, short, explaining *why*.
   offset, inside the recording it seeks via `NativeVideoPlayer.seekRequest`, LIVE pill returns.
   It is a DragGesture, not `Slider`: on iOS 27 Slider lost the end of a drag when rebuilt.
   `liveStartedAt` is kept when switching to the recording. "Von Anfang an" button is gone.
+- Portrait player (Apple's): video edge to edge 16:9, timeline under it in Apple Music style
+  (thin bar, time left, LIVE right; area height = 16:9 + `BroadcastTimeline.height`); no options
+  bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
+  `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
+  (opacity 0, IRC keeps running); `streamInfo` shows in its place.
 - Apple-style redesign: all text buttons now use system styles (`tProminentStyle`/
   `tBorderedStyle` + `tCapsuleShape`). Left custom on purpose: chat message rows (own font-size
   setting), thumbnail badges, toasts. Immersive overlay and MultiLive were not checked in the

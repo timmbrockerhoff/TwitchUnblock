@@ -718,9 +718,9 @@ struct VideoPlayerView: View {
     /// Hauteur et cadence de chaque qualité (qualité préférée) ; vide quand
     /// la source ne les donne pas.
     var variants: [String: VariantInfo] = [:]
-    /// Mode compact (chat ouvert) : masque la barre Source / le lien pour laisser
-    /// un maximum de place au chat. Seul le lecteur reste visible.
-    var compact: Bool = false
+    /// Quality to play (chosen in the player's "⋯" menu, else the preference); one
+    /// missing from the links falls back to the preference.
+    var quality: String = ""
     /// Titre, chaîne et image affichés sur l'écran verrouillé.
     var nowPlaying = NowPlayingMeta()
     /// Vitesse hors direct (VODs : retenue ; clip : 1× au départ), et qui la
@@ -738,98 +738,35 @@ struct VideoPlayerView: View {
     var onPlaying: (Bool) -> Void = { _ in }
     /// Annonce brève au lancement (direct servi par le compte, sans pub).
     var notice: String? = nil
-    // Actions affichees a cote du bouton Source (nil = bouton masque).
-    var onChat: (() -> Void)? = nil
     /// Running broadcast with a recording: timeline from its start to now.
     var timeline: BroadcastTimeline? = nil
     var seekRequest: NativeVideoPlayer.SeekRequest? = nil
 
     @EnvironmentObject private var store: AppStore
-    @State private var selectedQuality: String = ""
-    @State private var currentTime: Double = 0
     @State private var lastPersisted: Double = -99
     @State private var latency: Double? = nil
     /// Pause pub cousue par Twitch dans le direct : bandeau, son coupé.
     @StateObject private var adBreaks = AdBreakWatcher()
     @State private var noticeShown: String? = nil
 
-    private var qualities: [String] { sortQualities(Array(qualityLinks.keys), variants: variants) }
     /// Qualité lue : celle choisie, sinon (pas encore choisie, ou absente des
     /// nouveaux liens) la préférence. Calculée ici plutôt que corrigée après
     /// coup : le temps d'un rendu, l'adresse manquait, et le lecteur était
     /// détruit puis recréé (ou restait absent, zone vidéo vide).
-    private var quality: String {
-        qualityLinks[selectedQuality] != nil ? selectedQuality : preferredSelection(qualityLinks)
+    private var playedQuality: String {
+        qualityLinks[quality] != nil ? quality : preferredSelection(qualityLinks)
     }
-    private var currentURL: URL? { qualityLinks[quality].flatMap(URL.init) }
+    private var currentURL: URL? { qualityLinks[playedQuality].flatMap(URL.init) }
 
     var body: some View {
+        // Edge to edge: the video takes the full width, the timeline sits under it.
         VStack(spacing: 0) {
-
-            // ── Player ──────────────────────────────────────────────
             if let url = currentURL {
                 nativePlayer(url: url)
             }
-
-            // En mode compact (chat ouvert) on n'affiche que le lecteur.
-            if !compact {
             if let timeline {
                 timeline
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .background(Color.tCard)
             }
-
-            // ── Options bar ─────────────────────────────────────────
-            // Tous les boutons partagent la même hauteur fixe : sinon une icône
-            // SF Symbol (taille « body » par défaut) rend son bouton plus haut
-            // que celui qui ne contient que du texte en 12 pt.
-            HStack(spacing: 8) {
-                // Qualité : system pop-up menu, the current one checked.
-                Menu {
-                    Picker(selection: Binding(get: { quality }, set: { q in
-                        // Toucher la qualité déjà cochée ne change pas la préférence.
-                        if q != quality {
-                            store.rememberQualityChoice(q, among: qualities, variants: variants)
-                        }
-                        currentTime = 0
-                        selectedQuality = q
-                    })) {
-                        ForEach(qualities, id: \.self) { Text(qualityLabel($0)).tag($0) }
-                    } label: { EmptyView() }
-                } label: {
-                    Label(qualityLabel(quality), systemImage: "slider.horizontal.3")
-                }
-                .tBorderedStyle()
-                .tCapsuleShape()
-
-                Spacer(minLength: 0)
-
-                if let chat = onChat {
-                    Button(action: chat) {
-                        Label("Chat", systemImage: "bubble.left.fill")
-                    }
-                    .tProminentStyle()
-                    .tCapsuleShape()
-                }
-            }
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
-            .tint(.tPrimary)
-            .padding(12)
-            .background(Color.tCard)
-            } // fin if !compact
-        }
-        .background(Color.tCard)
-        .cornerRadius(16)
-        .onAppear {
-            if selectedQuality.isEmpty { selectedQuality = preferredSelection(qualityLinks) }
-        }
-        // Autres liens (bascule direct ↔ rembobinage, autre source) : la
-        // qualité en cours peut ne plus y être ; on repart de la préférence
-        // au lieu de rester sans image.
-        .onChange(of: qualityLinks) { links in
-            if links[selectedQuality] == nil { selectedQuality = preferredSelection(links) }
         }
     }
 
@@ -846,7 +783,6 @@ struct VideoPlayerView: View {
             savedTime: vodId.map { store.getVodProgress($0) } ?? 0,
             contentID: contentID,
             onProgress: { time in
-                currentTime = time
                 onTime(time)
                 // Progression persistee au plus toutes les 5 s (l'observateur tourne a 1 s,
                 // inutile d'ecrire dans UserDefaults a chaque tick).
@@ -873,7 +809,7 @@ struct VideoPlayerView: View {
             onSpeedChange: onSpeedChange,
             adBreaks: adBreaks,
             // Audio seul : rien à regarder, l'écran peut s'éteindre.
-            onPlaying: { playing in onPlaying(playing && !isAudioQuality(quality)) },
+            onPlaying: { playing in onPlaying(playing && !isAudioQuality(playedQuality)) },
             seekRequest: seekRequest
         )
         .aspectRatio(16/9, contentMode: .fit)
@@ -934,5 +870,4 @@ struct VideoPlayerView: View {
         return .tDanger
     }
 
-    private func qualityLabel(_ q: String) -> String { qualityText(q, store.lang) }
 }

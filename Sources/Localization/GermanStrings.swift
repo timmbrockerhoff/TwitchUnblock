@@ -223,6 +223,8 @@ let kGermanStrings: [String: String] = [
     "cache_section": "Cache für Emotes & Abzeichen",
     "vod_chat": "VOD-Chat",
     "timeline": "Zeitleiste",
+    "chat_hide": "Chat ausblenden",
+    "chat_show": "Chat einblenden",
     "back_to_live": "Live",
     "back_to_live_full": "Zurück zu Live",
     "player_failed": "Wiedergabe gestoppt (Netzwerk oder Stream nicht verfügbar).",
