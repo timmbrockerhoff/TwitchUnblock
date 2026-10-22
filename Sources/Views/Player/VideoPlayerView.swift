@@ -71,18 +71,11 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     private func startPlayer(in vc: AVPlayerViewController, context: Context,
                              from start: Coordinator.Start) {
         let coordinator = context.coordinator
-        let item: AVPlayerItem
-        if url.scheme == LiveDVRPlaylist.scheme {
-            // Live with its past (LiveDVRPlaylist): same per-item setup as VodUnmuteLoader's items.
-            item = LiveDVRPlaylist.playerItem(url: url)
-            // AVPlayer keeps 3 × the target duration (the recording's 10 s segments) from the
-            // edge, whatever configuredTimeOffsetFromLive says: ~30 s behind real live.
-            SpatialAudio.apply(to: item)
-            VodUnmuteLoader.keepPitch(item)
-            AdBreakMonitor.attach(to: item)
-        } else {
-            item = VodUnmuteLoader.playerItem(url: url)
-        }
+        // Live with its past (LiveDVRPlaylist): AVPlayer keeps 3 × the target duration (the
+        // recording's 10 s segments) from the edge, whatever configuredTimeOffsetFromLive says:
+        // ~30 s behind real live.
+        let item = url.scheme == LiveDVRPlaylist.scheme ? LiveDVRPlaylist.playerItem(url: url)
+                                                        : VodUnmuteLoader.playerItem(url: url)
         let player = AVPlayer(playerItem: item)
         // Le son continue écran verrouillé, comme dans le lecteur immersif.
         player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
@@ -202,6 +195,9 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         private var sync = LiveSyncEstimator()
         private var diagnostics: LiveDiagnostics?
         private var jumpObserver: NSObjectProtocol?
+        private var errorObserver: NSObjectProtocol?
+        private var stallObserver: NSObjectProtocol?
+        private var lastReopen = Date.distantPast
         /// Appel, Siri, autre app qui prend le son : la lecture repart à la
         /// fin (PlaybackInterruptions). nil une fois le lecteur fermé.
         var interruptions: PlaybackInterruptions?
@@ -439,13 +435,55 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         /// Observateurs à bloc (audio spatial compris : il n'était jamais
         /// retiré, un par lecteur ouvert restait appelé à chaque changement).
         private func removeObservers() {
-            for token in [stopObserver, spatialObserver, jumpObserver, rateObserver] {
+            for token in [stopObserver, spatialObserver, jumpObserver, rateObserver, errorObserver, stallObserver] {
                 if let token { NotificationCenter.default.removeObserver(token) }
             }
             stopObserver = nil
             spatialObserver = nil
             jumpObserver = nil
             rateObserver = nil
+            errorObserver = nil
+            stallObserver = nil
+        }
+
+        /// New item for the same address; a live stream with its past gets a fresh pair
+        /// (LiveDVRPlaylist.reopen), the generic loader doesn't know its scheme.
+        private func freshItem(_ url: URL) -> AVPlayerItem {
+            guard url.scheme == LiveDVRPlaylist.scheme else { return VodUnmuteLoader.playerItem(url: url) }
+            return LiveDVRPlaylist.playerItem(url: LiveDVRPlaylist.reopen(url) ?? url)
+        }
+
+        /// Live with its past, scrubbed back into the time since opening: Twitch has dropped
+        /// those live segments (403), playback stalls. A fresh pair takes them from the
+        /// recording; playback goes on at the same moment.
+        private func reopenDVRIfNeeded(_ item: AVPlayerItem) {
+            guard !tornDown, let player = playerRef, item === player.currentItem,
+                  let url = (item.asset as? AVURLAsset)?.url, url.scheme == LiveDVRPlaylist.scheme,
+                  Date().timeIntervalSince(lastReopen) > 30 else { return }
+            // Near the edge a stall is just the network: the live segments are still there.
+            let at = item.currentDate()
+            guard item.status == .failed || at.map({ Date().timeIntervalSince($0) > 3 * 60 }) == true,
+                  let fresh = LiveDVRPlaylist.reopen(url) else { return }
+            lastReopen = Date()
+            logger.info("LIVE", "Live-Segmente abgelaufen", "Aufzeichnung neu geladen")
+            let resume = item.status == .failed || player.timeControlStatus != .paused
+            let next = LiveDVRPlaylist.playerItem(url: fresh)
+            if let at {
+                var obs: NSKeyValueObservation?
+                obs = next.observe(\.status, options: [.new]) { [weak player] item, _ in
+                    guard item.status != .unknown else { return }
+                    DispatchQueue.main.async {
+                        if item.status == .readyToPlay, player?.currentItem === item {
+                            item.seek(to: at, completionHandler: nil)
+                        }
+                        obs?.invalidate()
+                        obs = nil
+                    }
+                }
+            }
+            player.replaceCurrentItem(with: next)
+            if resume { player.play() }
+            if let meta = metadataShown { applyMetadata(meta, to: player) }
         }
 
         /// Fin d'une interruption du son : la lecture repart. VOD, clip, VOD
@@ -480,7 +518,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
                 latency.reset()
                 lastCatchUp = Date()
                 clearPending()
-                player.replaceCurrentItem(with: VodUnmuteLoader.playerItem(url: asset.url))
+                player.replaceCurrentItem(with: freshItem(asset.url))
                 if let meta = metadataShown { applyMetadata(meta, to: player) }
                 player.play()
                 return "direct relu au bord" + lost
@@ -506,7 +544,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
                   let asset = current.asset as? AVURLAsset else { return }
             let t = player.currentTime()
             let playing = player.rate != 0
-            let item = VodUnmuteLoader.playerItem(url: asset.url)
+            let item = freshItem(asset.url)
             if isLive {
                 // Nouvel élément du direct : la tenue repart de zéro.
                 latency.reset()
@@ -548,6 +586,20 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
                 self.timeJumped(item)
                 // Saut (barre, ±15 s, reprise) : la Live Activity repart d'ici.
                 self.updateActivity()
+            }
+            // Live with its past: dropped live segments show up as errors or stalls.
+            for token in [errorObserver, stallObserver] {
+                if let token { NotificationCenter.default.removeObserver(token) }
+            }
+            errorObserver = NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.newErrorLogEntryNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                if let item = note.object as? AVPlayerItem { self?.reopenDVRIfNeeded(item) }
+            }
+            stallObserver = NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                if let item = note.object as? AVPlayerItem { self?.reopenDVRIfNeeded(item) }
             }
             // AirPlay ne lit pas les playlists réécrites : retour à celle du CDN.
             externalObs = player.observe(\.isExternalPlaybackActive, options: [.new]) { [weak self] p, _ in

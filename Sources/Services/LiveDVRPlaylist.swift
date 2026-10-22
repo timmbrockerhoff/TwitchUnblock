@@ -68,10 +68,26 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         return out.isEmpty ? nil : out
     }
 
+    /// Same live/recording pair under a new address. Twitch drops live segments after a few
+    /// minutes (403 by 10 min), so the time since opening goes missing from the old playlist;
+    /// the recording fetched again covers it. nil without a recording: nothing to refill from.
+    static func reopen(_ url: URL) -> URL? {
+        guard url.scheme == scheme, let old = url.host,
+              let s = shared.lock.withLock({ shared.sessions[old] }), s.recording != nil else { return nil }
+        let token = UUID().uuidString
+        shared.lock.withLock { shared.sessions[token] = Session(live: s.live, recording: s.recording) }
+        return URL(string: "\(scheme)://\(token)/index.m3u8")
+    }
+
+    /// Same per-item setup as VodUnmuteLoader's items.
     static func playerItem(url: URL) -> AVPlayerItem {
         let asset = AVURLAsset(url: url)
         asset.resourceLoader.setDelegate(shared, queue: shared.queue)
-        return AVPlayerItem(asset: asset)
+        let item = AVPlayerItem(asset: asset)
+        SpatialAudio.apply(to: item)
+        VodUnmuteLoader.keepPitch(item)
+        AdBreakMonitor.attach(to: item)
+        return item
     }
 
     // MARK: Loading
