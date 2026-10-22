@@ -46,14 +46,12 @@ struct Palette {
 /// Thème en cours, lu au lancement puis tenu à jour par l'AppStore.
 enum Theme {
     static let accentKey = "cfg_accent"
-    static let glassKey = "cfg_liquid_glass"
 
     static var storedAccent: AccentTheme {
         AccentTheme(rawValue: UserDefaults.standard.string(forKey: accentKey) ?? "") ?? .twitch
     }
 
     static var palette = Palette(accent: storedAccent)
-    static var liquidGlass = UserDefaults.standard.bool(forKey: glassKey)
 
     /// Le verre liquide n'existe qu'à partir d'iOS 26.
     static var glassSupported: Bool {
@@ -62,8 +60,8 @@ enum Theme {
         #endif
         return false
     }
-    /// Verre liquide à dessiner : option cochée, sur un système qui le connaît.
-    static var useGlass: Bool { liquidGlass && glassSupported }
+    /// Liquid Glass wherever the system has it, as in Apple's own apps (no opt-in any more).
+    static var useGlass: Bool { glassSupported }
 }
 
 // MARK: – Verre liquide

@@ -109,7 +109,7 @@ struct LibraryView: View {
                     } placeholder: {
                         Rectangle().fill(Color.tSurface)
                             .overlay(Image(systemName: "film")
-                                .font(.system(size: 16)).foregroundColor(.tMuted))
+                                .font(.callout).foregroundColor(.tMuted))
                     }
 
                     if let ratio = progressRatio(item.term) {

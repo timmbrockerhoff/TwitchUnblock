@@ -511,7 +511,7 @@ struct CategoryStreamsView: View {
             HStack(spacing: TSpace.sm) {
                 Button(action: onBack) {
                     HStack(spacing: TSpace.xs) {
-                        Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+                        Image(systemName: "chevron.left").font(.footnote.weight(.bold))
                         Text(store.t("categories")).font(.tLabel)
                     }
                     .foregroundColor(.tPrimary)
@@ -642,7 +642,7 @@ struct CategoryStreamsView: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: on ? "heart.fill" : "heart")
-                Text(store.t(on ? "following" : "follow")).font(.system(size: 13, weight: .bold))
+                Text(store.t(on ? "following" : "follow")).font(.footnote.weight(.bold))
             }
             .foregroundColor(on ? .tDanger : .tPrimary)
             .padding(.horizontal, 10).padding(.vertical, 6)
@@ -706,7 +706,7 @@ struct CategoryStreamsView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "eye")
                         Text("\(store.t("hidden_badge")) · \(store.t("unhide"))")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -749,7 +749,7 @@ struct CategoryStreamsView: View {
             }
         } label: {
             HStack(spacing: TSpace.xs) {
-                Image(systemName: "globe").font(.system(size: 11, weight: .semibold))
+                Image(systemName: "globe").font(.caption2.weight(.semibold))
                 Text(current.map { TopLanguage.name($0, in: store.lang) } ?? store.t("cat_lang_all"))
                     .font(.tLabel).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))

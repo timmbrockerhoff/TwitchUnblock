@@ -156,7 +156,7 @@ struct DropsPanel: View {
                     }
                     Spacer(minLength: 0)
                     Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold)).foregroundColor(.tMuted)
+                        .font(.caption.weight(.semibold)).foregroundColor(.tMuted)
                 }
                 .contentShape(Rectangle())
             }
@@ -166,7 +166,7 @@ struct DropsPanel: View {
                 if c.needsAccountLink, let link = c.accountLinkURL, let url = URL(string: link) {
                     HStack(alignment: .top, spacing: TSpace.sm) {
                         Image(systemName: "link")
-                            .font(.system(size: 13, weight: .semibold)).foregroundColor(.tWarning)
+                            .font(.footnote.weight(.semibold)).foregroundColor(.tWarning)
                         Text(store.t("drops_link"))
                             .font(.tMeta).foregroundColor(.tMuted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -205,7 +205,7 @@ struct DropsPanel: View {
         let (icon, color, text) = statusInfo
         return HStack(spacing: TSpace.md) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold)).foregroundColor(color)
+                .font(.callout.weight(.semibold)).foregroundColor(color)
                 .frame(width: 22)
             Text(text)
                 .font(.tMeta).foregroundColor(.tText)
@@ -237,12 +237,12 @@ struct DropsPanel: View {
             } label: {
                 HStack(spacing: TSpace.sm) {
                     Image(systemName: "questionmark.circle.fill")
-                        .font(.system(size: 16)).foregroundColor(.tPrimary)
+                        .font(.callout).foregroundColor(.tPrimary)
                     Text(store.t("drops_help_title"))
                         .font(.tCardTitle).foregroundColor(.tText)
                     Spacer()
                     Image(systemName: helpOpen ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold)).foregroundColor(.tMuted)
+                        .font(.caption.weight(.semibold)).foregroundColor(.tMuted)
                 }
                 .contentShape(Rectangle())
             }
@@ -252,7 +252,7 @@ struct DropsPanel: View {
                 ForEach(1...5, id: \.self) { step in
                     HStack(alignment: .top, spacing: 10) {
                         Text("\(step)")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.caption.weight(.bold))
                             .foregroundColor(.white)
                             .frame(width: 20, height: 20)
                             .background(Circle().fill(Color.tPrimary))
@@ -270,7 +270,7 @@ struct DropsPanel: View {
     private func sessionCard(_ s: DropSession) -> some View {
         HStack(spacing: TSpace.md) {
             Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 16, weight: .semibold)).foregroundColor(.tLive)
+                .font(.callout.weight(.semibold)).foregroundColor(.tLive)
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.t("drops_now").replacingOccurrences(of: "{c}", with: s.channelName ?? "—"))
                     .font(.tCardTitle).foregroundColor(.tText)
@@ -294,7 +294,7 @@ struct DropsPanel: View {
             } else {
                 Button { Task { await reload() } } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15, weight: .semibold)).foregroundColor(.tPrimary)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.tPrimary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(store.t("drops_refresh"))
@@ -342,7 +342,7 @@ struct DropsPanel: View {
             if c.needsAccountLink {
                 HStack(alignment: .top, spacing: TSpace.sm) {
                     Image(systemName: "link")
-                        .font(.system(size: 13, weight: .semibold)).foregroundColor(.tWarning)
+                        .font(.footnote.weight(.semibold)).foregroundColor(.tWarning)
                     Text(store.t("drops_link"))
                         .font(.tMeta).foregroundColor(.tMuted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -384,7 +384,7 @@ struct DropsPanel: View {
 
             if d.isClaimed {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20)).foregroundColor(.tSuccess)
+                    .font(.title3).foregroundColor(.tSuccess)
                     .accessibilityLabel(store.t("drops_claimed"))
             } else if d.canClaim && !c.needsAccountLink {
                 Button {

@@ -29,7 +29,7 @@ private struct Thumbnail: View {
         } placeholder: {
             Rectangle().fill(Color.tSurface).aspectRatio(16/9, contentMode: .fill)
                 .overlay(Image(systemName: "photo")
-                    .font(.system(size: 18)).foregroundColor(.tMuted.opacity(0.5)))
+                    .font(.body).foregroundColor(.tMuted.opacity(0.5)))
         }
         .clipped()
     }
@@ -45,7 +45,7 @@ struct TagChips: View {
         OneLineLayout(spacing: 4) {
             ForEach(Array(tags.prefix(8).enumerated()), id: \.offset) { _, tag in
                 Text(tag)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundColor(.tMuted)
                     .lineLimit(1)
                     .padding(.horizontal, 7)
@@ -240,7 +240,7 @@ struct HiddenBadge: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "eye.slash").font(.system(size: 10, weight: .bold))
-            Text(store.t("hidden_badge")).font(.system(size: 11, weight: .bold)).lineLimit(1)
+            Text(store.t("hidden_badge")).font(.caption2.weight(.bold)).lineLimit(1)
         }
         .foregroundColor(.white)
         .padding(.horizontal, 7).padding(.vertical, 3)
@@ -360,7 +360,7 @@ struct UnlistedVodCardView: View {
                         ProgressView().tint(.tPrimary)
                     } else {
                         Image(systemName: gone ? "xmark.octagon" : "eye.slash")
-                            .font(.system(size: 22))
+                            .font(.title2)
                             .foregroundColor(.tMuted)
                     }
                     VStack(spacing: 0) {
@@ -499,7 +499,7 @@ struct CategoryCardView: View {
                 } placeholder: {
                     Rectangle().fill(Color.tSurface).aspectRatio(3/4, contentMode: .fill)
                         .overlay(Image(systemName: "gamecontroller")
-                            .font(.system(size: 20)).foregroundColor(.tMuted.opacity(0.5)))
+                            .font(.title3).foregroundColor(.tMuted.opacity(0.5)))
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(alignment: .topLeading) {
@@ -508,7 +508,7 @@ struct CategoryCardView: View {
                 .padding(.bottom, 3)
 
                 Text(category.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundColor(.tText)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -517,7 +517,7 @@ struct CategoryCardView: View {
                 HStack(spacing: 4) {
                     Circle().fill(Color.tLive).frame(width: 6, height: 6)
                     Text(category.viewers.map { formatViewers($0) } ?? " ")
-                        .font(.system(size: 12)).foregroundColor(.tMuted)
+                        .font(.caption).foregroundColor(.tMuted)
                         .lineLimit(1)
                 }
                 .opacity(category.viewers == nil ? 0 : 1)
@@ -655,7 +655,7 @@ struct StreamRowView: View {
                     HStack(spacing: 3) {
                         Circle().fill(Color.tLive).frame(width: 6, height: 6)
                         Text(formatViewers(stream.viewerCount))
-                            .font(.system(size: 11, weight: .bold).monospacedDigit())
+                            .font(.caption2.weight(.bold).monospacedDigit())
                             .foregroundColor(.white)
                     }
                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -668,21 +668,21 @@ struct StreamRowView: View {
                         HStack(spacing: 4) {
                             if pinnable && store.isPinned(stream.userLogin) { PinnedMark() }
                             Text(stream.userName)
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundColor(.tText)
                                 .lineLimit(1)
                         }
                     }
                     .buttonStyle(.plain)
                     Text(stream.title)
-                        .font(.system(size: 13))
+                        .font(.footnote)
                         .foregroundColor(.tMuted)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     // Grey pill, as in the Twitch app's lists.
                     if !stream.gameName.isEmpty {
                         Text(stream.gameName)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.caption.weight(.semibold))
                             .foregroundColor(.tText)
                             .lineLimit(1)
                             .padding(.horizontal, 8).padding(.vertical, 3)

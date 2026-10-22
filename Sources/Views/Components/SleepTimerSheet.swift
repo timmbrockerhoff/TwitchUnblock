@@ -23,12 +23,12 @@ struct SleepTimerSheet: View {
             // ── En-tête ─────────────────────────────────────────────
             HStack(spacing: 8) {
                 Image(systemName: "moon.zzz.fill")
-                    .font(.system(size: 15)).foregroundColor(.tPurple)
+                    .font(.subheadline).foregroundColor(.tPurple)
                 Text(store.t("sleep_timer"))
-                    .font(.system(size: 16, weight: .bold)).foregroundColor(.tText)
+                    .font(.callout.weight(.bold)).foregroundColor(.tText)
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.system(size: 14, weight: .bold))
+                    Image(systemName: "xmark").font(.subheadline.weight(.bold))
                         .foregroundColor(.tMuted).frame(width: 30, height: 30)
                         .background(Color.tSurface).clipShape(Circle())
                 }
@@ -44,15 +44,15 @@ struct SleepTimerSheet: View {
                 if timer.isActive {
                     VStack(spacing: 4) {
                         Text(store.t("sleep_remaining"))
-                            .font(.system(size: 12)).foregroundColor(.tMuted)
+                            .font(.caption).foregroundColor(.tMuted)
                         Text(timer.label)
-                            .font(.system(size: 40, weight: .heavy).monospacedDigit())
+                            .font(.largeTitle.weight(.heavy).monospacedDigit())
                             .foregroundColor(.tPurple)
                     }
                     .padding(.top, 8)
                 } else {
                     Text(store.t("sleep_timer_sub"))
-                        .font(.system(size: 13)).foregroundColor(.tMuted)
+                        .font(.footnote).foregroundColor(.tMuted)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 12)
@@ -62,7 +62,7 @@ struct SleepTimerSheet: View {
                     ForEach(SleepTimerService.presets, id: \.self) { m in
                         Button { timer.start(minutes: m) } label: {
                             Text(presetLabel(m))
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundColor(.tText)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -80,7 +80,7 @@ struct SleepTimerSheet: View {
                     TextField(store.t("sleep_custom_ph"), text: $customMinutes)
                         .keyboardType(.numberPad)
                         .focused($customFocused)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundColor(.tText)
                         .padding(.horizontal, 12).padding(.vertical, 11)
                         .background(Color.tSurface)
@@ -89,7 +89,7 @@ struct SleepTimerSheet: View {
                             .stroke(customFocused ? Color.tPrimary : Color.tBorder, lineWidth: 1))
 
                     Text(store.t("sleep_minutes"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundColor(.tMuted)
 
                     Button {
@@ -99,7 +99,7 @@ struct SleepTimerSheet: View {
                         timer.start(minutes: m)
                     } label: {
                         Text(store.t("sleep_start"))
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16).padding(.vertical, 11)
                             .background(customValue == nil ? Color.tMuted.opacity(0.35) : Color.tPrimary)
@@ -112,7 +112,7 @@ struct SleepTimerSheet: View {
                     HStack(spacing: 10) {
                         Button { timer.add(minutes: 15) } label: {
                             Text(store.t("sleep_add"))
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundColor(.tPrimary)
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(Color.tPrimary.opacity(0.15))
@@ -125,7 +125,7 @@ struct SleepTimerSheet: View {
                             dismiss()
                         } label: {
                             Text(store.t("sleep_cancel"))
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundColor(.tDanger)
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(Color.tDanger.opacity(0.15))

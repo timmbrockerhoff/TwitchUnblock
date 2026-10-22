@@ -207,7 +207,7 @@ struct SettingsView: View {
                     withAnimation(.easeInOut(duration: 0.22)) { self.page = nil }
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundColor(.tPrimary)
                         .frame(width: 34, height: 34)
                         .background(Color.tCard)
@@ -287,7 +287,7 @@ struct SettingsView: View {
                 ZStack {
                     Circle().fill(Color.tPrimary.opacity(0.25))
                     Image(systemName: "person.fill")
-                        .font(.system(size: 20)).foregroundColor(.tPrimary)
+                        .font(.title3).foregroundColor(.tPrimary)
                 }
             }
             .frame(width: 52, height: 52)
@@ -333,7 +333,7 @@ struct SettingsView: View {
                     .frame(width: 34, height: 34)
                     .overlay {
                         Image(systemName: section.icon)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.callout.weight(.medium))
                             .foregroundColor(section.tint)
                     }
 
@@ -346,7 +346,7 @@ struct SettingsView: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundColor(.tMuted.opacity(0.7))
             }
             .padding(.horizontal, TSpace.lg)
@@ -554,7 +554,7 @@ struct SettingsView: View {
                                 .lineLimit(1)
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.caption.weight(.semibold))
                                 .foregroundColor(.tMuted)
                         }
                         .padding(12)
@@ -589,7 +589,7 @@ struct SettingsView: View {
                                     .overlay {
                                         if on {
                                             Image(systemName: "checkmark")
-                                                .font(.system(size: 11, weight: .bold))
+                                                .font(.caption2.weight(.bold))
                                                 .foregroundColor(.white)
                                         }
                                     }
@@ -601,19 +601,6 @@ struct SettingsView: View {
                 }
                 Divider().background(Color.tBorder)
                 appIconRow
-                Divider().background(Color.tBorder)
-                if Theme.glassSupported {
-                    toggleRow(store.t("liquid_glass"), store.t("liquid_glass_sub"),
-                              $store.liquidGlass, log: "Verre liquide")
-                } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(store.t("liquid_glass"))
-                            .font(.tCardTitle).foregroundColor(.tMuted)
-                        Text(store.t("liquid_glass_unavailable"))
-                            .font(.tMeta).foregroundColor(.tMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
             }
         }
     }
@@ -711,7 +698,7 @@ struct SettingsView: View {
                 HStack(spacing: 4) {
                     Text(store.topLang.map { TopLanguage.name($0, in: store.lang) } ?? store.t("lang_auto"))
                         .font(.tCardTitle)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold))
                 }
                 .foregroundColor(.tPrimary)
                 .padding(.horizontal, 12).padding(.vertical, 8)
@@ -788,8 +775,8 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "bell.badge.fill").font(.system(size: 13, weight: .semibold))
-                    Text(store.t("notif_test")).font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "bell.badge.fill").font(.footnote.weight(.semibold))
+                    Text(store.t("notif_test")).font(.subheadline.weight(.semibold))
                 }
                 .foregroundColor(.tPrimary)
                 .padding(.horizontal, 12).padding(.vertical, 8)
@@ -858,14 +845,14 @@ struct SettingsView: View {
                 Divider().background(Color.tBorder)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(store.t("muted_words"))
-                        .font(.system(size: 14, weight: .semibold)).foregroundColor(.tText)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
                     Text(store.t("muted_words_sub"))
-                        .font(.system(size: 12)).foregroundColor(.tMuted)
+                        .font(.caption).foregroundColor(.tMuted)
                         .fixedSize(horizontal: false, vertical: true)
                     TextField("spoiler", text: $mutedDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .font(.system(size: 14))
+                        .font(.subheadline)
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.tSurface).cornerRadius(8)
                         .onAppear { mutedDraft = store.chatMutedWords.joined(separator: ", ") }
@@ -881,27 +868,27 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(store.t("hidden_users").replacingOccurrences(of: "{n}", with: "\(store.chatBlockedUsers.count)"))
-                                .font(.system(size: 14, weight: .semibold)).foregroundColor(.tText)
+                                .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
                             Text(store.chatBlockedUsers.suffix(6).joined(separator: ", "))
-                                .font(.system(size: 12)).foregroundColor(.tMuted).lineLimit(1)
+                                .font(.caption).foregroundColor(.tMuted).lineLimit(1)
                         }
                         Spacer()
                         Button(store.t("clear")) { store.chatBlockedUsers = [] }
-                            .font(.system(size: 13, weight: .bold)).foregroundColor(.tPrimary)
+                            .font(.footnote.weight(.bold)).foregroundColor(.tPrimary)
                     }
                 }
                 Divider().background(Color.tBorder)
                 // Mots surlignés : en plus des mentions, séparés par des virgules.
                 VStack(alignment: .leading, spacing: 6) {
                     Text(store.t("highlight_words"))
-                        .font(.system(size: 14, weight: .semibold)).foregroundColor(.tText)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
                     Text(store.t("highlight_words_sub"))
-                        .font(.system(size: 12)).foregroundColor(.tMuted)
+                        .font(.caption).foregroundColor(.tMuted)
                         .fixedSize(horizontal: false, vertical: true)
                     TextField("giveaway, tournoi", text: $highlightDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .font(.system(size: 14))
+                        .font(.subheadline)
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.tSurface).cornerRadius(8)
                         .onAppear { highlightDraft = store.chatHighlightWords.joined(separator: ", ") }
@@ -1124,7 +1111,7 @@ struct SettingsView: View {
             withAnimation(.easeInOut(duration: 0.2)) { action() }
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundColor(enabled ? .tPrimary : .tMuted.opacity(0.4))
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
@@ -1147,7 +1134,7 @@ struct SettingsView: View {
                             Text(store.t("sleep_remaining"))
                                 .font(.tMeta).foregroundColor(.tMuted)
                             Text(sleepTimer.label)
-                                .font(.system(size: 26, weight: .bold).monospacedDigit())
+                                .font(.title.weight(.bold).monospacedDigit())
                                 .foregroundColor(.tPurple)
                         } else {
                             Text(store.t("sleep_timer_sub"))
@@ -1281,7 +1268,7 @@ struct SettingsView: View {
                     Button { Task { await switchAccount() } } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.left.arrow.right.circle.fill")
-                                .font(.system(size: 16))
+                                .font(.callout)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(store.t("switch_account")).font(.tLabel)
                                 Text(store.t("switch_account_sub"))
@@ -1445,7 +1432,7 @@ struct SettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Text(NtfyNotifier.topic)
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                     .foregroundColor(.tText)
                     .lineLimit(1).minimumScaleFactor(0.6)
                     .textSelection(.enabled)
@@ -1456,7 +1443,7 @@ struct SettingsView: View {
                 } label: {
                     Label(store.t(ntfyCopied ? "ntfy_copied" : "ntfy_copy"),
                           systemImage: ntfyCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundColor(.tPrimary)
                 }
                 .buttonStyle(.plain)
@@ -1500,8 +1487,8 @@ struct SettingsView: View {
 
     private func ntfyPill(_ title: String, icon: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
-            Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+            Image(systemName: icon).font(.footnote.weight(.semibold))
+            Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
         }
         .foregroundColor(.tPrimary)
         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -1521,10 +1508,10 @@ struct SettingsView: View {
         if let destination = URL(string: url) {
             Link(destination: destination) {
                 HStack(spacing: TSpace.sm) {
-                    Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                    Image(systemName: icon).font(.footnote.weight(.semibold))
                     Text(title).font(.tLabel)
                     Spacer()
-                    Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "arrow.up.right").font(.caption.weight(.semibold))
                 }
                 .foregroundColor(.tText)
                 .padding(.horizontal, TSpace.md)
@@ -1564,7 +1551,7 @@ struct SettingsView: View {
                     Link("MXFia19", destination: URL(string: "https://github.com/MXFia19")!)
                         .foregroundColor(.tPrimary)
                 }
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
 
                 creditLink(icon: "chevron.left.forwardslash.chevron.right",
                            title: store.t("source_ios"),
@@ -1578,7 +1565,7 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: TSpace.sm) {
                         Image(systemName: "terminal")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.footnote.weight(.semibold))
                         Text(store.t("show_logs")).font(.tLabel)
                         Spacer()
                         Text("\(AppLogger.shared.logs.count)")
@@ -1799,7 +1786,7 @@ struct SettingsView: View {
             }
             Spacer(minLength: 8)
             Text(store.chatSyncNudge == 0 ? "0 s" : String(format: "%+.0f s", store.chatSyncNudge))
-                .font(.system(size: 14, weight: .bold).monospacedDigit())
+                .font(.subheadline.weight(.bold).monospacedDigit())
                 .foregroundColor(store.chatSyncNudge == 0 ? .tMuted : .tPrimary)
             Stepper("", value: $store.chatSyncNudge, in: -20...20, step: 1)
                 .labelsHidden()
@@ -1838,7 +1825,7 @@ struct SettingsView: View {
                            actionLabel: String, action: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
             Image(systemName: connected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 17))
+                .font(.body)
                 .foregroundColor(connected ? .tSuccess : .tMuted)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -1879,7 +1866,7 @@ struct SettingsView: View {
                 .frame(width: 26, height: 26)
                 .overlay {
                     Image(systemName: icon)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundColor(.tPrimary)
                 }
             Text(text)
@@ -1894,10 +1881,10 @@ struct SettingsView: View {
     private func statBox(value: Int, label: String, icon: String) -> some View {
         VStack(spacing: TSpace.xs) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(.callout)
                 .foregroundColor(.tMuted)
             Text("\(value)")
-                .font(.system(size: 26, weight: .bold))
+                .font(.title.weight(.bold))
                 .foregroundColor(.tPrimary)
             Text(label)
                 .font(.tMeta)

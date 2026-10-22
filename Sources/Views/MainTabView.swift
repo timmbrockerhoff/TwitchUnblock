@@ -1258,7 +1258,7 @@ struct MainTabView: View {
         .tGlass(in: RoundedRectangle(cornerRadius: TRadius.card, style: .continuous),
                 fallback: .tCard)
         .overlay(RoundedRectangle(cornerRadius: TRadius.card, style: .continuous)
-            .stroke(Color.tPrimary.opacity(store.liquidGlass ? 0.25 : 0.4), lineWidth: 1))
+            .stroke(Color.tPrimary.opacity(Theme.useGlass ? 0.25 : 0.4), lineWidth: 1))
         // La zone tactile est fixée AVANT les marges : sinon le rectangle
         // tactile englobait les 92 pt de marge basse, qui recouvrent la barre
         // d'onglets — appuyer sur « Recherche » ou « VODs » rouvrait le lecteur

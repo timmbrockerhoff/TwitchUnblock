@@ -63,7 +63,7 @@ struct TwitchWebLoginSheet: View {
                 if let wrong = wrongAccount {
                     VStack {
                         Text(wrongAccountText(wrong))
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.footnote.weight(.semibold))
                             .foregroundColor(.white)
                             .multilineTextAlignment(.leading)
                             .padding(12)
@@ -80,10 +80,10 @@ struct TwitchWebLoginSheet: View {
                     // tournait sans fin, seule sortie « Annuler ».
                     VStack(spacing: 14) {
                         Image(systemName: "wifi.exclamationmark")
-                            .font(.system(size: 30))
+                            .font(.title)
                             .foregroundColor(.tMuted)
                         Text(translate("web_load_failed", lang))
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundColor(.tText)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
@@ -92,7 +92,7 @@ struct TwitchWebLoginSheet: View {
                             isLoading = true
                             reloadCount += 1
                         }
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundColor(.tPrimary)
                     }
                     .padding(24)
@@ -102,7 +102,7 @@ struct TwitchWebLoginSheet: View {
                     VStack(spacing: 12) {
                         ProgressView().tint(.tPrimary).scaleEffect(1.3)
                         Text(translate("web_loading", lang))
-                            .font(.system(size: 13))
+                            .font(.footnote)
                             .foregroundColor(.tMuted)
                     }
                 }
@@ -112,7 +112,7 @@ struct TwitchWebLoginSheet: View {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
                         Text(translate("account_web", lang))
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundColor(.tText)
                         Text(translate("web_login_sub", lang))
                             .font(.system(size: 10))

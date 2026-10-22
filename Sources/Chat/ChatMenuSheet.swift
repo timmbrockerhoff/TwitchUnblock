@@ -165,7 +165,7 @@ struct ChatMenuSheet: View {
                      action: (() -> Void)? = nil) -> some View {
         let content = HStack(spacing: TSpace.md) {
             Image(systemName: icon)
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundColor(.tPrimary)
                 .frame(width: 24)
 
@@ -183,7 +183,7 @@ struct ChatMenuSheet: View {
                 EmptyView()
             case .chevron:
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold)).foregroundColor(.tMuted)
+                    .font(.caption.weight(.semibold)).foregroundColor(.tMuted)
             case .toggle(let binding):
                 Toggle("", isOn: binding).labelsHidden().tint(.tPrimary)
             }
@@ -254,7 +254,7 @@ struct UsernameColorSheet: View {
                                     ProgressView().scaleEffect(0.6).tint(.tMuted)
                                 } else if applied == c.name {
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: 11, weight: .bold))
+                                        .font(.caption2.weight(.bold))
                                         .foregroundColor(.tSuccess)
                                 }
                             }
@@ -354,7 +354,7 @@ struct ChattersSheet: View {
                         ForEach(logins, id: \.self) { login in
                             HStack(spacing: TSpace.sm) {
                                 Image(systemName: "person.fill")
-                                    .font(.system(size: 11)).foregroundColor(.tMuted)
+                                    .font(.caption2).foregroundColor(.tMuted)
                                 Text(login).font(.tBody).foregroundColor(.tText)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)

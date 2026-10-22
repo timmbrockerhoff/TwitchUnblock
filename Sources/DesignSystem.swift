@@ -7,26 +7,31 @@ import SwiftUI
 //  cartes dans son coin : deux listes voisines n'avaient ni la même graisse de
 //  titre ni le même rayon d'angle. Tout passe désormais par ces échelles.
 //
+//  Since the Apple-style redesign these are thin wrappers over the system:
+//  Dynamic Type text styles, system button styles (Liquid Glass on iOS 26),
+//  ContentUnavailableView. Screens keep calling `.tCardTitle`, `TPrimaryButton`…
+//
 //  Règle : un écran n'écrit plus `.font(.system(size: 13, weight: .bold))`,
 //  il écrit `.font(.tCardTitle)`.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // MARK: – Typographie
+/// Text styles, so every label follows the iPhone's text size setting.
 extension Font {
     /// Grand titre d'écran (en-tête de page).
-    static let tScreenTitle = Font.system(size: 26, weight: .bold)
+    static let tScreenTitle = Font.title.weight(.bold)
     /// Titre de section dans une page.
-    static let tSection     = Font.system(size: 17, weight: .bold)
+    static let tSection     = Font.title3.weight(.bold)
     /// Titre d'une carte / d'une ligne de liste.
-    static let tCardTitle   = Font.system(size: 14, weight: .semibold)
+    static let tCardTitle   = Font.subheadline.weight(.semibold)
     /// Texte courant.
-    static let tBody        = Font.system(size: 14)
+    static let tBody        = Font.subheadline
     /// Libellé de bouton ou de champ.
-    static let tLabel       = Font.system(size: 13, weight: .semibold)
+    static let tLabel       = Font.subheadline.weight(.semibold)
     /// Métadonnée secondaire (durée, vues, date…).
-    static let tMeta        = Font.system(size: 12, weight: .medium)
+    static let tMeta        = Font.caption
     /// Pastille, badge, compteur.
-    static let tBadge       = Font.system(size: 11, weight: .bold)
+    static let tBadge       = Font.caption2.weight(.bold)
 }
 
 // MARK: – Espacements
@@ -48,21 +53,57 @@ enum TRadius {
 
 // MARK: – Surface de carte
 extension View {
-    /// Fond de carte standard (listes, réglages, encarts).
+    /// Fond de carte standard (listes, réglages, encarts), like an inset grouped cell.
     func tCard(padding: CGFloat = TSpace.lg) -> some View {
         self.padding(padding)
-            .background(Color.tCard)
-            .cornerRadius(TRadius.card)
-            .overlay(RoundedRectangle(cornerRadius: TRadius.card)
-                .stroke(Color.tBorder.opacity(0.6), lineWidth: 1))
+            .background(Color.tCard,
+                        in: RoundedRectangle(cornerRadius: TRadius.card, style: .continuous))
     }
 
-    /// Fond de contrôle (champ de saisie, tuile cliquable).
+    /// Fond de contrôle (champ de saisie, tuile cliquable), like the system search field.
     func tControlSurface(focused: Bool = false) -> some View {
-        self.background(Color.tSurface)
-            .cornerRadius(TRadius.control)
-            .overlay(RoundedRectangle(cornerRadius: TRadius.control)
-                .stroke(focused ? Color.tPrimary : Color.tBorder, lineWidth: 1))
+        self.background(Color.tSurface,
+                        in: RoundedRectangle(cornerRadius: TRadius.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: TRadius.control, style: .continuous)
+                .stroke(focused ? Color.tPrimary : .clear, lineWidth: 1))
+    }
+}
+
+// MARK: – Styles de bouton système
+extension View {
+    /// Filled system button: glass on iOS 26, `.borderedProminent` before.
+    @ViewBuilder func tProminentStyle() -> some View {
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            self.buttonStyle(.glassProminent)
+        } else {
+            self.buttonStyle(.borderedProminent)
+        }
+        #else
+        self.buttonStyle(.borderedProminent)
+        #endif
+    }
+
+    /// Tinted system button: glass on iOS 26, `.bordered` before.
+    @ViewBuilder func tBorderedStyle() -> some View {
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+        #else
+        self.buttonStyle(.bordered)
+        #endif
+    }
+
+    /// Capsule shape where the system has it (iOS 17+).
+    @ViewBuilder func tCapsuleShape() -> some View {
+        if #available(iOS 17, tvOS 17, *) {
+            self.buttonBorderShape(.capsule)
+        } else {
+            self
+        }
     }
 }
 
@@ -80,10 +121,8 @@ struct TSectionHeader<Trailing: View>: View {
     }
 
     var body: some View {
+        // Apple's content headers (App Store, Music): bold title, no icon.
         HStack(spacing: TSpace.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.tPrimary)
             Text(title)
                 .font(.tSection)
                 .foregroundColor(.tText)
@@ -91,6 +130,7 @@ struct TSectionHeader<Trailing: View>: View {
             trailing
         }
         .padding(.horizontal, TSpace.lg)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -112,20 +152,15 @@ struct TPrimaryButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: TSpace.sm) {
-                if let icon {
-                    Image(systemName: icon).font(.system(size: 13, weight: .bold))
-                }
-                Text(title).font(.tLabel)
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
-            .padding(.horizontal, fullWidth ? 0 : TSpace.lg)
-            .frame(height: 44)
-            .tGlass(in: RoundedRectangle(cornerRadius: TRadius.control, style: .continuous),
-                    fallback: .tPrimary, tint: .tPrimary)
+            label.frame(maxWidth: fullWidth ? .infinity : nil)
         }
-        .buttonStyle(.plain)
+        .tProminentStyle()
+        .controlSize(.large)
+        .tint(.tPrimary)
+    }
+
+    @ViewBuilder private var label: some View {
+        if let icon { Label(title, systemImage: icon) } else { Text(title) }
     }
 }
 
@@ -139,22 +174,15 @@ struct TSecondaryButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: TSpace.sm) {
-                if let icon {
-                    Image(systemName: icon).font(.system(size: 13, weight: .bold))
-                }
-                Text(title).font(.tLabel)
-            }
-            .foregroundColor(tint)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
-            .padding(.horizontal, fullWidth ? 0 : TSpace.lg)
-            .frame(height: 44)
-            .background(tint.opacity(0.15))
-            .cornerRadius(TRadius.control)
-            .overlay(RoundedRectangle(cornerRadius: TRadius.control)
-                .stroke(tint.opacity(0.8), lineWidth: 1))
+            label.frame(maxWidth: fullWidth ? .infinity : nil)
         }
-        .buttonStyle(.plain)
+        .tBorderedStyle()
+        .controlSize(.large)
+        .tint(tint)
+    }
+
+    @ViewBuilder private var label: some View {
+        if let icon { Label(title, systemImage: icon) } else { Text(title) }
     }
 }
 
@@ -178,6 +206,7 @@ struct TIconButton: View {
 }
 
 // MARK: – Pastille sélectionnable
+/// Filter chip as in Apple Music / Podcasts: filled capsule when on, tinted when off.
 struct TChip: View {
     let title: String
     var icon: String? = nil
@@ -186,60 +215,48 @@ struct TChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: TSpace.xs) {
-                if let icon {
-                    Image(systemName: icon).font(.system(size: 11, weight: .semibold))
-                }
-                Text(title).font(.tLabel).lineLimit(1)
+            Group {
+                if let icon { Label(title, systemImage: icon) } else { Text(title) }
             }
-            .foregroundColor(isOn ? .white : .tMuted)
-            .padding(.horizontal, TSpace.md)
-            .frame(height: 32)
-            .background(isOn ? Color.tPrimary : Color.tSurface)
-            .cornerRadius(TRadius.chip)
+            .font(.tLabel)
+            .lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .modifier(ChipStyle(isOn: isOn))
+        .tCapsuleShape()
+        .controlSize(.small)
+        .tint(isOn ? .tPrimary : .secondary)
+    }
+
+    private struct ChipStyle: ViewModifier {
+        let isOn: Bool
+        func body(content: Content) -> some View {
+            if isOn { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+        }
     }
 }
 
 // MARK: – Sous-onglets (Streams / Catégories…)
+/// System segmented control.
 struct TSegmented<Item: Hashable>: View {
     let items: [Item]
     @Binding var selection: Item
     let label: (Item) -> String
 
     var body: some View {
-        HStack(spacing: 0) {
+        Picker("", selection: $selection) {
             ForEach(items, id: \.self) { item in
-                let isOn = selection == item
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { selection = item }
-                } label: {
-                    VStack(spacing: 7) {
-                        Text(label(item))
-                            .font(.tCardTitle)
-                            .foregroundColor(isOn ? .tText : .tMuted)
-                            // Cinq onglets sur un iPhone étroit : un libellé
-                            // un peu réduit plutôt que coupé sur deux lignes.
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                        Rectangle()
-                            .fill(isOn ? Color.tPrimary : .clear)
-                            .frame(height: 2)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                Text(label(item)).tag(item)
             }
         }
-        .padding(.top, TSpace.sm)
-        .background(Color.tDark)
-        .overlay(Divider().background(Color.tBorder), alignment: .bottom)
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, TSpace.lg)
+        .padding(.vertical, TSpace.sm)
     }
 }
 
 // MARK: – Champ de recherche
+/// Looks like the system search field; screens with one main search use `.searchable`.
 struct TSearchField: View {
     @Binding var text: String
     let placeholder: String
@@ -251,44 +268,41 @@ struct TSearchField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: TSpace.sm) {
+        HStack(spacing: 6) {
             if busy {
                 ProgressView()
-                    .tint(.tPrimary)
                     .scaleEffect(0.75)
-                    .frame(width: 15, height: 15)
+                    .frame(width: 17, height: 17)
             } else {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(focused ? .tPrimary : .tMuted)
+                    .foregroundColor(.tMuted)
             }
 
             TextField(placeholder, text: $text)
-                .font(.tBody)
                 .foregroundColor(.tText)
                 .focused($focused)
                 .autocorrectionDisabled()
-                .autocapitalization(.none)
+                .textInputAutocapitalization(.never)
                 .submitLabel(submitLabel)
                 .onSubmit(onSubmit)
 
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
                         .foregroundColor(.tMuted)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, TSpace.md)
-        .frame(height: 44)
-        .tControlSurface(focused: focused)
+        .padding(.horizontal, TSpace.sm)
+        .frame(minHeight: 36)
+        .background(Color.tSurface, in: RoundedRectangle(cornerRadius: TRadius.control, style: .continuous))
     }
 }
 
 // MARK: – État vide
 /// Message d'écran vide : dit ce qui manque ET quoi faire ensuite.
+/// ContentUnavailableView on iOS 17+, the same layout by hand before.
 struct TEmptyState: View {
     let icon: String
     let title: String
@@ -297,29 +311,41 @@ struct TEmptyState: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: TSpace.md) {
-            Image(systemName: icon)
-                .font(.system(size: 34, weight: .light))
-                .foregroundColor(.tPrimary.opacity(0.7))
-            Text(title)
-                .font(.tCardTitle)
-                .foregroundColor(.tText)
-                .multilineTextAlignment(.center)
-            if let message {
-                Text(message)
-                    .font(.tMeta)
+        if #available(iOS 17, tvOS 17, *) {
+            ContentUnavailableView {
+                Label(title, systemImage: icon)
+            } description: {
+                if let message { Text(message) }
+            } actions: {
+                if let actionTitle, let action {
+                    TPrimaryButton(title: actionTitle, action: action)
+                }
+            }
+        } else {
+            VStack(spacing: TSpace.md) {
+                Image(systemName: icon)
+                    .font(.largeTitle)
                     .foregroundColor(.tMuted)
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .foregroundColor(.tText)
                     .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let message {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundColor(.tMuted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let actionTitle, let action {
+                    TPrimaryButton(title: actionTitle, action: action)
+                        .padding(.top, TSpace.xs)
+                }
             }
-            if let actionTitle, let action {
-                TPrimaryButton(title: actionTitle, action: action)
-                    .padding(.top, TSpace.xs)
-            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, TSpace.xl)
+            .padding(.vertical, TSpace.xl)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, TSpace.xl)
-        .padding(.vertical, TSpace.xl)
     }
 }
 
@@ -327,7 +353,6 @@ struct TEmptyState: View {
 struct TLoader: View {
     var body: some View {
         ProgressView()
-            .tint(.tPrimary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, TSpace.xl)
     }
@@ -361,9 +386,10 @@ struct TMeta: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: icon).font(.system(size: 10))
-            Text(text).font(.tMeta)
+            Image(systemName: icon).imageScale(.small)
+            Text(text)
         }
+        .font(.tMeta)
         .foregroundColor(tint)
         .fixedSize()
     }
@@ -381,17 +407,16 @@ struct TLoadMoreButton: View {
         Button(action: action) {
             Group {
                 if busy {
-                    ProgressView().tint(.tPrimary)
+                    ProgressView()
                 } else {
-                    Text(store.t(titleKey)).font(.tLabel).foregroundColor(.tPrimary)
+                    Text(store.t(titleKey))
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .background(Color.tPrimary.opacity(0.12))
-            .cornerRadius(TRadius.control)
         }
-        .buttonStyle(.plain)
+        .tBorderedStyle()
+        .controlSize(.large)
+        .tint(.tPrimary)
         .disabled(busy)
         .padding(.horizontal, TSpace.lg)
         .padding(.top, TSpace.md)

@@ -303,7 +303,7 @@ struct SearchView: View {
     @ViewBuilder private var searchField: some View {
         HStack(spacing: TSpace.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundColor(queryFocused ? .tPrimary : .tMuted)
 
             TextField(store.t("ph_search"), text: $query)
@@ -324,7 +324,7 @@ struct SearchView: View {
                     recoverTask?.cancel(); recoverTask = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15)).foregroundColor(.tMuted)
+                        .font(.subheadline).foregroundColor(.tMuted)
                 }
                 .buttonStyle(.plain)
             }
@@ -360,7 +360,7 @@ struct SearchView: View {
                                 // Masquée des listes : la recherche la trouve quand même.
                                 if store.hidden.hides(channel: s.login) {
                                     Image(systemName: "eye.slash")
-                                        .font(.system(size: 11, weight: .semibold))
+                                        .font(.caption2.weight(.semibold))
                                         .foregroundColor(.tMuted)
                                         .accessibilityLabel(store.t("hidden_badge"))
                                 }
@@ -379,7 +379,7 @@ struct SearchView: View {
                         }
                         Spacer()
                         Image(systemName: "arrow.up.left")
-                            .font(.system(size: 11)).foregroundColor(.tMuted)
+                            .font(.caption2).foregroundColor(.tMuted)
                     }
                     .padding(.horizontal, TSpace.md)
                     .frame(height: 48)
@@ -487,9 +487,9 @@ struct SearchView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: on ? "heart.fill" : "heart")
-                        Text(store.t(on ? "following" : "follow")).font(.system(size: 14, weight: .bold))
+                        Text(store.t(on ? "following" : "follow")).font(.subheadline.weight(.bold))
                         if local {
-                            Text("· " + store.t("on_this_device")).font(.system(size: 12)).opacity(0.8)
+                            Text("· " + store.t("on_this_device")).font(.caption).opacity(0.8)
                         }
                     }
                     .foregroundColor(on ? .tDanger : .tPrimary)
@@ -530,7 +530,7 @@ struct SearchView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "eye")
                         Text("\(store.t("hidden_badge")) · \(store.t("unhide"))")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.footnote.weight(.bold))
                     }
                     .foregroundColor(.tMuted)
                     .padding(.horizontal, 14).padding(.vertical, 7)
@@ -698,12 +698,12 @@ struct SearchView: View {
                         HStack(alignment: .firstTextBaseline, spacing: TSpace.sm) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(list.title)
-                                    .font(.system(size: 16, weight: .bold)).foregroundColor(.tText)
+                                    .font(.callout.weight(.bold)).foregroundColor(.tText)
                                     .lineLimit(2)
                                 Text(list.description.isEmpty
                                      ? String(format: store.t("videos_count"), list.total)
                                      : "\(list.description) · \(String(format: store.t("videos_count"), list.total))")
-                                    .font(.system(size: 12)).foregroundColor(.tMuted)
+                                    .font(.caption).foregroundColor(.tMuted)
                                     .lineLimit(2)
                             }
                             Spacer(minLength: 0)
@@ -712,7 +712,7 @@ struct SearchView: View {
                                 onPlayQueue(list.videos, channelName)
                             } label: {
                                 Label(store.t("play_all"), systemImage: "play.fill")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.footnote.weight(.semibold))
                                     .padding(.horizontal, 12).padding(.vertical, 7)
                                     .background(Capsule().fill(Color.tPrimary.opacity(0.18)))
                                     .foregroundColor(.tPrimary)

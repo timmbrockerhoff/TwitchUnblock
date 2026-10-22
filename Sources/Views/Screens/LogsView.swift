@@ -45,7 +45,7 @@ struct LogsView: View {
                 // (UIActivityViewController présenté dans un .sheet est cassé sur iOS 16)
                 ShareLink(item: exportText) {
                     Text("📤 Exporter")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.caption.weight(.semibold))
                         .foregroundColor(.tText)
                         .padding(.horizontal, 12).padding(.vertical, 7)
                         .background(Color.tSurface)
@@ -57,7 +57,7 @@ struct LogsView: View {
                     showClearAlert = true
                 } label: {
                     Text("🗑 Effacer")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.caption.weight(.semibold))
                         .foregroundColor(.tDanger)
                         .padding(.horizontal, 12).padding(.vertical, 7)
                         .background(Color(hex: "3a1a1a"))
@@ -67,7 +67,7 @@ struct LogsView: View {
 
                 Spacer()
                 Text("\(filtered.count) logs")
-                    .font(.system(size: 11)).foregroundColor(.tMuted)
+                    .font(.caption2).foregroundColor(.tMuted)
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
 
@@ -78,9 +78,9 @@ struct LogsView: View {
                     Text(appLogger.logs.isEmpty
                          ? "Aucun log"
                          : "Aucun résultat pour ce filtre")
-                        .font(.system(size: 18, weight: .bold)).foregroundColor(.tText)
+                        .font(.body.weight(.bold)).foregroundColor(.tText)
                     Text("Lance une VOD ou un stream pour voir les logs")
-                        .font(.system(size: 13)).foregroundColor(.tMuted)
+                        .font(.footnote).foregroundColor(.tMuted)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -114,7 +114,7 @@ struct LogsView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(entry.level.icon)
-                    .font(.system(size: 12, weight: .black))
+                    .font(.caption.weight(.black))
                     .foregroundColor(color)
                     .frame(width: 14)
                 Text(entry.timestamp)
@@ -126,14 +126,14 @@ struct LogsView: View {
             }
 
             Text(entry.message)
-                .font(.system(size: 12))
+                .font(.caption)
                 .foregroundColor(.tText)
                 .lineLimit(isExpanded ? nil : 2)
 
             if let detail = entry.detail {
                 if isExpanded {
                     Text(detail)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(.caption2, design: .monospaced))
                         .foregroundColor(.tMuted)
                         .padding(8)
                         .background(Color(hex: "111111"))
@@ -163,7 +163,7 @@ struct LogsView: View {
     private func filterChip(label: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundColor(active ? .white : .tMuted)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(active ? Color.tPrimary : Color.tSurface)

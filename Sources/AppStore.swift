@@ -551,14 +551,8 @@ final class AppStore: ObservableObject {
             Theme.palette = Palette(accent: accent)
         }
     }
-    @Published var liquidGlass: Bool = Theme.liquidGlass {
-        didSet {
-            UserDefaults.standard.set(liquidGlass, forKey: Theme.glassKey)
-            Theme.liquidGlass = liquidGlass
-        }
-    }
     /// Change avec le thème : MainTabView reconstruit les onglets dessus.
-    var themeID: String { "\(accent.rawValue)-\(liquidGlass)" }
+    var themeID: String { accent.rawValue }
 
     // MARK: – Débogage (section temporaire)
     /// Afficher la latence du direct par-dessus le lecteur.

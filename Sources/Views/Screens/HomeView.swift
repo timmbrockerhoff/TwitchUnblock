@@ -234,7 +234,7 @@ struct HomeView: View {
     @ViewBuilder private var loginCard: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 26))
+                .font(.title)
                 .foregroundColor(.tPrimary)
             VStack(alignment: .leading, spacing: 6) {
                 // Jeton refusé par Twitch (401) : on dit pourquoi on a été
@@ -246,7 +246,7 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button { Task { await handleLogin() } } label: {
                     Text(store.t("btn_login_twitch"))
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(Color.tPrimary)
@@ -271,7 +271,7 @@ struct HomeView: View {
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 38, height: 38)
                 Image(systemName: expired ? "exclamationmark.triangle.fill" : "sparkles")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.callout.weight(.bold))
                     .foregroundColor(.white)
             }
             VStack(alignment: .leading, spacing: 6) {
@@ -282,7 +282,7 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button { showWebLogin = true } label: {
                     Text(store.t(expired ? "web_reconnect" : "web_banner_btn"))
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(Color.tPrimary)
@@ -297,7 +297,7 @@ struct HomeView: View {
                 withAnimation { webBannerHiddenUntil = Date().timeIntervalSince1970 + 7 * 86400 }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.caption.weight(.bold))
                     .foregroundColor(.tMuted)
                     .frame(width: 28, height: 28)
             }
@@ -352,7 +352,7 @@ struct HomeView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { store.homeListLayout.toggle() }
                     } label: {
                         Image(systemName: store.homeListLayout ? "square.grid.2x2" : "list.bullet")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundColor(.tMuted)
                             .frame(width: 32, height: 28)
                     }
@@ -474,7 +474,7 @@ struct HomeView: View {
                     HStack(spacing: 4) {
                         if store.isPinned(ch.login) { PinnedMark() }
                         Text(ch.name)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundColor(.tText)
                             .lineLimit(1)
                     }
@@ -482,7 +482,7 @@ struct HomeView: View {
                         let label = offlineLabel(since: end, store: store)
                         if !label.isEmpty {
                             Text(label)
-                                .font(.system(size: 12))
+                                .font(.caption)
                                 .foregroundColor(.tMuted)
                                 .lineLimit(1)
                         }
@@ -490,12 +490,12 @@ struct HomeView: View {
                 }
                 if store.isLocallyFollowed(ch.login) && !twitchFollowLogins.contains(ch.login) {
                     Image(systemName: "iphone")
-                        .font(.system(size: 11))
+                        .font(.caption2)
                         .foregroundColor(.tMuted)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundColor(.tMuted)
             }
             .padding(.vertical, 6)
@@ -785,12 +785,12 @@ private struct ResumeVodCard: View {
                 .cornerRadius(6)
 
                 Text(item.display)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(.tText)
                     .lineLimit(1)
                 if let streamer = item.streamer {
                     Text(streamer)
-                        .font(.system(size: 13))
+                        .font(.footnote)
                         .foregroundColor(.tMuted)
                         .lineLimit(1)
                 }

@@ -97,7 +97,7 @@ struct MessageSheet: View {
                 ZStack {
                     Circle().fill(message.color.opacity(0.25))
                     Text(String(message.displayName.prefix(1)).uppercased())
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.title3.weight(.bold))
                         .foregroundColor(message.color)
                 }
             }
@@ -105,7 +105,7 @@ struct MessageSheet: View {
             .clipShape(Circle())
 
             Text(message.displayName)
-                .font(.system(size: 20, weight: .bold))
+                .font(.title3.weight(.bold))
                 .foregroundColor(message.color)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -148,7 +148,7 @@ struct MessageSheet: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundColor(.tText)
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
@@ -162,7 +162,7 @@ struct MessageSheet: View {
     private func actionButton(icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .bold))
+                .font(.body.weight(.bold))
                 .foregroundColor(.tText)
                 .frame(width: 40, height: 40)
                 .contentShape(Rectangle())
@@ -213,7 +213,7 @@ struct MessageSheet: View {
 
             Button(action: sendReply) {
                 Image(systemName: "paperplane.fill")
-                    .font(.system(size: 15, weight: .bold)).foregroundColor(.white)
+                    .font(.subheadline.weight(.bold)).foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(canReply ? Color.tPrimary : Color.tMuted.opacity(0.35))
                     .cornerRadius(TRadius.control)

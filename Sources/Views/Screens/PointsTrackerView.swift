@@ -89,7 +89,7 @@ struct PointsTrackerPanel: View {
         VStack(alignment: .leading, spacing: 4) {
             Label(label, systemImage: icon).font(.tMeta).foregroundColor(tint).lineLimit(1)
             Text(value)
-                .font(.system(size: 17, weight: .bold).monospacedDigit()).foregroundColor(.tText)
+                .font(.body.weight(.bold).monospacedDigit()).foregroundColor(.tText)
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

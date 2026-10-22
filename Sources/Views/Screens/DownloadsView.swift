@@ -277,11 +277,11 @@ struct DownloadRow: View {
                     } placeholder: {
                         Rectangle().fill(Color.tSurface)
                             .overlay(Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 16)).foregroundColor(.tMuted))
+                                .font(.callout).foregroundColor(.tMuted))
                     }
                     if item.state == .done {
                         Image(systemName: "play.circle.fill")
-                            .font(.system(size: 26)).foregroundColor(.white.opacity(0.9))
+                            .font(.title).foregroundColor(.white.opacity(0.9))
                             .shadow(radius: 3)
                     }
                 }

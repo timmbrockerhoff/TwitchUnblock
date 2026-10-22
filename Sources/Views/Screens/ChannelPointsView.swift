@@ -23,7 +23,7 @@ struct ChannelPointsButton: View {
 
                 // Couronne parfaitement centrée dans le cercle
                 Image(systemName: "crown.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.callout.weight(.bold))
                     .foregroundColor(service.pendingClaimId != nil ? .white : .tPrimary)
             }
             // Point blanc (bonus dispo) en haut-droite, sans décentrer la couronne
@@ -82,11 +82,11 @@ struct ChannelPointsSheet: View {
 
             HStack(spacing: 10) {
                 Image(systemName: "crown.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundColor(.tPrimary)
 
                 Text(store.t("points_title"))
-                    .font(.system(size: 17, weight: .heavy))
+                    .font(.body.weight(.heavy))
                     .foregroundColor(.tText)
 
                 Spacer()
@@ -95,10 +95,10 @@ struct ChannelPointsSheet: View {
                 if !service.isLoading && !service.needsWebLogin {
                     HStack(spacing: 4) {
                         Image(systemName: "crown.fill")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.caption2.weight(.bold))
                             .foregroundColor(.tPrimary)
                         Text(service.formatted(service.balance))
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundColor(.tText)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
@@ -122,7 +122,7 @@ struct ChannelPointsSheet: View {
                         Text(msg).foregroundColor(.tDanger)
                     }
                 }
-                .font(.system(size: 13, weight: .semibold))
+                .font(.footnote.weight(.semibold))
                 .padding(10)
                 .frame(maxWidth: .infinity)
                 .background(Color.tSurface)
@@ -139,14 +139,14 @@ struct ChannelPointsSheet: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 10) {
                         Image(systemName: "lock.circle.fill")
-                            .font(.system(size: 22))
+                            .font(.title2)
                             .foregroundColor(.tPrimary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(store.t("points_connect_title"))
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundColor(.tText)
                             Text(store.t("points_connect_desc"))
-                                .font(.system(size: 11))
+                                .font(.caption2)
                                 .foregroundColor(.tMuted)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -155,7 +155,7 @@ struct ChannelPointsSheet: View {
                     Button(action: onConnect) {
                         HStack(spacing: 8) {
                             Image(systemName: "person.crop.circle.badge.checkmark")
-                            Text(store.t("points_connect_btn")).font(.system(size: 14, weight: .bold))
+                            Text(store.t("points_connect_btn")).font(.subheadline.weight(.bold))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -183,7 +183,7 @@ struct ChannelPointsSheet: View {
                 VStack(spacing: 12) {
                     ProgressView().tint(.tPrimary).scaleEffect(1.2)
                     Text(store.t("points_loading"))
-                        .font(.system(size: 13))
+                        .font(.footnote)
                         .foregroundColor(.tMuted)
                 }
                 Spacer()
@@ -192,10 +192,10 @@ struct ChannelPointsSheet: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "crown")
-                        .font(.system(size: 40))
+                        .font(.largeTitle)
                         .foregroundColor(.tMuted)
                     Text(store.t("points_none"))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundColor(.tMuted)
                 }
                 Spacer()
@@ -267,12 +267,12 @@ struct ChannelPointsSheet: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "gift.fill")
-                    .font(.system(size: 18))
+                    .font(.body)
                 Text(store.t("points_claim_bonus"))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.white.opacity(0.7))
             }
             .foregroundColor(.white)
@@ -323,13 +323,13 @@ private struct RewardRow: View {
             // ── Titre + prompt ───────────────────────────────────────
             VStack(alignment: .leading, spacing: 3) {
                 Text(reward.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(reward.canRedeem && canAfford ? .tText : .tMuted)
                     .lineLimit(2)
 
                 if let prompt = reward.prompt, !prompt.isEmpty {
                     Text(prompt)
-                        .font(.system(size: 11))
+                        .font(.caption2)
                         .foregroundColor(.tMuted)
                         .lineLimit(1)
                 }
@@ -352,7 +352,7 @@ private struct RewardRow: View {
                     Image(systemName: "crown.fill")
                         .font(.system(size: 9, weight: .bold))
                     Text(service.formatted(reward.cost))
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                 }
                 .foregroundColor(canAfford ? .tPrimary : .tMuted)
 
@@ -377,7 +377,7 @@ private struct RewardRow: View {
                                 ProgressView().tint(.white).scaleEffect(0.7)
                             } else {
                                 Text(canAfford ? store.t("points_redeem") : store.t("points_insufficient"))
-                                    .font(.system(size: 11, weight: .bold))
+                                    .font(.caption2.weight(.bold))
                             }
                         }
                         .frame(width: 68, height: 28)
@@ -400,7 +400,7 @@ private struct RewardRow: View {
 
     private var rewardFallbackIcon: some View {
         Image(systemName: "crown.fill")
-            .font(.system(size: 20))
+            .font(.title3)
             .foregroundColor(Color(hex: reward.backgroundColor))
     }
 }
@@ -427,14 +427,14 @@ private struct UserInputSheet: View {
 
             // Titre
             Text(reward.title)
-                .font(.system(size: 18, weight: .heavy))
+                .font(.body.weight(.heavy))
                 .foregroundColor(.tText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
             if let prompt = reward.prompt, !prompt.isEmpty {
                 Text(prompt)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.tMuted)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
@@ -444,9 +444,9 @@ private struct UserInputSheet: View {
             // Coût
             HStack(spacing: 4) {
                 Image(systemName: "crown.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.footnote.weight(.bold))
                 Text("\(reward.cost) \(store.t("points_unit"))")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.subheadline.weight(.bold))
             }
             .foregroundColor(.tPrimary)
             .padding(.top, 10)
@@ -466,7 +466,7 @@ private struct UserInputSheet: View {
             // Boutons
             HStack(spacing: 12) {
                 Button(store.t("cancel")) { dismiss() }
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(.tMuted)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .background(Color.tSurface).cornerRadius(12)
@@ -480,7 +480,7 @@ private struct UserInputSheet: View {
                             ProgressView().tint(.white)
                         } else {
                             Text(store.t("points_redeem"))
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                         }
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
