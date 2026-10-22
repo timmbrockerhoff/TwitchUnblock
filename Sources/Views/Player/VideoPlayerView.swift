@@ -211,10 +211,9 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         /// Départ de `item`, appliqué une fois l'élément prêt.
         func arm(_ item: AVPlayerItem, _ start: Start) {
             clearPending()
-            // Short starts are applied too: a running broadcast's recording has no end yet and
-            // AVPlayer opens it at its newest point, so "from the start" landed near the live edge.
-            // applyPendingSeek skips them again for finished videos, which start at 0:00 anyway.
-            pendingSeek = !isLive ? start.seconds : nil
+            // Any saved position counts (a running recording opens at its newest point, not
+            // 0:00); none (0) keeps that: a live stream watched through its recording.
+            pendingSeek = !isLive && start.seconds > 0 ? start.seconds : nil
             pendingIsResume = start.resume
             pendingBehind = isLive ? start.behind : nil
             guard pendingSeek != nil || pendingBehind != nil else { return }
@@ -260,7 +259,6 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
             // Elle se rouvrait sur sa dernière seconde, et « Tout lire » passait
             // aussitôt à la suivante. Un enregistrement en cours n'a pas de fin.
             let length = item.duration.seconds
-            if target <= 5, length.isFinite { return }
             if resume, length.isFinite, length > 0, target > length - 30 {
                 logger.info("LECTEUR", "VOD déjà vue jusqu'au bout", "reprise au début")
                 return
@@ -730,6 +728,8 @@ struct VideoPlayerView: View {
     var onTime: (Double) -> Void = { _ in }
     /// Latence du direct remontee au parent (affichage).
     var onLatency: (Double?) -> Void = { _ in }
+    /// Same measure for any item with timestamps (a running recording watched as live).
+    var onClockLag: (Double?) -> Void = { _ in }
     /// Distance au bord du direct remontee au parent (synchro auto du chat).
     var onBehind: (Double?) -> Void = { _ in }
     /// Une image joue (lecture en cours, hors audio seul) : le parent empêche
@@ -788,6 +788,7 @@ struct VideoPlayerView: View {
                 let measured = isLive ? value : nil
                 if latency != measured { latency = measured }
                 onLatency(measured)
+                onClockLag(value)
             },
             onBehind: { value in onBehind(isLive ? value : nil) },
             lowLatency: store.lowLatency,

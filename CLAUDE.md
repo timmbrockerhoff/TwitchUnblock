@@ -83,10 +83,12 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Live rewind (Apple's player): NO custom timeline under/over the video (the user rejected it
-  repeatedly: only Apple's Liquid Glass bar in the video). The live stream has no scrubber, so
-  "⋯" → "Zurückspulen" opens the running recording (`liveDvrVideoId`) ~2 min behind live, where
-  Apple's bar spans the whole broadcast; a red LIVE button in the header returns.
+- Live in Apple's player plays the running recording (`liveDvrVideoId`, `getM3U8`) at its newest
+  point instead of the live stream (`liveViaRecording`): its playlist has the whole broadcast, so
+  Apple's Liquid Glass bar is full from the start (user's wish; ~1 min behind real live). No
+  custom timeline around the video (user rejected it repeatedly). Live IRC chat stays, delayed by
+  `recordingLag` (item.currentDate vs now) − 6 s; more than 5 min behind → VOD chat replay.
+  No recording (VODs off) → the live stream as before, with "⋯" → "Zurückspulen" unavailable.
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
