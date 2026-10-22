@@ -73,6 +73,12 @@ English, short, explaining *why*.
   Home (2026-10-22) = shelves like Apple's TV app (`TShelf`): Jetzt live · Du folgst, Ansehen
   fortsetzen, Clips deiner Kanäle (9:16, opens the clip feed), Top-Streams (language menu),
   Offline avatars; "Alle" pushes the old full lists (grid/list toggle in their toolbar).
+  Browse (same day): one search field for channels, links and categories (category shelf under
+  the channel suggestions); idle = "Deine Kategorien" shelf + top-category grid; a category is
+  pushed on the tab stack (`openedCategory` in SearchView), follow/hide in its nav bar.
+  Meine VODs: "Ansehen fortsetzen" shelf (started, < 95 %), downloads, history grouped by day
+  (Heute/Gestern/Diese Woche/Früher); remove via long press. `ResumeVodCard` + `vodThumb` live
+  in CardViews.swift.
 - Earlier Twitch look-alike work (user sends screenshots of the Twitch iOS app as reference; viewer
   features only, no creator/upsell UI; hidden VODs and ad-free live must stay):
   - Browse tab: categories in a 3-column box-art grid under the search field; Home lost its
@@ -95,6 +101,11 @@ English, short, explaining *why*.
   (won't play). Live chat delayed by `liveLatency` − 6 s; > 5 min → VOD chat replay.
   Channels without a recording (VODs off): `LiveDVRPlaylist.wrap(live:recording: nil)` keeps the
   live segments seen since opening → rewind back to that moment, 2 s segments so little delay.
+  Twitch live segments expire (200 at 2 min, 403 at 10 min, measured 2026-10-22): scrubbing back
+  > ~10 min into the time since opening errors/stalls → `NativeVideoPlayer.Coordinator.
+  reopenDVRIfNeeded` swaps in `LiveDVRPlaylist.reopen` (recording fetched again) at the same
+  date (not verified in the Simulator: its scrubbing is too coarse to land there; check on the
+  iPhone). Without a recording nothing can refill it: rewind really reaches only ~10 min back.
   No custom timeline around the video (user rejected it repeatedly).
   Header LIVE pill (outside the video): red while `liveLatency` < 60 s, grey when behind; tap
   bumps `goLiveRequest` → NativeVideoPlayer seeks to the seekable end. Apple's bar keeps its

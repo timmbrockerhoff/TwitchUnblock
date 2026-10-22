@@ -2,7 +2,7 @@ import SwiftUI
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Mes VODs : ce qu'on a regardé, avec la reprise de lecture.
-//  Chaque ligne se lance au toucher ; la corbeille la retire de l'historique.
+//  Shelf of started VODs, downloads, then the history by day; long press removes one.
 // ═══════════════════════════════════════════════════════════════════════════
 
 struct LibraryView: View {
@@ -20,6 +20,33 @@ struct LibraryView: View {
 
     private var vods: [HistoryItem] { store.history.filter { $0.type == .vod } }
 
+    /// Started (> 1 min) and not finished; an unknown length counts as not finished.
+    private var resumable: [HistoryItem] {
+        Array(vods.filter { item in
+            let watched = store.getVodProgress(item.term)
+            guard watched > 60 else { return false }
+            guard let total = metaStore.meta(item.term)?.lengthSeconds, total > 0 else { return true }
+            return watched / Double(total) < 0.95
+        }.prefix(15))
+    }
+
+    /// History by day of watching, newest first (the history is already in that order).
+    private var dayGroups: [(key: String, items: [HistoryItem])] {
+        let cal = Calendar.current
+        let now = Date()
+        let week = cal.dateInterval(of: .weekOfYear, for: now)
+        var groups: [(key: String, items: [HistoryItem])] = []
+        for item in vods {
+            let date = Date(timeIntervalSince1970: item.addedAt / 1000)
+            let key = cal.isDateInToday(date) ? "day_today"
+                : cal.isDateInYesterday(date) ? "day_yesterday"
+                : week?.contains(date) == true ? "day_this_week" : "day_earlier"
+            if groups.last?.key == key { groups[groups.count - 1].items.append(item) }
+            else { groups.append((key, [item])) }
+        }
+        return groups
+    }
+
     var body: some View {
         Group {
             if vods.isEmpty && downloads.items.isEmpty {
@@ -32,34 +59,54 @@ struct LibraryView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: TSpace.md) {
+                    LazyVStack(alignment: .leading, spacing: TSpace.xl) {
+                        let started = resumable
+                        if !started.isEmpty {
+                            TShelf(title: store.t("continue_watching")) {
+                                ForEach(started) { item in
+                                    ResumeVodCard(item: item) {
+                                        onPlayVod(item.term, item.display, item.thumb, item.streamer)
+                                    }
+                                }
+                            }
+                        }
+
                         if !downloads.items.isEmpty {
-                            TSectionHeader("\(store.t("dl_section")) · \(ByteCountFormatter.string(fromByteCount: downloads.totalBytes, countStyle: .file))",
-                                           icon: "arrow.down.circle") { EmptyView() }
-                                .padding(.top, TSpace.md)
-                            ForEach(downloads.items) { item in
-                                DownloadRow(item: item) { playOffline($0) }
+                            VStack(alignment: .leading, spacing: TSpace.md) {
+                                sectionTitle("\(store.t("dl_section")) · \(ByteCountFormatter.string(fromByteCount: downloads.totalBytes, countStyle: .file))")
+                                ForEach(downloads.items) { item in
+                                    DownloadRow(item: item) { playOffline($0) }
+                                }
                             }
                         }
 
                         if !vods.isEmpty {
-                            TSectionHeader("\(vods.count) \(store.t("vods"))", icon: "clock.arrow.circlepath") {
-                                Button { confirmClear = true } label: {
-                                    Text(store.t("btn_clear"))
-                                        .font(.tMeta).foregroundColor(.tDanger)
+                            VStack(alignment: .leading, spacing: TSpace.md) {
+                                HStack {
+                                    sectionTitle(store.t("history"))
+                                    Spacer()
+                                    Button(store.t("btn_clear")) { confirmClear = true }
+                                        .font(.subheadline)
+                                        .tint(.tDanger)
+                                        .padding(.trailing, TSpace.lg)
                                 }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.top, TSpace.md)
-
-                            ForEach(vods) { item in
-                                row(item)
-                                    .task { await metaStore.load(item.term) }
+                                ForEach(dayGroups, id: \.key) { group in
+                                    Text(store.t(group.key))
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundColor(.tMuted)
+                                        .padding(.horizontal, TSpace.lg)
+                                        .padding(.top, TSpace.xs)
+                                    ForEach(group.items) { item in
+                                        row(item)
+                                            .task { await metaStore.load(item.term) }
+                                    }
+                                }
                             }
                         }
 
                         Spacer(minLength: 40)
                     }
+                    .padding(.top, TSpace.sm)
                 }
                 // Sur la liste, pas sur le Group : une seule alerte par vue.
                 .alert(store.t("offline_play_failed"), isPresented: $offlineFailed) {
@@ -93,74 +140,76 @@ struct LibraryView: View {
         }
     }
 
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text).font(.tSection).foregroundColor(.tText)
+            .accessibilityAddTraits(.isHeader)
+            .padding(.horizontal, TSpace.lg)
+    }
+
     // MARK: – Ligne
     @ViewBuilder private func row(_ item: HistoryItem) -> some View {
-        // Pas de Button englobant : un Button dans un Button déclenche les deux.
-        // La ligne réagit au toucher, seule la corbeille est un vrai bouton.
         HStack(spacing: TSpace.md) {
-            HStack(spacing: TSpace.md) {
-                // La taille est portée par le ZStack, pas par l'image : un
-                // GeometryReader prend toute la largeur qu'on lui propose, donc
-                // l'apparition de la barre de progression (après le chargement
-                // des métadonnées) élargissait le ZStack et décalait la ligne.
-                ZStack(alignment: .bottom) {
-                    AsyncImage(url: URL(string: item.thumb ?? "")) { img in
-                        img.resizable().aspectRatio(16/9, contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(Color.tSurface)
-                            .overlay(Image(systemName: "film")
-                                .font(.callout).foregroundColor(.tMuted))
-                    }
+            // La taille est portée par le ZStack, pas par l'image : un
+            // GeometryReader prend toute la largeur qu'on lui propose, donc
+            // l'apparition de la barre de progression (après le chargement
+            // des métadonnées) élargissait le ZStack et décalait la ligne.
+            ZStack(alignment: .bottom) {
+                AsyncImage(url: URL(string: vodThumb(item, meta: metaStore.meta(item.term)))) { img in
+                    img.resizable().aspectRatio(16/9, contentMode: .fill)
+                } placeholder: {
+                    Rectangle().fill(Color.tSurface)
+                        .overlay(Image(systemName: "film")
+                            .font(.callout).foregroundColor(.tMuted))
+                }
 
-                    if let ratio = progressRatio(item.term) {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Color.black.opacity(0.5)
-                                Color.tPrimary.frame(width: geo.size.width * ratio)
-                            }
+                if let ratio = progressRatio(item.term) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Color.black.opacity(0.5)
+                            Color.tPrimary.frame(width: geo.size.width * ratio)
                         }
-                        .frame(height: 3)
                     }
+                    .frame(height: 3)
                 }
-                .frame(width: 116, height: 65)
-                .clipped()
-                .cornerRadius(TRadius.chip)
+            }
+            .frame(width: 116, height: 65)
+            .clipped()
+            .cornerRadius(TRadius.chip)
 
-                VStack(alignment: .leading, spacing: TSpace.xs) {
-                    Text(item.display)
-                        .font(.tCardTitle)
-                        .foregroundColor(.tText)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: TSpace.xs) {
+                Text(item.display)
+                    .font(.tCardTitle)
+                    .foregroundColor(.tText)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
 
-                    if let streamer = item.streamer {
-                        Text(streamer)
-                            .font(.tMeta).foregroundColor(.tPurple).lineLimit(1)
-                    }
-
-                    metaLine(item.term)
+                if let streamer = item.streamer {
+                    Text(streamer)
+                        .font(.tMeta).foregroundColor(.tPurple).lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onPlayVod(item.term, item.display, item.thumb, item.streamer)
-            }
-            // Appui long : le multi-live. `streamer` peut être un nom affiché :
-            // la chaîne est complétée au démarrage de la tuile.
-            .contextMenu {
-                MultiVodMenuButton(vodId: item.term, title: item.display, thumb: item.thumb,
-                                   name: item.streamer ?? "", login: "")
-            }
 
-            TIconButton(icon: "trash", tint: .tDanger) {
+                metaLine(item.term)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, TSpace.lg)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onPlayVod(item.term, item.display, item.thumb, item.streamer)
+        }
+        // Appui long : le multi-live (`streamer` peut être un nom affiché : la
+        // chaîne est complétée au démarrage de la tuile), et la retirer de l'historique.
+        .contextMenu {
+            MultiVodMenuButton(vodId: item.term, title: item.display, thumb: item.thumb,
+                               name: item.streamer ?? "", login: "")
+            Button(role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     store.removeFromHistory(term: item.term)
                 }
+            } label: {
+                Label(store.t("delete_vod"), systemImage: "trash")
             }
-            .accessibilityLabel(store.t("delete_vod"))
         }
-        .padding(.horizontal, TSpace.lg)
     }
 
     /// Part de la VOD déjà vue, nil si on n'en sait pas assez pour l'afficher.

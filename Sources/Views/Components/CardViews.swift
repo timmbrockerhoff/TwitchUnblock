@@ -699,3 +699,72 @@ struct StreamRowView: View {
         }
     }
 }
+
+/// Picture for a history VOD. Entries saved without one (a live's recording opened from the
+/// player) take Twitch's; size placeholders filled in.
+func vodThumb(_ item: HistoryItem, meta: VodMeta?) -> String {
+    let saved = item.thumb ?? ""
+    var url = saved.isEmpty ? (meta?.thumb ?? "") : saved
+    // Recording still running: Twitch only has a placeholder ("processing", 404); the live preview fits.
+    if url.isEmpty || url.contains("processing") || url.contains("404"), let login = item.streamer?.lowercased(), !login.isEmpty {
+        url = "https://static-cdn.jtvnw.net/previews-ttv/live_user_\(login)-320x180.jpg"
+    }
+    return url.replacingOccurrences(of: "%{width}", with: "320")
+        .replacingOccurrences(of: "%{height}", with: "180")
+}
+
+/// One "Ansehen fortsetzen" card: thumbnail with the watched part as a bar.
+struct ResumeVodCard: View {
+    let item: HistoryItem
+    let onTap: () -> Void
+
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject private var metaStore = VodMetaStore.shared
+
+    private var ratio: Double? {
+        guard let total = metaStore.meta(item.term)?.lengthSeconds, total > 0 else { return nil }
+        return min(1, store.getVodProgress(item.term) / Double(total))
+    }
+
+    private var thumb: String { vodThumb(item, meta: metaStore.meta(item.term)) }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: TSpace.xs) {
+                ZStack(alignment: .bottom) {
+                    AsyncImage(url: URL(string: thumb)) { img in
+                        img.resizable().aspectRatio(16/9, contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(Color.tSurface)
+                    }
+                    if let ratio {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Color.black.opacity(0.5)
+                                Color.tPrimary.frame(width: geo.size.width * ratio)
+                            }
+                        }
+                        .frame(height: 4)
+                    }
+                }
+                .frame(width: 220, height: 124)
+                .clipped()
+                .cornerRadius(6)
+
+                Text(item.display)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.tText)
+                    .lineLimit(1)
+                if let streamer = item.streamer {
+                    Text(streamer)
+                        .font(.footnote)
+                        .foregroundColor(.tMuted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 220, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .task { await metaStore.load(item.term) }
+    }
+}
