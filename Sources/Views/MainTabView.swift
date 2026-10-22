@@ -113,6 +113,8 @@ struct MainTabView: View {
     /// Live joined to its running recording (LiveDVRPlaylist, Apple's player): Apple's bar
     /// spans the whole broadcast, its edge is the real live stream.
     @State private var liveViaRecording = false
+    /// Bumped by the header LIVE pill: the player jumps to the live edge.
+    @State private var goLiveRequest = 0
     /// Incrémenté à chaque ouverture et fermeture du lecteur : la réponse
     /// d'un chargement dépassé (chaîne A arrivée après la chaîne B, lecteur
     /// déjà fermé) est ignorée au lieu d'écraser l'état ou de relancer les
@@ -890,7 +892,8 @@ struct MainTabView: View {
                 onBehind: { updateBehind($0) },
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
-                onTap: landscape ? { showLandscapeControls(!landscapeControls) } : nil
+                onTap: landscape ? { showLandscapeControls(!landscapeControls) } : nil,
+                goLiveRequest: goLiveRequest
             )
         }
     }
@@ -959,6 +962,22 @@ struct MainTabView: View {
                 .tint(.tPurple)
             }
 
+            // Live with its past (LiveDVRPlaylist): red while at the live edge, grey once scrubbed
+            // back; a tap jumps to the edge. Apple's bar has no place for it on iOS.
+            if liveViaRecording {
+                // ponytail: "at the edge" = latency under 60 s (the edge sits ~30 s behind); measure
+                // the edge's own latency if streams turn out to sit further back.
+                let atEdge = liveLatency < 60
+                Button { if !atEdge { goLiveRequest += 1 } } label: {
+                    Label(store.t("live_badge"), systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption.weight(.bold))
+                }
+                .modifier(LivePillStyle(live: atEdge))
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(atEdge ? .tLive : .secondary)
+                .accessibilityLabel(store.t(atEdge ? "live_on" : "back_to_live_full"))
+            }
             // Watching a running broadcast's recording: one tap back to live.
             if let backLive = backToLiveAction {
                 Button(action: backLive) {
@@ -2038,5 +2057,13 @@ struct TabAccessory<Accessory: View>: ViewModifier {
         #else
         content
         #endif
+    }
+}
+
+/// Header LIVE pill: filled while live, outlined (tap = back to live) when behind.
+private struct LivePillStyle: ViewModifier {
+    let live: Bool
+    func body(content: Content) -> some View {
+        if live { content.tProminentStyle() } else { content.tBorderedStyle() }
     }
 }

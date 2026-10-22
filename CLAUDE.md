@@ -91,6 +91,9 @@ English, short, explaining *why*.
   configuredTimeOffsetFromLive (clamped), TARGETDURATION 2 (won't play), SERVER-CONTROL HOLD-BACK
   (won't play). Live chat delayed by `liveLatency` − 6 s; > 5 min → VOD chat replay.
   No custom timeline around the video (user rejected it repeatedly).
+  Header LIVE pill (outside the video): red while `liveLatency` < 60 s, grey when behind; tap
+  bumps `goLiveRequest` → NativeVideoPlayer seeks to the seekable end. Apple's bar keeps its
+  clock time for live content (no API; removing PDT didn't change it).
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

@@ -37,6 +37,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     var onPlaying: (Bool) -> Void = { _ in }
     /// Tap on the video, seen alongside Apple's own (which shows its controls).
     var onTap: (() -> Void)? = nil
+    /// Bumped to jump to the live edge (header LIVE pill); applied once per value.
+    var goLiveRequest = 0
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
@@ -51,6 +53,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         // SwiftUI gestures over the player never see its taps: a UIKit recognizer that
         // runs together with AVKit's own.
         context.coordinator.onTap = onTap
+        context.coordinator.lastGoLive = goLiveRequest
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         tap.cancelsTouchesInView = false
         tap.delegate = context.coordinator
@@ -119,6 +122,14 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         coordinator.onSpeedChange = onSpeedChange
         coordinator.onPlaying = onPlaying
         coordinator.onTap = onTap
+        if goLiveRequest != coordinator.lastGoLive {
+            coordinator.lastGoLive = goLiveRequest
+            if let player = vc.player, let edge = player.currentItem?.seekableTimeRanges.last?.timeRangeValue.end,
+               edge.isNumeric {
+                player.seek(to: edge)
+                player.play()
+            }
+        }
         // Comparée à l'adresse demandée, pas à celle de l'élément : après un
         // repli AirPlay (playlist du CDN), elles différaient toujours, et le
         // lecteur se recréait à chaque mise à jour — en boucle, jamais lisible.
@@ -154,6 +165,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate, UIGestureRecognizerDelegate {
         var onTap: (() -> Void)?
+        var lastGoLive = 0
         @objc func tapped() { onTap?() }
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
@@ -747,6 +759,7 @@ struct VideoPlayerView: View {
     /// Annonce brève au lancement (direct servi par le compte, sans pub).
     var notice: String? = nil
     var onTap: (() -> Void)? = nil
+    var goLiveRequest = 0
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -811,7 +824,8 @@ struct VideoPlayerView: View {
             adBreaks: adBreaks,
             // Audio seul : rien à regarder, l'écran peut s'éteindre.
             onPlaying: { playing in onPlaying(playing && !isAudioQuality(playedQuality)) },
-            onTap: onTap
+            onTap: onTap,
+            goLiveRequest: goLiveRequest
         )
         .aspectRatio(16/9, contentMode: .fit)
         .background(Color.black)
