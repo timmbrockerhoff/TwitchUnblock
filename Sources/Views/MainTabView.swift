@@ -84,6 +84,9 @@ struct MainTabView: View {
     /// Landscape (Apple's player): header and timeline float over the video, shown by a tap.
     @State private var landscapeControls = true
     @State private var landscapeHideTask: Task<Void, Never>? = nil
+    /// Landscape asked for from the "⋯" menu: undone when the player is reduced or closed,
+    /// or the rest of the app would stay sideways with the rotation lock on.
+    @State private var forcedLandscape = false
     /// Largeur du chat au début d'un glissement : la translation du geste est
     /// relative à son point de départ, que la vue ne connaît plus une fois
     /// qu'elle a commencé à rétrécir.
@@ -306,6 +309,9 @@ struct MainTabView: View {
                     .environment(\.colorScheme, .dark)
                     // Home indicator fades out while watching, as in Apple's TV app.
                     .persistentSystemOverlays(playerVisible ? .hidden : .automatic)
+                    .onChange(of: playerVisible) { visible in
+                        if !visible && forcedLandscape { rotatePlayer(toLandscape: false) }
+                    }
                     // Glissé vers le bas : le lecteur suit le doigt.
                     .modifier(PlayerPullEffect(pull: pull))
                     .opacity(playerVisible ? 1 : 0)
@@ -1055,6 +1061,7 @@ struct MainTabView: View {
     }
 
     private func rotatePlayer(toLandscape: Bool) {
+        forcedLandscape = toLandscape
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first else { return }
         let target: UIInterfaceOrientationMask = toLandscape ? .landscapeRight : .portrait
