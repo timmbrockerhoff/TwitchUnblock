@@ -13,7 +13,6 @@ struct TwitchUnblockApp: App {
                 // téléchargements), par-dessus le lecteur compris.
                 .inAppNoticeHost()
                 .environmentObject(store)
-                .preferredColorScheme(.dark)
                 // Notification ntfy touchée : twitchunblock://live/<chaîne>.
                 .onOpenURL { url in
                     guard url.scheme == "twitchunblock", url.host == "live",

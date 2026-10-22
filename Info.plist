@@ -97,13 +97,9 @@
 
     <!-- ── Status bar ─────────────────────────────────────────── -->
     <key>UIStatusBarStyle</key>
-    <string>UIStatusBarStyleLightContent</string>
+    <string>UIStatusBarStyleDefault</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
-
-    <!-- ── Apparence : toujours sombre (écran de lancement compris) ── -->
-    <key>UIUserInterfaceStyle</key>
-    <string>Dark</string>
 
     <!-- ── Launch screen (fond système : noir en apparence sombre) ── -->
     <key>UILaunchScreen</key>

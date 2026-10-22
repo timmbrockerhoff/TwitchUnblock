@@ -217,13 +217,6 @@ struct MainTabView: View {
             case .library: return "clock.arrow.circlepath"
             }
         }
-        var iconFilled: String {
-            switch self {
-            case .home:    return "house.fill"
-            case .search:  return "magnifyingglass"
-            case .library: return "clock.arrow.circlepath"
-            }
-        }
         func label(_ store: AppStore) -> String {
             switch self {
             case .home:    return store.t("tab_home")
@@ -233,48 +226,51 @@ struct MainTabView: View {
         }
     }
 
+    /// One tab: its own navigation stack with a large title, and the avatar
+    /// (settings) at the top right as before.
+    private func tabRoot<Content: View>(_ tab: TabName, @ViewBuilder _ content: () -> Content) -> some View {
+        NavigationStack {
+            content()
+                .navigationTitle(tab.label(store))
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        AccountButton { showSettings = true }
+                    }
+                }
+        }
+        .tabItem { Label(tab.label(store), systemImage: tab.icon) }
+        .tag(tab)
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.tDark.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                HeaderView(title: activeTab.label(store),
-                           onOpenSettings: { showSettings = true })
-                    .zIndex(10)
-
-                Group {
-                    switch activeTab {
-                    // Les fermetures sont explicites : Swift n'applique pas les
-                    // valeurs par défaut (`soft:`) quand une méthode est passée
-                    // comme valeur, donc `playLive` vaudrait ici
-                    // `(String, Bool) -> Void` et ne collerait pas au callback.
-                    case .home:    HomeView(onPlayStream: { playLive($0) },
-                                                onPlayVod: { playVod($0, $1, $2, $3) },
-                                                onOpenClipFeed: { openClipFeed($0) })
-                    case .search:  SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
-                                              onPlayLive: { playLive($0) },
-                                              onPlayClip: { playClip($0, $1) },
-                                              onPlayClipList: { playClipQueue($0, $1) },
-                                              onPlayQueue: { playQueue($0, $1) },
-                                              onRecovered: { playRecovered($0) })
-                    case .library: LibraryView(onPlayVod: { playVod($0, $1, $2, $3) },
-                                               onPlayOffline: { playRecovered($0) })
-                    }
+            // System tab bar and navigation bars: Liquid Glass on iOS 26 for free.
+            TabView(selection: $activeTab) {
+                // Les fermetures sont explicites : Swift n'applique pas les
+                // valeurs par défaut (`soft:`) quand une méthode est passée
+                // comme valeur, donc `playLive` vaudrait ici
+                // `(String, Bool) -> Void` et ne collerait pas au callback.
+                tabRoot(.home) {
+                    HomeView(onPlayStream: { playLive($0) },
+                             onPlayVod: { playVod($0, $1, $2, $3) },
+                             onOpenClipFeed: { openClipFeed($0) })
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // Verre liquide (iOS 26) : la barre d'onglets flotte sur le
-                // contenu, qui défile dessous et transparaît à travers.
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if store.liquidGlass && Theme.glassSupported {
-                        CustomTabBar(activeTab: $activeTab, floating: true)
-                    }
+                tabRoot(.search) {
+                    SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
+                               onPlayLive: { playLive($0) },
+                               onPlayClip: { playClip($0, $1) },
+                               onPlayClipList: { playClipQueue($0, $1) },
+                               onPlayQueue: { playQueue($0, $1) },
+                               onRecovered: { playRecovered($0) })
                 }
-
-                if !(store.liquidGlass && Theme.glassSupported) {
-                    CustomTabBar(activeTab: $activeTab)
+                tabRoot(.library) {
+                    LibraryView(onPlayVod: { playVod($0, $1, $2, $3) },
+                                onPlayOffline: { playRecovered($0) })
                 }
             }
-            .ignoresSafeArea()
+            .tint(.tPrimary)
             // Thème changé dans les réglages : les onglets sont reconstruits,
             // pour qu'aucune vue ne garde les anciennes couleurs. Le lecteur et
             // la feuille des réglages, hors de ce bloc, restent en place.
@@ -297,6 +293,8 @@ struct MainTabView: View {
             // ── Player overlay ────────────────────────────────────────
             if playerMode != nil {
                 playerOverlay
+                    // Video and chat stay dark, like any video app, whatever the system setting.
+                    .environment(\.colorScheme, .dark)
                     // Glissé vers le bas : le lecteur suit le doigt.
                     .modifier(PlayerPullEffect(pull: pull))
                     .opacity(playerVisible ? 1 : 0)
@@ -1752,62 +1750,6 @@ struct MainTabView: View {
     private func stopLiveTimers() {
         refreshTimer?.invalidate(); refreshTimer = nil
         DropsHeartbeat.shared.stop()
-    }
-}
-
-// MARK: – Custom Tab Bar
-struct CustomTabBar: View {
-    @Binding var activeTab: MainTabView.TabName
-    /// Verre liquide : capsule flottante au-dessus du contenu.
-    var floating = false
-    @EnvironmentObject private var store: AppStore
-
-    private var bottomInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first(where: { $0.isKeyWindow })?.safeAreaInsets.bottom ?? 34
-    }
-
-    var body: some View {
-        if floating {
-            tabs
-                .padding(.vertical, 8)
-                .padding(.horizontal, 6)
-                .tGlass(in: Capsule(), fallback: .tCard)
-                .padding(.horizontal, 28)
-                .padding(.top, 6)
-                .padding(.bottom, max(bottomInset - 12, 10))
-        } else {
-            tabs
-                .padding(.top, 10)
-                .padding(.bottom, bottomInset + 6)
-                .background(.ultraThinMaterial)
-                .overlay(Divider().background(Color.tBorder), alignment: .top)
-        }
-    }
-
-    private var tabs: some View {
-        HStack(spacing: 0) {
-            ForEach(MainTabView.TabName.allCases, id: \.self) { tab in
-                let isActive = activeTab == tab
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) { activeTab = tab }
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: isActive ? tab.iconFilled : tab.icon)
-                            .font(.system(size: 19, weight: isActive ? .semibold : .regular))
-                            .frame(height: 24)
-                        Text(tab.label(store))
-                            .font(.system(size: 11, weight: isActive ? .semibold : .medium))
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(isActive ? .tPrimary : .tMuted)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 }
 

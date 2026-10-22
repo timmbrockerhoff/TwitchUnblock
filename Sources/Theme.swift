@@ -1,10 +1,10 @@
 import SwiftUI
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Thèmes : couleur d'accent, fond, et verre liquide (iOS 26).
+//  Thèmes : couleur d'accent et verre liquide (iOS 26).
 //
-//  Les couleurs de l'app (`Color.tPrimary`, `.tDark`, `.tCard`…) lisent la
-//  palette en cours à chaque affichage. Les réglages la remplacent ; les vues
+//  Les couleurs d'accent (`Color.tPrimary`, `.tPurple`) lisent la palette
+//  en cours à chaque affichage ; les fonds sont ceux du système. Les réglages la remplacent ; les vues
 //  se redessinent parce qu'elles observent l'AppStore, et MainTabView
 //  reconstruit les onglets (`AppStore.themeID`) pour ne rien laisser en
 //  retard.
@@ -30,48 +30,29 @@ enum AccentTheme: String, CaseIterable, Identifiable {
     var labelKey: String { "accent_\(rawValue)" }
 }
 
-/// Fond de l'app : sombre façon Twitch, noir complet (écrans OLED : les
-/// pixels éteints ne consomment rien), ou ardoise.
-enum BackgroundTheme: String, CaseIterable, Identifiable {
-    case dark, oled, slate
-    var id: String { rawValue }
-    var hex: (dark: String, card: String, surface: String, border: String) {
-        switch self {
-        case .dark:  return ("0e0e10", "18181b", "26262c", "3a3a40")
-        case .oled:  return ("000000", "0e0e10", "1c1c1f", "2e2e33")
-        case .slate: return ("0f141c", "171e29", "232c3a", "35404f")
-        }
-    }
-    var labelKey: String { "bg_\(rawValue)" }
-}
-
+/// Backgrounds follow the system (light/dark) since the Apple-style redesign;
+/// only the accent is still the user's choice.
 struct Palette {
-    let primary, light, dark, card, surface, border: Color
+    let primary, light: Color
 
-    init(accent: AccentTheme, background: BackgroundTheme) {
+    init(accent: AccentTheme) {
         primary = Color(hex: accent.hex.primary)
-        light   = Color(hex: accent.hex.light)
-        dark    = Color(hex: background.hex.dark)
-        card    = Color(hex: background.hex.card)
-        surface = Color(hex: background.hex.surface)
-        border  = Color(hex: background.hex.border)
+        // The pale variant only reads on dark grounds; light mode uses the accent itself.
+        let pale = UIColor(Color(hex: accent.hex.light)), main = UIColor(primary)
+        light = Color(UIColor { $0.userInterfaceStyle == .dark ? pale : main })
     }
 }
 
 /// Thème en cours, lu au lancement puis tenu à jour par l'AppStore.
 enum Theme {
     static let accentKey = "cfg_accent"
-    static let backgroundKey = "cfg_background"
     static let glassKey = "cfg_liquid_glass"
 
     static var storedAccent: AccentTheme {
         AccentTheme(rawValue: UserDefaults.standard.string(forKey: accentKey) ?? "") ?? .twitch
     }
-    static var storedBackground: BackgroundTheme {
-        BackgroundTheme(rawValue: UserDefaults.standard.string(forKey: backgroundKey) ?? "") ?? .dark
-    }
 
-    static var palette = Palette(accent: storedAccent, background: storedBackground)
+    static var palette = Palette(accent: storedAccent)
     static var liquidGlass = UserDefaults.standard.bool(forKey: glassKey)
 
     /// Le verre liquide n'existe qu'à partir d'iOS 26.

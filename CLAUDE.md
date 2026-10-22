@@ -22,6 +22,11 @@ English, short, explaining *why*.
 - `build.yml` (master/test) is the upstream release pipeline; it commits `apps.json` and creates
   releases — don't trigger it from the fork.
 - Version shown in the app = `VERSION` file (`1.4`) + number of app commits since it changed.
+- Local simulator build (Xcode 27.1 + `brew install xcodegen` on the user's Mac): generate into a
+  scratch folder so the tracked project stays untouched, with symlinks to `Info.plist`, `Widgets`,
+  `TV`, `Shared`, `Sources`, `assets`, `VERSION`, then
+  `xcodebuild -scheme TwitchUnblock -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build` and
+  launch the .app in the iOS Simulator. App icons are only generated in CI.
 
 ## Boundaries
 - Do not modify, refactor or extend the code that lets users watch subscriber-only VODs without
@@ -51,7 +56,12 @@ English, short, explaining *why*.
 - Removed upstream-developer features: bug report/feedback (form, inbox, admin), announcements,
   polls, update checker + changelog, usage ping/stats, Discord invite. Keep it that way; the
   MIT credit to MXFia19 + source link stays in Settings → Other.
-- Twitch look-alike work (user sends screenshots of the Twitch iOS app as reference; viewer
+- Apple-style redesign (2026-10-22, replaces the Twitch look-alike direction): system `TabView`
+  + one `NavigationStack` per tab with large titles (`MainTabView.tabRoot`), avatar
+  (`AccountButton`) in the nav bar opens settings; light/dark follows the system (`tDark`,
+  `tCard`, `tSurface`, `tBorder`, `tText`, `tMuted` are system colors), only the accent stays a
+  user choice; background themes removed. The player stays dark (`.environment(\.colorScheme, .dark)`).
+- Earlier Twitch look-alike work (user sends screenshots of the Twitch iOS app as reference; viewer
   features only, no creator/upsell UI; hidden VODs and ad-free live must stay):
   - Browse tab: categories in a 3-column box-art grid under the search field; Home lost its
     Streams/Categories segment.
@@ -64,15 +74,16 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Twitch look-alike, next: Home "Du folgst" avatar/verified rows (needs avatars fetched),
-  Profile tab (replaces Library; settings, drops, downloads, history), Home "Live" and "Clips"
-  feeds, Browse "Live-Kanäle" tab + filter menu, Activity tab, player & chat (needs screenshots).
+- Apple-style redesign, next: `.searchable` instead of `TSearchField`, `Picker(.segmented)` for
+  chips/segments, `Form` for Settings, Dynamic Type fonts instead of fixed sizes (394 ad-hoc
+  `.font(.system(size:))`), mini player as `tabViewBottomAccessory` on iOS 26, sheets/views
+  that still assume a dark background.
 - Feature ideas discussed: feed filter by words/channels, per-channel playback speed,
   quality by Wi-Fi/cellular.
 
 ## Working rules
-- There is no way to run the app in this environment; verify by building (push → check.yml)
-  and keep changes small and reviewable. The user tests on their iPhone.
+- Verify locally in the Simulator (see Building), then push for check.yml; keep changes small
+  and reviewable. The user tests on their iPhone.
 - Commit messages: explain the bug/cost and the fix.
 - Pushing while a check build runs cancels it (`cancel-in-progress`): wait, or batch commits.
 - After a green build the user wants the IPA copied to iCloud Drive:

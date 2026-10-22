@@ -172,17 +172,25 @@ let kVodRecoveryMetaAPI = "https://api.vodvod.top/channels/@"
 
 // MARK: – Colors
 extension Color {
-    // Couleurs du thème choisi (accent, fonds) : voir Theme.swift.
+    // Couleurs du thème choisi (accent) : voir Theme.swift.
     static var tPrimary: Color { Theme.palette.primary }
-    static var tDark:    Color { Theme.palette.dark }
-    static var tCard:    Color { Theme.palette.card }
-    static var tSurface: Color { Theme.palette.surface }
-    static var tBorder:  Color { Theme.palette.border }
     /// Version claire de l'accent (violet clair avec le thème Twitch).
     static var tPurple:  Color { Theme.palette.light }
+    // System colors: light and dark mode follow the iPhone's setting.
+    #if os(iOS)
+    static let tDark    = Color(.systemBackground)
+    static let tCard    = Color(.secondarySystemBackground)
+    static let tSurface = Color(.tertiarySystemFill)
+    #else
+    // tvOS lacks these system colors; the TV views don't use them anyway.
+    static let tDark    = Color(hex: "0e0e10")
+    static let tCard    = Color(hex: "18181b")
+    static let tSurface = Color(hex: "26262c")
+    #endif
+    static let tBorder  = Color(.separator)
+    static let tText    = Color(.label)
+    static let tMuted   = Color(.secondaryLabel)
     // Couleurs fixes, quel que soit le thème.
-    static let tText      = Color(hex: "efeff1")
-    static let tMuted     = Color(hex: "888888")
     static let tDanger    = Color(hex: "ff4f4d")
     static let tLive      = Color(hex: "e91916")
     static let tSuccess   = Color(hex: "00ff88")

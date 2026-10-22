@@ -543,18 +543,12 @@ final class AppStore: ObservableObject {
     }
 
     // MARK: – Apparence
-    /// Couleur d'accent, fond, verre liquide : voir Theme.swift. La palette
+    /// Couleur d'accent, verre liquide : voir Theme.swift. La palette
     /// partagée est remplacée aussitôt, les vues suivent.
     @Published var accent: AccentTheme = Theme.storedAccent {
         didSet {
             UserDefaults.standard.set(accent.rawValue, forKey: Theme.accentKey)
-            Theme.palette = Palette(accent: accent, background: background)
-        }
-    }
-    @Published var background: BackgroundTheme = Theme.storedBackground {
-        didSet {
-            UserDefaults.standard.set(background.rawValue, forKey: Theme.backgroundKey)
-            Theme.palette = Palette(accent: accent, background: background)
+            Theme.palette = Palette(accent: accent)
         }
     }
     @Published var liquidGlass: Bool = Theme.liquidGlass {
@@ -564,7 +558,7 @@ final class AppStore: ObservableObject {
         }
     }
     /// Change avec le thème : MainTabView reconstruit les onglets dessus.
-    var themeID: String { "\(accent.rawValue)-\(background.rawValue)-\(liquidGlass)" }
+    var themeID: String { "\(accent.rawValue)-\(liquidGlass)" }
 
     // MARK: – Débogage (section temporaire)
     /// Afficher la latence du direct par-dessus le lecteur.

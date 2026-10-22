@@ -600,19 +600,6 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(Color.tBorder)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(store.t("background_theme"))
-                        .font(.tCardTitle).foregroundColor(.tText)
-                    HStack(spacing: 8) {
-                        ForEach(BackgroundTheme.allCases) { b in
-                            TChip(title: store.t(b.labelKey), isOn: store.background == b) {
-                                logger.settingChanged("Fond", value: b.rawValue)
-                                store.background = b
-                            }
-                        }
-                    }
-                }
-                Divider().background(Color.tBorder)
                 appIconRow
                 Divider().background(Color.tBorder)
                 if Theme.glassSupported {
