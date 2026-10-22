@@ -39,7 +39,6 @@ struct SettingsView: View {
     @State private var showImporter    = false
     @State private var backupMessage: String? = nil
     /// Page ouverte, nil = menu racine.
-    @State private var page: Page? = nil
     /// Chat-size slider being dragged and its uncommitted value (see sliderRow).
     @State private var sliderDraft: (key: ReferenceWritableKeyPath<AppStore, Double>, value: Double)? = nil
 
@@ -47,31 +46,24 @@ struct SettingsView: View {
     private var channelCount: Int { store.history.filter { $0.type == .channel }.count }
 
     var body: some View {
-        VStack(spacing: 0) {
-            sheetHeader
-
-            // Navigation maison plutôt qu'un NavigationStack : celui-ci posait
-            // sa propre barre grise, avec titre et « Back » en bleu système,
-            // juste sous notre en-tête. Deux barres l'une sur l'autre, dont une
-            // qui ignore la charte. Ici l'en-tête se transforme : le titre
-            // devient celui de la page et la croix cède la place à un chevron.
-            ZStack {
-                if page == nil {
-                    rootMenu
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .leading).combined(with: .opacity),
-                            removal:   .move(edge: .leading).combined(with: .opacity)))
-                } else if let page {
-                    sectionPage(page)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal:   .move(edge: .trailing).combined(with: .opacity)))
+        // System navigation, like the Settings app: grouped list, pushed pages,
+        // close button in the bar.
+        NavigationStack {
+            rootMenu
+                .navigationTitle(store.t("settings"))
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { TCloseButton { dismiss() } }
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationDestination(for: Page.self) { section in
+                    sectionPage(section)
+                        .navigationTitle(store.t(section.titleKey))
+                        .navigationBarTitleDisplayMode(.inline)
+                }
         }
-        .background(Color.tDark)
         .onAppear {
+            refreshCacheInfo()
+        }        .onAppear {
             refreshCacheInfo()
         }
         // ── Alerts ──────────────────────────────────────────────────
@@ -120,24 +112,14 @@ struct SettingsView: View {
         }
         // ── Logs sheet ───────────────────────────────────────────────
         .sheet(isPresented: $showLogs) {
-            VStack(spacing: 0) {
-                HStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "terminal.fill")
-                            .foregroundColor(.tPrimary)
-                        Text("Logs")
-                            .font(.tSection).foregroundColor(.tText)
-                    }
-                    Spacer()
-                    Button("Fermer") { showLogs = false }
-                        .foregroundColor(.tPrimary).fontWeight(.semibold)
-                }
-                .padding(16)
-                .background(Color.tCard)
-                .overlay(Divider().background(Color.tBorder), alignment: .bottom)
+            NavigationStack {
                 LogsView()
+                    .navigationTitle("Logs")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { TCloseButton { showLogs = false } }
+                    }
             }
-            .background(Color.tDark)
         }
     }
 
@@ -184,182 +166,104 @@ struct SettingsView: View {
             }
         }
         /// Une teinte par domaine : on repère la ligne à la couleur avant
-        /// d'avoir lu le libellé.
+        /// d'avoir lu le libellé. System colors, as in the Settings app.
         var tint: Color {
             switch self {
-            case .account:   return .tPurple
-            case .general:   return .tPrimary
-            case .player:    return .tOutplayer
-            case .chat:      return .tSuccess
-            case .drops:     return .tLive
-            case .points:    return .tPurple
-            case .labs:      return .tWarning
-            case .other:     return .tMuted
+            case .account:   return .purple
+            case .general:   return .gray
+            case .player:    return .blue
+            case .chat:      return .green
+            case .drops:     return .red
+            case .points:    return .indigo
+            case .labs:      return .orange
+            case .other:     return .gray
             }
-        }
-    }
-
-    /// En-tête unique, qui suit la navigation.
-    @ViewBuilder private var sheetHeader: some View {
-        HStack(spacing: TSpace.md) {
-            if let page {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.22)) { self.page = nil }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundColor(.tPrimary)
-                        .frame(width: 34, height: 34)
-                        .background(Color.tCard)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-
-                Text(store.t(page.titleKey))
-                    .font(.tSection)
-                    .foregroundColor(.tText)
-                    .lineLimit(1)
-            } else {
-                Text(store.t("settings"))
-                    .font(.tScreenTitle)
-                    .foregroundColor(.tText)
-            }
-            Spacer(minLength: 0)
-            TIconButton(icon: "xmark") { dismiss() }
-        }
-        .padding(.horizontal, TSpace.lg)
-        .padding(.top, TSpace.lg)
-        .padding(.bottom, TSpace.md)
-        .background(Color.tDark)
-        .overlay(alignment: .bottom) {
-            // Un filet apparaît seulement dans une page : à la racine, le grand
-            // titre se suffit et un trait l'alourdirait.
-            if page != nil { Divider().background(Color.tBorder) }
         }
     }
 
     // MARK: – Menu racine
     @ViewBuilder private var rootMenu: some View {
-        ScrollView {
-            VStack(spacing: TSpace.lg) {
-                if let login = store.twitchLogin {
-                    accountBanner(login: login)
-                }
-
-                VStack(spacing: 0) {
-                    menuRow(.account)
-                    rowSeparator
-                    menuRow(.general)
-                    rowSeparator
-                    menuRow(.player)
-                    rowSeparator
-                    menuRow(.chat)
-                    rowSeparator
-                    menuRow(.drops)
-                    rowSeparator
-                    menuRow(.points)
-                    rowSeparator
-                    menuRow(.labs)
-                    rowSeparator
-                    menuRow(.other)
-                }
-                .tCard()
-
-                Text(versionLabel)
-                    .font(.tMeta).foregroundColor(.tMuted)
-
-                Spacer(minLength: 24)
+        List {
+            if let login = store.twitchLogin {
+                Section { accountBanner(login: login) }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, TSpace.sm)
+            Section {
+                ForEach([Page.account, .general, .player, .chat, .drops, .points, .labs, .other], id: \.self) {
+                    menuRow($0)
+                }
+            } footer: {
+                Text(versionLabel)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, TSpace.sm)
+            }
         }
+        .listStyle(.insetGrouped)
     }
 
     /// Bandeau du compte connecté : une photo et un pseudo valent mieux qu'une
     /// ligne « Connecté » perdue au fond d'une page.
     @ViewBuilder
     private func accountBanner(login: String) -> some View {
+        // Like the Apple Account row at the top of the Settings app.
         HStack(spacing: TSpace.md) {
             AsyncImage(url: URL(string: store.twitchAvatar ?? "")) { img in
                 img.resizable().scaledToFill()
             } placeholder: {
-                ZStack {
-                    Circle().fill(Color.tPrimary.opacity(0.25))
-                    Image(systemName: "person.fill")
-                        .font(.title3).foregroundColor(.tPrimary)
-                }
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundColor(.tMuted)
             }
-            .frame(width: 52, height: 52)
+            .frame(width: 60, height: 60)
             .clipShape(Circle())
 
             // Session web seule (connexion depuis la page Drops) : le pseudo
             // est connu, mais pas de compte pour le chat ni les suivis.
             let full = store.twitchToken != nil
             VStack(alignment: .leading, spacing: 2) {
-                Text(login).font(.tSection).foregroundColor(.tText).lineLimit(1)
-                HStack(spacing: 5) {
-                    Circle().fill(full ? Color.tSuccess : Color.tWarning).frame(width: 6, height: 6)
-                    Text(store.t(full ? "connected" : "web_only")).font(.tMeta).foregroundColor(.tMuted)
-                }
+                Text(login).font(.title2.weight(.semibold)).foregroundColor(.tText).lineLimit(1)
+                Text(store.t(full ? "connected" : "web_only")).font(.subheadline).foregroundColor(.tMuted)
             }
-            Spacer(minLength: 0)
         }
-        .padding(TSpace.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [Color.tPrimary.opacity(0.22), Color.tCard],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-        )
-        .cornerRadius(TRadius.card)
-        .overlay(RoundedRectangle(cornerRadius: TRadius.card)
-            .stroke(Color.tPrimary.opacity(0.35), lineWidth: 1))
-    }
-
-    private var rowSeparator: some View {
-        Divider().background(Color.tBorder).padding(.leading, 62)
+        .padding(.vertical, TSpace.xs)
     }
 
     @ViewBuilder
     private func menuRow(_ section: Page) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.22)) { page = section }
-        } label: {
+        NavigationLink(value: section) {
             HStack(spacing: TSpace.md) {
-                // Pastille teintée : plus lisible qu'un glyphe nu sur fond noir,
-                // et elle donne au menu un rythme régulier.
-                RoundedRectangle(cornerRadius: 9)
-                    .fill(section.tint.opacity(0.18))
-                    .frame(width: 34, height: 34)
+                // Settings-app icon: white symbol on a solid colored square.
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(section.tint)
+                    .frame(width: 29, height: 29)
                     .overlay {
                         Image(systemName: section.icon)
-                            .font(.callout.weight(.medium))
-                            .foregroundColor(section.tint)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(.white)
                     }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(store.t(section.titleKey))
-                        .font(.tCardTitle).foregroundColor(.tText)
-                    Text(store.t(section.subtitleKey))
-                        .font(.tMeta).foregroundColor(.tMuted)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.tMuted.opacity(0.7))
+                Text(store.t(section.titleKey))
             }
-            .padding(.horizontal, TSpace.lg)
-            .padding(.vertical, TSpace.md)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
     private func sectionPage(_ section: Page) -> some View {
-        ScrollView {
-            VStack(spacing: 12) {
+        switch section {
+        case .drops, .points:
+            ScrollView {
+                Group {
+                    if section == .drops {
+                        DropsPanel(onLogin: { startWebLogin() })
+                    } else {
+                        PointsTrackerPanel(onLogin: { startWebLogin() })
+                    }
+                }
+                .padding(.horizontal, TSpace.lg)
+                .padding(.vertical, TSpace.md)
+            }
+            .background(Color(.systemGroupedBackground))
+        default:
+            Form {
                 // Une vue par ligne : dans un ViewBuilder, deux vues séparées
                 // par un point-virgule sur la même ligne ne se composent pas.
                 switch section {
@@ -381,22 +285,16 @@ struct SettingsView: View {
                     chatBehaviorCard
                     persoCard
                     tailleChatCard
-                case .drops:
-                    DropsPanel(onLogin: { startWebLogin() })
-                case .points:
-                    PointsTrackerPanel(onLogin: { startWebLogin() })
                 case .labs:
                     debugCard
-                case .other:
+                default:
                     aboutCard
                     expertCard
                 }
-                Spacer(minLength: 32)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
+            // Several buttons share one row: borderless keeps each tappable on its own.
+            .buttonStyle(.borderless)
         }
-        .background(Color.tDark)
     }
 
     // ── Réglages experts : Worker personnel ──────────────────────────────
@@ -1766,10 +1664,13 @@ struct SettingsView: View {
     // MARK: – Subviews
     @ViewBuilder
     private func settingCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            content()
+        // One grouped section per card, as in the Settings app.
+        Section {
+            VStack(alignment: .leading, spacing: 0) {
+                content()
+            }
+            .padding(.vertical, TSpace.xs)
         }
-        .tCard()
     }
 
     /// Retouche de la synchro auto du chat, à la seconde (+ = chat plus tard).
@@ -1838,20 +1739,10 @@ struct SettingsView: View {
             }
             Spacer(minLength: 8)
             Button(action: action) {
-                Group {
-                    if busy {
-                        ProgressView().tint(.tPrimary)
-                    } else {
-                        Text(actionLabel).font(.tLabel)
-                    }
-                }
-                .foregroundColor(connected ? .tDanger : .tPrimary)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background((connected ? Color.tDanger : Color.tPrimary).opacity(0.15))
-                .cornerRadius(8)
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(connected ? Color.tDanger : Color.tPrimary, lineWidth: 1))
+                if busy { ProgressView() } else { Text(actionLabel) }
             }
+            .buttonStyle(.bordered)
+            .tint(connected ? .tDanger : .tPrimary)
             .disabled(busy)
         }
     }
@@ -1859,21 +1750,12 @@ struct SettingsView: View {
     /// Titre d'une carte de réglages.
     @ViewBuilder
     private func label(_ icon: String, _ text: String) -> some View {
-        HStack(spacing: TSpace.sm) {
-            // Même pastille que dans le menu : les deux niveaux se répondent.
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Color.tPrimary.opacity(0.16))
-                .frame(width: 26, height: 26)
-                .overlay {
-                    Image(systemName: icon)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundColor(.tPrimary)
-                }
-            Text(text)
-                .font(.tSection)
-                .foregroundColor(.tText)
-            Spacer(minLength: 0)
+        Label {
+            Text(text).foregroundColor(.tText)
+        } icon: {
+            Image(systemName: icon).foregroundColor(.tPrimary)
         }
+        .font(.headline)
         .padding(.bottom, 2)
     }
 
