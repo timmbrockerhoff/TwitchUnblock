@@ -83,6 +83,11 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
+- Live rewind (Apple's player): `BroadcastTimeline` under the video spans the broadcast from
+  `liveStartedAt` to now; dragging back opens the running recording (`liveDvrVideoId`) at that
+  offset, inside the recording it seeks via `NativeVideoPlayer.seekRequest`, LIVE pill returns.
+  It is a DragGesture, not `Slider`: on iOS 27 Slider lost the end of a drag when rebuilt.
+  `liveStartedAt` is kept when switching to the recording. "Von Anfang an" button is gone.
 - Apple-style redesign: all text buttons now use system styles (`tProminentStyle`/
   `tBorderedStyle` + `tCapsuleShape`). Left custom on purpose: chat message rows (own font-size
   setting), thumbnail badges, toasts. Immersive overlay and MultiLive were not checked in the

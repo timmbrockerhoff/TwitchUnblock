@@ -10,7 +10,6 @@ import SwiftUI
 struct PlayerMenuSheet: View {
     let qualities: [String]
     let selected: String
-    let canRewind: Bool
     /// On regarde déjà le DVR d'un direct : proposer le retour au direct.
     let isDvr: Bool
 
@@ -18,7 +17,6 @@ struct PlayerMenuSheet: View {
     /// Vitesse de lecture en cours ; nil masque la section (direct).
     var speed: Double? = nil
     var onSelectSpeed: (Double) -> Void = { _ in }
-    var onRewind:      () -> Void = {}
     var onBackToLive:  () -> Void = {}
     var onSleepTimer:  () -> Void = {}
     var onSettings:    () -> Void = {}
@@ -87,9 +85,6 @@ struct PlayerMenuSheet: View {
                         Label(store.t("back_to_live"), systemImage: "dot.radiowaves.left.and.right")
                     }
                     .tint(.tLive)
-                } else if canRewind {
-                    actionRow(store.t("rewind"), detail: store.t("rewind_sub"),
-                              icon: "gobackward", action: onRewind)
                 }
                 if let onDownload {
                     actionRow(store.t("dl_download"), detail: store.t("dl_download_sub"),

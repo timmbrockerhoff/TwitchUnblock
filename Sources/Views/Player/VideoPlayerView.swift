@@ -35,6 +35,13 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     var adBreaks: AdBreakWatcher? = nil
     /// Lecture en cours ou non (pause, fin, échec), à chaque changement.
     var onPlaying: (Bool) -> Void = { _ in }
+    /// Jump inside the current item (broadcast timeline); applied once per id.
+    var seekRequest: SeekRequest? = nil
+
+    struct SeekRequest: Equatable {
+        let id: Int
+        let seconds: Double
+    }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
@@ -46,6 +53,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         context.coordinator.adBreaks = adBreaks
         context.coordinator.onSpeedChange = onSpeedChange
         context.coordinator.onPlaying = onPlaying
+        // A request made before this player existed is not for it.
+        context.coordinator.lastSeekID = seekRequest?.id ?? 0
         // Reprise : la progression enregistrée (une VOD vue jusqu'au bout
         // repart du début).
         startPlayer(in: vc, context: context, from: .init(seconds: savedTime, resume: true))
@@ -115,6 +124,11 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
             startPlayer(in: vc, context: context, from: start)
         } else if let player = vc.player {
             coordinator.applyMetadata(nowPlaying, to: player)
+            if let request = seekRequest, request.id != coordinator.lastSeekID {
+                coordinator.lastSeekID = request.id
+                player.seek(to: CMTime(seconds: request.seconds, preferredTimescale: 600),
+                            toleranceBefore: .zero, toleranceAfter: .zero)
+            }
         }
     }
 
@@ -141,6 +155,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
 
         /// Adresse demandée pour le lecteur en cours (voir updateUIViewController).
         var requestedURL: URL?
+        /// Last applied NativeVideoPlayer.seekRequest.
+        var lastSeekID = 0
         /// Contenu du lecteur en cours (voir NativeVideoPlayer.contentID).
         var contentID = ""
         /// Lecture d'un direct (journaux LIVE).
@@ -724,8 +740,9 @@ struct VideoPlayerView: View {
     var notice: String? = nil
     // Actions affichees a cote du bouton Source (nil = bouton masque).
     var onChat: (() -> Void)? = nil
-    var onRewind: (() -> Void)? = nil
-    var onBackToLive: (() -> Void)? = nil
+    /// Running broadcast with a recording: timeline from its start to now.
+    var timeline: BroadcastTimeline? = nil
+    var seekRequest: NativeVideoPlayer.SeekRequest? = nil
 
     @EnvironmentObject private var store: AppStore
     @State private var selectedQuality: String = ""
@@ -756,6 +773,13 @@ struct VideoPlayerView: View {
 
             // En mode compact (chat ouvert) on n'affiche que le lecteur.
             if !compact {
+            if let timeline {
+                timeline
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .background(Color.tCard)
+            }
+
             // ── Options bar ─────────────────────────────────────────
             // Tous les boutons partagent la même hauteur fixe : sinon une icône
             // SF Symbol (taille « body » par défaut) rend son bouton plus haut
@@ -778,23 +802,6 @@ struct VideoPlayerView: View {
                 }
                 .tBorderedStyle()
                 .tCapsuleShape()
-
-                if let rewind = onRewind {
-                    Button(action: rewind) {
-                        Label(store.t("rewind"), systemImage: "backward.end.fill")
-                    }
-                    .tBorderedStyle()
-                    .tCapsuleShape()
-                }
-
-                if let backLive = onBackToLive {
-                    Button(action: backLive) {
-                        Label(store.t("back_to_live"), systemImage: "dot.radiowaves.left.and.right")
-                    }
-                    .tProminentStyle()
-                    .tCapsuleShape()
-                    .tint(.tLive)
-                }
 
                 Spacer(minLength: 0)
 
@@ -866,7 +873,8 @@ struct VideoPlayerView: View {
             onSpeedChange: onSpeedChange,
             adBreaks: adBreaks,
             // Audio seul : rien à regarder, l'écran peut s'éteindre.
-            onPlaying: { playing in onPlaying(playing && !isAudioQuality(quality)) }
+            onPlaying: { playing in onPlaying(playing && !isAudioQuality(quality)) },
+            seekRequest: seekRequest
         )
         .aspectRatio(16/9, contentMode: .fit)
         .background(Color.black)

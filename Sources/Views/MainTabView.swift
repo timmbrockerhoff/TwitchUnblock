@@ -39,6 +39,8 @@ struct MainTabView: View {
     @State private var liveDvrVideoId: String? = nil    // VOD en cours du live regardé
     @State private var pendingDvrChannel: String? = nil // passe le relais à startPlayback
     @State private var dvrSourceChannel: String? = nil  // on regarde le DVR de cette chaîne
+    /// Jump inside the recording being watched (broadcast timeline).
+    @State private var timelineSeek: NativeVideoPlayer.SeekRequest? = nil
     @State private var currentChannelName: String? = nil
     @State private var currentChannelId: String? = nil   // ← branché sur data.userId
 
@@ -310,7 +312,6 @@ struct MainTabView: View {
             PlayerMenuSheet(
                 qualities: sortQualities(Array((qualityLinks ?? [:]).keys), variants: qualityVariants),
                 selected: currentQuality(qualityLinks ?? [:]),
-                canRewind: liveDvrVideoId != nil,
                 isDvr: dvrSourceChannel != nil,
                 onSelectQuality: { q in
                     // Toucher la qualité déjà cochée ne change pas la préférence.
@@ -324,7 +325,6 @@ struct MainTabView: View {
                 // l'a, de quoi rattraper le bord.
                 speed: isLivePlaying ? nil : playbackSpeed,
                 onSelectSpeed: { setPlaybackSpeed($0); showPlayerMenu = false },
-                onRewind: { showPlayerMenu = false; rewindAction?() },
                 onBackToLive: { showPlayerMenu = false; backToLiveAction?() },
                 onSleepTimer: { showPlayerMenu = false
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -858,8 +858,8 @@ struct MainTabView: View {
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
                 onChat: nil,
-                onRewind: rewindAction,
-                onBackToLive: backToLiveAction
+                timeline: broadcastTimeline,
+                seekRequest: timelineSeek
             )
         }
     }
@@ -1122,16 +1122,25 @@ struct MainTabView: View {
     }
 
     // MARK: – Actions du lecteur (nil ⇒ bouton masqué)
-    /// Rembobiner un live : lit le VOD en cours d'enregistrement.
-    /// Bascule douce : même chaîne, seule la source change.
-    private var rewindAction: (() -> Void)? {
-        guard let ch = currentChannelName, let dvr = liveDvrVideoId else { return nil }
-        return {
-            pendingDvrChannel = ch
-            // From the very start, not where this recording was left last time.
-            store.setVodProgress(dvr, time: 0)
-            playVod(dvr, statusTitle, nil, ch, soft: true)
+    /// Timeline of a running broadcast (Apple's player): live with its recording known, or
+    /// watching that recording. Dragging back from live opens the recording at that point
+    /// (soft switch: same channel, only the source changes); inside the recording it seeks.
+    private var broadcastTimeline: BroadcastTimeline? {
+        guard let start = liveStartedAt else { return nil }
+        if case .live? = playerMode, let ch = currentChannelName, let dvr = liveDvrVideoId {
+            return BroadcastTimeline(startedAt: start, position: nil, onSeek: { t in
+                pendingDvrChannel = ch
+                store.setVodProgress(dvr, time: t)
+                playVod(dvr, statusTitle, nil, ch, soft: true)
+            }, onLive: {})
         }
+        if let ch = dvrSourceChannel, currentVodId != nil {
+            return BroadcastTimeline(startedAt: start, position: vodPlaybackTime, onSeek: { t in
+                timelineSeek = .init(id: (timelineSeek?.id ?? 0) + 1, seconds: t)
+                vodPlaybackTime = t
+            }, onLive: { playLive(ch, soft: true) })
+        }
+        return nil
     }
 
     private var backToLiveAction: (() -> Void)? {
@@ -1443,7 +1452,8 @@ struct MainTabView: View {
         if !sameLive {
             stopLiveTimers()
             liveViewerCount = 0
-            liveStartedAt   = nil
+            // Switching to this broadcast's recording: the timeline still spans it.
+            if pendingDvrChannel == nil { liveStartedAt = nil }
         }
         playerMode    = mode
         if !keepVisibility { playerVisible = true }
