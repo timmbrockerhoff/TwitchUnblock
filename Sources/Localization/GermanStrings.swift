@@ -59,6 +59,7 @@ let kGermanStrings: [String: String] = [
     "twitch_account": "Twitch-Konto",
     "chat_connected": "Chat verbunden",
     "chat_connecting": "Verbinden...",
+    "chat_send": "Senden",
     "chat_send_ph": "Nachricht senden…",
     "chat_connecting_ph": "Verbinden…",
     "chat_follow": "Folgen",

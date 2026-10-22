@@ -725,7 +725,6 @@ struct VideoPlayerView: View {
 
     @EnvironmentObject private var store: AppStore
     @State private var selectedQuality: String = ""
-    @State private var showQualityPicker = false
     @State private var currentTime: Double = 0
     @State private var lastPersisted: Double = -99
     @State private var latency: Double? = nil
@@ -758,73 +757,56 @@ struct VideoPlayerView: View {
             // SF Symbol (taille « body » par défaut) rend son bouton plus haut
             // que celui qui ne contient que du texte en 12 pt.
             HStack(spacing: 8) {
-                // Qualité : bouton compact, il laisse la place aux actions.
-                Button { showQualityPicker.toggle() } label: {
-                    actionLabel(text: qualityLabel(quality), emoji: "🎬",
-                                fg: .white, bg: Color.tPrimary)
+                // Qualité : system pop-up menu, the current one checked.
+                Menu {
+                    Picker(selection: Binding(get: { quality }, set: { q in
+                        // Toucher la qualité déjà cochée ne change pas la préférence.
+                        if q != quality {
+                            store.rememberQualityChoice(q, among: qualities, variants: variants)
+                        }
+                        currentTime = 0
+                        selectedQuality = q
+                    })) {
+                        ForEach(qualities, id: \.self) { Text(qualityLabel($0)).tag($0) }
+                    } label: { EmptyView() }
+                } label: {
+                    Label(qualityLabel(quality), systemImage: "slider.horizontal.3")
                 }
+                .tBorderedStyle()
+                .tCapsuleShape()
 
                 if let rewind = onRewind {
                     Button(action: rewind) {
-                        actionLabel(text: store.t("rewind"), icon: "backward.end.fill",
-                                    fg: .tPrimary, bg: Color.tPrimary.opacity(0.15),
-                                    border: .tPrimary)
+                        Label(store.t("rewind"), systemImage: "backward.end.fill")
                     }
+                    .tBorderedStyle()
+                    .tCapsuleShape()
                 }
 
                 if let backLive = onBackToLive {
                     Button(action: backLive) {
-                        actionLabel(text: store.t("back_to_live"), dot: true,
-                                    fg: .white, bg: Color.tLive)
+                        Label(store.t("back_to_live"), systemImage: "dot.radiowaves.left.and.right")
                     }
+                    .tProminentStyle()
+                    .tCapsuleShape()
+                    .tint(.tLive)
                 }
 
                 Spacer(minLength: 0)
 
                 if let chat = onChat {
                     Button(action: chat) {
-                        actionLabel(text: "Chat", icon: "bubble.left.fill",
-                                    fg: .white, bg: Color.tPrimary)
+                        Label("Chat", systemImage: "bubble.left.fill")
                     }
+                    .tProminentStyle()
+                    .tCapsuleShape()
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .tint(.tPrimary)
             .padding(12)
             .background(Color.tCard)
-
-            // ── Quality picker ──────────────────────────────────────
-            if showQualityPicker {
-                VStack(spacing: 0) {
-                    ForEach(qualities, id: \.self) { q in
-                        Button {
-                            // Toucher la qualité déjà cochée ne change pas la préférence.
-                            if q != quality {
-                                store.rememberQualityChoice(q, among: qualities, variants: variants)
-                            }
-                            currentTime = 0
-                            selectedQuality = q
-                            showQualityPicker = false
-                        } label: {
-                            HStack {
-                                Text(q == quality ? "✓  " : "    ")
-                                    .foregroundColor(q == quality ? .tPrimary : .clear)
-                                Text(qualityLabel(q))
-                                    .foregroundColor(q == quality ? .tPrimary : .tMuted)
-                                    .fontWeight(q == quality ? .bold : .semibold)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                        }
-                        Divider().background(Color.tBorder)
-                    }
-                }
-                .background(Color.tSurface)
-                .cornerRadius(10)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.tBorder, lineWidth: 1))
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-            }
             } // fin if !compact
         }
         .background(Color.tCard)
@@ -938,29 +920,6 @@ struct VideoPlayerView: View {
         if l < 8  { return .tSuccess }
         if l < 20 { return .tWarning }
         return .tDanger
-    }
-
-    // MARK: – Bouton de la barre d'actions (hauteur commune)
-    @ViewBuilder
-    private func actionLabel(text: String, emoji: String? = nil, icon: String? = nil,
-                             dot: Bool = false, fg: Color, bg: Color,
-                             border: Color? = nil) -> some View {
-        HStack(spacing: 4) {
-            if let emoji { Text(emoji).font(.system(size: 12)) }
-            if let icon  { Image(systemName: icon).font(.system(size: 12, weight: .bold)) }
-            if dot       { Circle().fill(fg).frame(width: 6, height: 6) }
-            Text(text).font(.system(size: 12, weight: .bold))
-        }
-        .foregroundColor(fg)
-        .lineLimit(1)
-        .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(bg)
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(border ?? .clear, lineWidth: border == nil ? 0 : 1)
-        )
     }
 
     private func qualityLabel(_ q: String) -> String { qualityText(q, store.lang) }

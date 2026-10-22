@@ -139,20 +139,16 @@ struct ChatView: View {
                             if follow.isFollowing == true { store.unhideChannel(channelName) }
                         }
                     } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: following ? "heart.fill" : "heart")
-                            Text(following ? store.t("following") : store.t("follow"))
-                                .font(.system(size: 10, weight: .bold))
-                                .lineLimit(1)
-                        }
-                        .fixedSize()
-                        .foregroundColor(following ? .tDanger : .tPrimary)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background((following ? Color.tDanger : Color.tPrimary).opacity(0.15))
-                        .cornerRadius(6)
-                        .overlay(RoundedRectangle(cornerRadius: 6)
-                            .stroke(following ? Color.tDanger : Color.tPrimary, lineWidth: 1))
+                        Label(following ? store.t("following") : store.t("follow"),
+                              systemImage: following ? "heart.fill" : "heart")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .fixedSize()
                     }
+                    .buttonStyle(.bordered)
+                    .tCapsuleShape()
+                    .controlSize(.mini)
+                    .tint(following ? .tDanger : .tPrimary)
                     .disabled(follow.busy)
                     .opacity(follow.busy ? 0.5 : 1)
                     .confirmationDialog(
@@ -885,22 +881,20 @@ struct ChatView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(Color.tSurface)
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10)
-                        .stroke(isInputFocused ? Color.tPrimary : Color.tBorder, lineWidth: 1))
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .overlay(Capsule().stroke(Color.tBorder, lineWidth: 1))
 
-                    // Bouton envoyer
+                    // Bouton envoyer : the round arrow of Messages.
                     Button(action: sendMessage) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(canSend ? Color.tPrimary : Color.tMuted.opacity(0.35))
-                            .cornerRadius(10)
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, canSend ? Color.tPrimary : Color.tMuted.opacity(0.35))
+                            .frame(width: 36, height: 44)
                     }
+                    .buttonStyle(.plain)
                     .disabled(!canSend)
+                    .accessibilityLabel(store.t("chat_send"))
 
                     // Menu « … » : actions du chat
                     Button {
@@ -1149,15 +1143,13 @@ private struct ChatMessageList: View {
                             autoScroll = true
                             proxy.scrollTo(bottomAnchor, anchor: .bottom)
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.down")
-                                Text(followLabel).font(.system(size: 11, weight: .bold))
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Color.tPrimary)
-                            .cornerRadius(20)
+                            Label(followLabel, systemImage: "arrow.down")
+                                .font(.caption.weight(.semibold))
                         }
+                        .tProminentStyle()
+                        .tCapsuleShape()
+                        .controlSize(.small)
+                        .tint(.tPrimary)
                         .padding(10)
                     }
                 }

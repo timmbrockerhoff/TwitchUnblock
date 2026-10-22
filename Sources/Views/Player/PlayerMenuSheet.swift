@@ -3,6 +3,8 @@ import SwiftUI
 // ═══════════════════════════════════════════════════════════════════════════
 //  Menu « ⋯ » du lecteur immersif : ce que la barre en surimpression ne peut
 //  pas porter sans encombrer l'image.
+//  A grouped system list: pop-up pickers for quality, speed and source,
+//  plain rows for the actions.
 // ═══════════════════════════════════════════════════════════════════════════
 
 struct PlayerMenuSheet: View {
@@ -36,180 +38,92 @@ struct PlayerMenuSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        sheetContent.tSheetBar(store.t("player_section")) { dismiss() }
-    }
-
-    private var sheetContent: some View {
-        VStack(spacing: 0) {
-
-            ScrollView {
-                VStack(spacing: 0) {
-
-                    // Qualité : le lecteur immersif n'a pas de sélecteur à l'écran,
-                    // c'est ici qu'on change de piste.
-                    if !qualities.isEmpty {
-                        HStack(spacing: TSpace.md) {
-                            Image(systemName: "film")
-                                .font(.system(size: 15)).foregroundColor(.tPrimary)
-                                .frame(width: 24)
-                            Text(store.t("quality")).font(.tCardTitle).foregroundColor(.tText)
-                            Spacer()
-                        }
-                        .padding(.horizontal, TSpace.lg)
-                        .padding(.top, TSpace.md)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: TSpace.sm) {
-                                ForEach(qualities, id: \.self) { q in
-                                    TChip(title: label(q), isOn: q == selected) {
-                                        onSelectQuality(q)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, TSpace.lg)
-                        }
-                        .padding(.vertical, TSpace.sm)
-
-                        divider
+        List {
+            // Qualité : le lecteur immersif n'a pas de sélecteur à l'écran,
+            // c'est ici qu'on change de piste.
+            Section {
+                if !qualities.isEmpty {
+                    Picker(selection: Binding(get: { selected }, set: { onSelectQuality($0) })) {
+                        ForEach(qualities, id: \.self) { Text(qualityText($0, store.lang)).tag($0) }
+                    } label: {
+                        Label(store.t("quality"), systemImage: "film")
                     }
-
-                    // Vitesse : VODs et clips. Un direct reste à 1×.
-                    if let speed {
-                        HStack(spacing: TSpace.md) {
-                            Image(systemName: "speedometer")
-                                .font(.system(size: 15)).foregroundColor(.tPrimary)
-                                .frame(width: 24)
-                            Text(store.t("speed")).font(.tCardTitle).foregroundColor(.tText)
-                            Spacer()
-                        }
-                        .padding(.horizontal, TSpace.lg)
-                        .padding(.top, TSpace.md)
-
-                        ScrollViewReader { proxy in
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: TSpace.sm) {
-                                    ForEach(VodSpeed.all, id: \.self) { s in
-                                        TChip(title: s == 1 ? store.t("speed_normal") : VodSpeed.label(s, store.lang),
-                                              isOn: abs(s - speed) < 0.01) {
-                                            onSelectSpeed(s)
-                                        }
-                                        .id(s)
-                                    }
-                                }
-                                .padding(.horizontal, TSpace.lg)
-                            }
-                            // Les crans lents sont à gauche : la vitesse en
-                            // cours (souvent « Normale ») reste en vue.
-                            .onAppear { proxy.scrollTo(VodSpeed.nearest(speed), anchor: .center) }
-                        }
-                        .padding(.vertical, TSpace.sm)
-
-                        divider
-                    }
-
-                    // Source du direct : le proxy qui sert le flux, et de quoi
-                    // en changer (le direct repart aussitôt).
-                    if let onSelectSource, let used = liveSource {
-                        HStack(spacing: TSpace.md) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 15)).foregroundColor(.tPrimary)
-                                .frame(width: 24)
-                            Text(store.t("live_source")).font(.tCardTitle).foregroundColor(.tText)
-                            Spacer()
-                            Text(store.t("src_\(used)")).font(.tMeta).foregroundColor(.tMuted)
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, TSpace.lg)
-                        .padding(.top, TSpace.md)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: TSpace.sm) {
-                                // Dans l'ordre des réglages ; en choisir une la met en tête.
-                                // Cochée : celle qui sert le flux (la première de
-                                // l'ordre a pu ne pas répondre). Lecture par le
-                                // compte ou par le Worker : aucune, l'en-tête la
-                                // nomme ; en choisir une quitte le compte pour
-                                // cette chaîne.
-                                ForEach(store.liveSourceOrder, id: \.self) { id in
-                                    TChip(title: store.t("src_\(id)"), isOn: id == used) {
-                                        onSelectSource(id)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, TSpace.lg)
-                        }
-                        .padding(.vertical, TSpace.sm)
-
-                        divider
-                    }
-
-                    if isDvr {
-                        row(icon: "dot.radiowaves.left.and.right",
-                            title: store.t("back_to_live"),
-                            tint: .tLive, action: onBackToLive)
-                        divider
-                    } else if canRewind {
-                        row(icon: "gobackward", title: store.t("rewind"),
-                            detail: store.t("rewind_sub"), action: onRewind)
-                        divider
-                    }
-
-                    if let onDownload {
-                        row(icon: "arrow.down.circle", title: store.t("dl_download"),
-                            detail: store.t("dl_download_sub"), action: onDownload)
-                        divider
-                    }
-
-                    if let onMultiLive {
-                        row(icon: multiLiveOn ? "minus.square" : "square.grid.2x2",
-                            title: store.t(multiLiveOn ? "multi_remove" : "multi_add"),
-                            detail: store.t(multiLiveFull && !multiLiveOn ? "multi_full" : "multi_add_sub"),
-                            action: onMultiLive)
-                        divider
-                    }
-
-                    row(icon: "moon.zzz.fill", title: store.t("sleep_timer"),
-                        action: onSleepTimer)
-                    divider
-                    row(icon: "gearshape.fill", title: store.t("settings"),
-                        action: onSettings)
+                    .pickerStyle(.menu)
                 }
-                .padding(.vertical, TSpace.sm)
+
+                // Vitesse : VODs et clips. Un direct reste à 1×.
+                if let speed {
+                    Picker(selection: Binding(get: { VodSpeed.nearest(speed) }, set: { onSelectSpeed($0) })) {
+                        ForEach(VodSpeed.all, id: \.self) { s in
+                            Text(s == 1 ? store.t("speed_normal") : VodSpeed.label(s, store.lang)).tag(s)
+                        }
+                    } label: {
+                        Label(store.t("speed"), systemImage: "speedometer")
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                // Source du direct : le proxy qui sert le flux, et de quoi en
+                // changer (le direct repart aussitôt). Dans l'ordre des réglages ;
+                // en choisir une la met en tête.
+                if let onSelectSource, let used = liveSource {
+                    Picker(selection: Binding(get: { used }, set: { onSelectSource($0) })) {
+                        // Lecture par le compte ou par le Worker : aucune n'est
+                        // cochée, le libellé de la ligne la nomme.
+                        if !store.liveSourceOrder.contains(used) {
+                            Text(store.t("src_\(used)")).tag(used)
+                        }
+                        ForEach(store.liveSourceOrder, id: \.self) { Text(store.t("src_\($0)")).tag($0) }
+                    } label: {
+                        Label(store.t("live_source"), systemImage: "antenna.radiowaves.left.and.right")
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+
+            Section {
+                if isDvr {
+                    Button(action: onBackToLive) {
+                        Label(store.t("back_to_live"), systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    .tint(.tLive)
+                } else if canRewind {
+                    actionRow(store.t("rewind"), detail: store.t("rewind_sub"),
+                              icon: "gobackward", action: onRewind)
+                }
+                if let onDownload {
+                    actionRow(store.t("dl_download"), detail: store.t("dl_download_sub"),
+                              icon: "arrow.down.circle", action: onDownload)
+                }
+                if let onMultiLive {
+                    actionRow(store.t(multiLiveOn ? "multi_remove" : "multi_add"),
+                              detail: store.t(multiLiveFull && !multiLiveOn ? "multi_full" : "multi_add_sub"),
+                              icon: multiLiveOn ? "minus.square" : "square.grid.2x2", action: onMultiLive)
+                }
+            }
+
+            Section {
+                Button(action: onSleepTimer) { Label(store.t("sleep_timer"), systemImage: "moon.zzz") }
+                Button(action: onSettings) { Label(store.t("settings"), systemImage: "gearshape") }
             }
         }
-        .background(Color.tDark)
+        .listStyle(.insetGrouped)
+        .tint(.tPrimary)
+        .tSheetBar(store.t("player_section")) { dismiss() }
     }
 
-    private func label(_ q: String) -> String { qualityText(q, store.lang) }
-
-    private var divider: some View {
-        Divider().background(Color.tBorder).padding(.leading, 56)
-    }
-
-    @ViewBuilder
-    private func row(icon: String, title: String, detail: String? = nil,
-                     tint: Color = .tPrimary, action: (() -> Void)? = nil) -> some View {
-        let content = HStack(spacing: TSpace.md) {
-            Image(systemName: icon)
-                .font(.system(size: 15)).foregroundColor(tint).frame(width: 24)
-            Text(title).font(.tCardTitle).foregroundColor(.tText)
-            Spacer()
-            if let detail {
-                Text(detail).font(.tMeta).foregroundColor(.tMuted)
+    /// Action with a one-line explanation under its title.
+    private func actionRow(_ title: String, detail: String, icon: String,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).foregroundColor(.tText)
+                    Text(detail).font(.footnote).foregroundColor(.tMuted)
+                }
+            } icon: {
+                Image(systemName: icon)
             }
-            if action != nil {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold)).foregroundColor(.tMuted)
-            }
-        }
-        .padding(.horizontal, TSpace.lg)
-        .padding(.vertical, TSpace.md)
-        .contentShape(Rectangle())
-
-        if let action {
-            Button(action: action) { content }.buttonStyle(.plain)
-        } else {
-            content
         }
     }
 }

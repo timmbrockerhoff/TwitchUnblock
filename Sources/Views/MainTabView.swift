@@ -271,6 +271,8 @@ struct MainTabView: View {
                 }
             }
             .tint(.tPrimary)
+            // iOS 26.1+: the mini player docks on the tab bar, as in Apple Music.
+            .modifier(TabAccessory(enabled: miniShown) { miniAccessory })
             // Thème changé dans les réglages : les onglets sont reconstruits,
             // pour qu'aucune vue ne garde les anciennes couleurs. Le lecteur et
             // la feuille des réglages, hors de ce bloc, restent en place.
@@ -281,7 +283,7 @@ struct MainTabView: View {
             // fondu de fermeture, le lecteur étant encore en place mais masqué.
             // Aussi pendant un chargement réduit (ou son erreur) : de quoi y
             // revenir.
-            if playerMode != nil && !playerVisible && !closingPlayer {
+            if miniShown && !TabAccessory<EmptyView>.available {
                 miniBar.zIndex(99)
             }
 
@@ -866,13 +868,8 @@ struct MainTabView: View {
     @ViewBuilder
     private var playerTopBar: some View {
         HStack(spacing: TSpace.sm) {
-            Button { reducePlayer() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.tPrimary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.plain)
+            TIconButton(icon: "chevron.down", tint: .tText, size: 32) { reducePlayer() }
+                .accessibilityLabel(store.t("reduce"))
 
             if isLivePlaying, let avatar = liveAvatar {
                 AsyncImage(url: URL(string: avatar)) { img in
@@ -919,25 +916,23 @@ struct MainTabView: View {
                 clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
             }
 
-            // Minuteur de veille
-            Button { showSleepSheet = true } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "moon.zzz.fill").font(.system(size: 11))
-                    if sleepTimer.isActive {
-                        Text(sleepTimer.label)
-                            .font(.system(size: 11, weight: .bold).monospacedDigit())
-                    }
+            // Minuteur de veille : the remaining time shows while it runs.
+            if sleepTimer.isActive {
+                Button { showSleepSheet = true } label: {
+                    Label(sleepTimer.label, systemImage: "moon.zzz.fill")
+                        .font(.caption.weight(.bold).monospacedDigit())
                 }
-                .foregroundColor(sleepTimer.isActive ? .tPurple : .tMuted)
-                .fixedSize()
-                .padding(.horizontal, TSpace.sm)
-                .frame(height: 32)
-                .background(sleepTimer.isActive ? Color.tPurple.opacity(0.18) : Color.tSurface)
-                .cornerRadius(TRadius.chip)
+                .tBorderedStyle()
+                .tCapsuleShape()
+                .controlSize(.small)
+                .tint(.tPurple)
+            } else {
+                TIconButton(icon: "moon.zzz", size: 32) { showSleepSheet = true }
+                    .accessibilityLabel(store.t("sleep_timer"))
             }
-            .buttonStyle(.plain)
 
             TIconButton(icon: "xmark", size: 32) { stopPlayer() }
+                .accessibilityLabel(store.t("close"))
         }
         .padding(.horizontal, TSpace.md)
         .padding(.top, TSpace.sm)
@@ -954,15 +949,8 @@ struct MainTabView: View {
 
     /// Previous / next clip arrow of the top bar; dimmed at the list's ends.
     private func clipArrowButton(icon: String, action: (() -> Void)?) -> some View {
-        Button { action?() } label: {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.tPrimary)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(action == nil)
+        TIconButton(icon: icon, tint: .tText, size: 32) { action?() }
+            .disabled(action == nil)
         .opacity(action == nil ? 0.35 : 1)
     }
 
@@ -970,15 +958,8 @@ struct MainTabView: View {
     /// mini-barre y ramène) ou fermer.
     private var loadingBar: some View {
         HStack {
-            Button { reducePlayer() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.tPrimary)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(store.t("reduce"))
+            TIconButton(icon: "chevron.down", tint: .tText, size: 32) { reducePlayer() }
+                .accessibilityLabel(store.t("reduce"))
             Spacer()
             TIconButton(icon: "xmark", size: 32) { stopPlayer() }
                 .accessibilityLabel(store.t("close"))
@@ -1230,22 +1211,51 @@ struct MainTabView: View {
     }
 
     // MARK: – Mini-barre (lecteur réduit)
+    /// Player reduced: the mini player shows (tab bar accessory or floating bar).
+    private var miniShown: Bool { playerMode != nil && !playerVisible && !closingPlayer }
+
+    /// Chargement réduit : il tourne encore ; en échec, on le dit.
+    @ViewBuilder private var miniStatusIcon: some View {
+        if loading {
+            ProgressView().scaleEffect(0.7)
+                .frame(width: 16, height: 16)
+        } else if errorMsg != nil {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.footnote.weight(.bold))
+                .foregroundColor(.tWarning)
+        } else {
+            Image(systemName: isLivePlaying ? "dot.radiowaves.left.and.right" : "play.fill")
+                .font(.footnote.weight(.bold))
+                .foregroundColor(isLivePlaying ? .tLive : .tPrimary)
+        }
+    }
+
+    /// Content of the tab bar accessory (iOS 26.1+); the system draws the glass.
+    private var miniAccessory: some View {
+        HStack(spacing: TSpace.md) {
+            miniStatusIcon
+            Text(statusTitle)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { stopPlayer() } label: {
+                Image(systemName: "xmark").font(.body.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.t("close"))
+        }
+        .padding(.horizontal, TSpace.lg)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            pull.y = 0
+            withAnimation { playerVisible = true }
+        }
+    }
+
     @ViewBuilder
     private var miniBar: some View {
         HStack(spacing: TSpace.md) {
-            // Chargement réduit : il tourne encore ; en échec, on le dit.
-            if loading {
-                ProgressView().tint(.tPrimary).scaleEffect(0.7)
-                    .frame(width: 16, height: 16)
-            } else if errorMsg != nil {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.tWarning)
-            } else {
-                Image(systemName: isLivePlaying ? "dot.radiowaves.left.and.right" : "play.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(isLivePlaying ? .tLive : .tPrimary)
-            }
+            miniStatusIcon
 
             Text(statusTitle)
                 .font(.tCardTitle)
@@ -1773,5 +1783,27 @@ enum ScreenAwake {
         let wanted = !owners.isEmpty
         guard UIApplication.shared.isIdleTimerDisabled != wanted else { return }
         UIApplication.shared.isIdleTimerDisabled = wanted
+    }
+}
+
+/// `tabViewBottomAccessory` where it exists (iOS 26.1), with the tab bar shrinking on scroll as in
+/// Apple Music; older systems keep the floating mini bar.
+struct TabAccessory<Accessory: View>: ViewModifier {
+    let enabled: Bool
+    @ViewBuilder let accessory: () -> Accessory
+
+    static var available: Bool {
+        if #available(iOS 26.1, *) { return true }
+        return false
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content
+                .tabViewBottomAccessory(isEnabled: enabled, content: accessory)
+                .tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            content
+        }
     }
 }
