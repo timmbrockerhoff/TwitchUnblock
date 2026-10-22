@@ -66,7 +66,18 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     private func startPlayer(in vc: AVPlayerViewController, context: Context,
                              from start: Coordinator.Start) {
         let coordinator = context.coordinator
-        let item = VodUnmuteLoader.playerItem(url: url)
+        let item: AVPlayerItem
+        if url.scheme == LiveDVRPlaylist.scheme {
+            // Live with its past (LiveDVRPlaylist): same per-item setup as VodUnmuteLoader's items.
+            item = LiveDVRPlaylist.playerItem(url: url)
+            // AVPlayer keeps 3 × the target duration (the recording's 10 s segments) from the
+            // edge, whatever configuredTimeOffsetFromLive says: ~30 s behind real live.
+            SpatialAudio.apply(to: item)
+            VodUnmuteLoader.keepPitch(item)
+            AdBreakMonitor.attach(to: item)
+        } else {
+            item = VodUnmuteLoader.playerItem(url: url)
+        }
         let player = AVPlayer(playerItem: item)
         // Le son continue écran verrouillé, comme dans le lecteur immersif.
         player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
@@ -728,8 +739,6 @@ struct VideoPlayerView: View {
     var onTime: (Double) -> Void = { _ in }
     /// Latence du direct remontee au parent (affichage).
     var onLatency: (Double?) -> Void = { _ in }
-    /// Same measure for any item with timestamps (a running recording watched as live).
-    var onClockLag: (Double?) -> Void = { _ in }
     /// Distance au bord du direct remontee au parent (synchro auto du chat).
     var onBehind: (Double?) -> Void = { _ in }
     /// Une image joue (lecture en cours, hors audio seul) : le parent empêche
@@ -788,7 +797,6 @@ struct VideoPlayerView: View {
                 let measured = isLive ? value : nil
                 if latency != measured { latency = measured }
                 onLatency(measured)
-                onClockLag(value)
             },
             onBehind: { value in onBehind(isLive ? value : nil) },
             lowLatency: store.lowLatency,

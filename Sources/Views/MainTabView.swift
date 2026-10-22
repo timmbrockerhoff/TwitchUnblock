@@ -110,11 +110,9 @@ struct MainTabView: View {
     /// visé). Posés en même temps que `qualityLinks`.
     @State private var linksContentID = ""
     @State private var linksAreLive = false
-    /// Live shown through the running broadcast's recording at its live edge (Apple's player):
-    /// its playlist has the whole broadcast, so Apple's bar shows full with LIVE from the start.
+    /// Live joined to its running recording (LiveDVRPlaylist, Apple's player): Apple's bar
+    /// spans the whole broadcast, its edge is the real live stream.
     @State private var liveViaRecording = false
-    /// How far that recording plays behind real time (seconds, from its timestamps).
-    @State private var recordingLag: Double = 0
     /// Incrémenté à chaque ouverture et fermeture du lecteur : la réponse
     /// d'un chargement dépassé (chaîne A arrivée après la chaîne B, lecteur
     /// déjà fermé) est ignorée au lieu d'écraser l'état ou de relancer les
@@ -142,10 +140,10 @@ struct MainTabView: View {
     /// que certaines chaînes ajoutent à leur diffusion — que ces spectateurs
     /// subissent aussi : le chat arrivait alors 10 s trop tard, ou plus.
     private var chatDelay: Double {
-        // Through the recording: live chat held back by the recording's lag (minus the few
-        // seconds the live stream itself runs behind), so it matches the picture.
         if liveViaRecording, isLivePlaying {
-            return max(0, recordingLag - 6 + store.chatSyncNudge)
+            // The picture runs `liveLatency` behind real time (its segment dates); the live chat
+            // waits that long, minus the few seconds the plain live stream is behind anyway.
+            return max(0, liveLatency - 6 + store.chatSyncNudge)
         }
         guard store.autoChatDelay, isLivePlaying else { return 0 }
         // Borne haute : évite un décalage absurde. La retouche manuelle
@@ -765,7 +763,7 @@ struct MainTabView: View {
         // arrive avec les liens. Créé sans lui, il ne le prenait jamais (il se
         // configure une fois) : ni emotes de la chaîne, ni badges, ni points,
         // ni épinglé, ni raid jusqu'à la réouverture.
-        if liveViaRecording, recordingLag > 300, let dvr = liveDvrVideoId {
+        if liveViaRecording, liveLatency > 300, let dvr = liveDvrVideoId {
             // Scrubbed back in the broadcast: the live chat has nothing from then, the replay does.
             VodChatView(videoId: dvr, playbackTime: vodPlaybackTime, style: style)
                 .id("rec-\(dvr)")
@@ -889,10 +887,6 @@ struct MainTabView: View {
                 onSpeedChange: { setPlaybackSpeed($0) },
                 onTime: { vodPlaybackTime = $0 },
                 onLatency: { updateLatency($0) },
-                onClockLag: { lag in
-                    let r = (lag ?? 0).rounded()
-                    if abs(r - recordingLag) >= 1 { recordingLag = r }
-                },
                 onBehind: { updateBehind($0) },
                 onPlaying: { playerPlaying = $0 },
                 notice: accountNotice,
@@ -1683,7 +1677,6 @@ struct MainTabView: View {
             linksContentID   = ""
             linksAreLive     = false
             liveViaRecording = false
-            recordingLag = 0
             qualityVariants  = [:]
             // Avatar, jeu et qualité retenue ne sont vidés qu'à l'ouverture
             // d'une autre chaîne : en bascule, ils sont toujours les bons, et
@@ -1738,7 +1731,6 @@ struct MainTabView: View {
                     linksContentID  = playerContentID
                     linksAreLive    = false
                     liveViaRecording = false
-                    recordingLag = 0
                     qualityVariants = [:]   // noms avec la hauteur (« 720p60 »)
                     statusTitle     = clip.title.isEmpty ? (title ?? "Clip") : clip.title
                     clipVodId       = clip.vodId
@@ -1786,7 +1778,6 @@ struct MainTabView: View {
                         linksContentID  = playerContentID
                         linksAreLive    = false
                         liveViaRecording = false
-                        recordingLag = 0
                         qualityVariants = data.variants
                         statusTitle     = title ?? "VOD \(id)"
                         loading         = false
@@ -1809,7 +1800,6 @@ struct MainTabView: View {
                     linksContentID  = playerContentID
                     linksAreLive    = false
                     liveViaRecording = false
-                    recordingLag = 0
                     qualityVariants = [:]
                     statusTitle     = rec.title.isEmpty ? store.t("recover_title") : rec.title
                     loading         = false
@@ -1845,24 +1835,24 @@ struct MainTabView: View {
                     // durée des segments (LivePlaylistLoader), relue toutes les
                     // 2 s au lieu de 6 — le lecteur peut tenir près du bord.
                     var playable = store.lowLatency ? LivePlaylistLoader.wrap(links) : links
-                    var variants = data.variants
                     var viaRecording = false
-                    // Apple's player: the running recording instead (whole broadcast, Apple's
-                    // live bar), opened at its newest point. No recording: the live stream.
+                    // Apple's player: live joined to its running recording (LiveDVRPlaylist), so
+                    // Apple's bar spans the broadcast and its edge is the real live stream.
+                    // No recording: the plain live stream.
                     if !store.immersivePlayer, let dvr = data.dvrVideoId {
                         let rec = await getM3U8(vodId: dvr)
-                        if !rec.links.isEmpty {
-                            playable = rec.links; variants = rec.variants; viaRecording = true
-                            logger.info("LECTEUR", "Direct par l'enregistrement en cours", dvr)
+                        if let joined = LiveDVRPlaylist.wrap(live: links, recording: rec.links) {
+                            playable = joined; viaRecording = true
+                            logger.info("LECTEUR", "Direct avec son passé (enregistrement)", dvr)
                         }
                     }
                     await MainActor.run {
                         guard gen == loadGeneration else { return }
                         qualityLinks      = playable
                         linksContentID    = playerContentID
-                        linksAreLive      = !viaRecording
+                        linksAreLive      = true
                         liveViaRecording  = viaRecording
-                        qualityVariants   = variants
+                        qualityVariants   = data.variants
                         statusTitle       = data.title.isEmpty ? channel : data.title
                         liveViewerCount   = data.viewerCount
                         liveStartedAt     = data.startedAt
@@ -1943,7 +1933,6 @@ struct MainTabView: View {
             linksContentID     = ""
             linksAreLive       = false
             liveViaRecording = false
-            recordingLag = 0
             qualityVariants    = [:]
             statusTitle        = ""
             loading            = false

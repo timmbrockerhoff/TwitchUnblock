@@ -83,12 +83,14 @@ English, short, explaining *why*.
 - Split the `AppStore` god object (64 `@Published`, observed by ~74 views) into smaller stores.
 - Share IRC parsing/image cache with the tvOS target.
 - Merge the 3 duplicate integrity-token caches (TwitchGQL, ChannelPointsService, Drops).
-- Live in Apple's player plays the running recording (`liveDvrVideoId`, `getM3U8`) at its newest
-  point instead of the live stream (`liveViaRecording`): its playlist has the whole broadcast, so
-  Apple's Liquid Glass bar is full from the start (user's wish; ~1 min behind real live). No
-  custom timeline around the video (user rejected it repeatedly). Live IRC chat stays, delayed by
-  `recordingLag` (item.currentDate vs now) − 6 s; more than 5 min behind → VOD chat replay.
-  No recording (VODs off) → the live stream as before, with "⋯" → "Zurückspulen" unavailable.
+- Live in Apple's player: `LiveDVRPlaylist` (tudvr://) joins the running recording
+  (`liveDvrVideoId`, frozen at open) + DISCONTINUITY + live segments appended on each reload (EVENT,
+  PDT on every segment) → Apple's bar spans the whole broadcast; fullscreen shows Apple's red LIVE
+  badge, the inline bar does not (AVKit design, no iOS API to add items). AVPlayer keeps 3 ×
+  TARGETDURATION (10 s recording segments) from the end: ~30 s behind real live; tried and failed:
+  configuredTimeOffsetFromLive (clamped), TARGETDURATION 2 (won't play), SERVER-CONTROL HOLD-BACK
+  (won't play). Live chat delayed by `liveLatency` − 6 s; > 5 min → VOD chat replay.
+  No custom timeline around the video (user rejected it repeatedly).
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
