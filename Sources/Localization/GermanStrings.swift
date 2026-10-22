@@ -459,6 +459,7 @@ let kGermanStrings: [String: String] = [
     "ad_break_sub": "Twitch zeigt während der Pause diesen Bildschirm statt des Streams. Zurück in {n} s.",
     "ad_break_login_hint": "Kanal abonniert? Verbinde die Web-Sitzung (Einstellungen → Twitch-Konto), um werbefrei zu schauen.",
     "ad_break_short": "Werbepause · {n} s",
+    "ad_gap": "Werbepause übersprungen · weiter in {n} s",
     "spatial_audio": "3D-Audio (AirPods)",
     "spatial_audio_sub": "„Aus“ schaltet 3D-Audio und damit Kopfbewegungserkennung in der App aus. iOS lässt Apps nicht „Fixiert“ wählen: Kontrollzentrum → Lautstärke gedrückt halten → 3D-Audio, oder für alle Apps „iPhone folgen“ in den Bedienungshilfen-Einstellungen der AirPods ausschalten.",
     "spatial_auto": "Automatisch",

@@ -1876,11 +1876,11 @@ struct MainTabView: View {
                         var joined: QualityLinks? = nil
                         if let dvr = data.dvrVideoId {
                             let rec = await getM3U8(vodId: dvr)
-                            joined = LiveDVRPlaylist.wrap(live: links, recording: rec.links)
+                            joined = LiveDVRPlaylist.wrap(live: links, recording: rec.links, login: channel, source: data.source)
                             if joined != nil { logger.info("LECTEUR", "Direct avec son passé (enregistrement)", dvr) }
                         }
                         if joined == nil {
-                            joined = LiveDVRPlaylist.wrap(live: links, recording: nil)
+                            joined = LiveDVRPlaylist.wrap(live: links, recording: nil, login: channel, source: data.source)
                             if joined != nil { logger.info("LECTEUR", "Direct avec son passé (depuis l'ouverture)", nil) }
                         }
                         if let joined { playable = joined; viaRecording = true }

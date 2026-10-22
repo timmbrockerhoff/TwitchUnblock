@@ -106,6 +106,13 @@ English, short, explaining *why*.
   reopenDVRIfNeeded` swaps in `LiveDVRPlaylist.reopen` (recording fetched again) at the same
   date (not verified in the Simulator: its scrubbing is too coarse to land there; check on the
   iPhone). Without a recording nothing can refill it: rewind really reaches only ~10 min back.
+  Ad breaks (2026-10-22): `LiveDVRPlaylist` drops ad segments and fills their time from a
+  backup playlist of another player type (`adFreeBackupPlaylist`: embed → popout → autoplay
+  tokens, the first without `stitched-ad`), with a DISCONTINUITY at each origin switch; no
+  backup → the player waits at the gap and `liveAdGap` shows "Werbepause übersprungen · weiter
+  in n s". `LiveAdStats` counts breaks per source per hour; the automatic source order puts the
+  proxies with the fewest first (once two have 20+ min measured). Immersive/multi-live players
+  still only mute + banner.
   No custom timeline around the video (user rejected it repeatedly).
   Header LIVE pill (outside the video): red while `liveLatency` < 60 s, grey when behind; tap
   bumps `goLiveRequest` → NativeVideoPlayer seeks to the seekable end. Apple's bar keeps its

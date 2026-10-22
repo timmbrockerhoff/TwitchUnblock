@@ -703,7 +703,49 @@ func liveSourceSteps() -> [String] {
     let saved = ud.stringArray(forKey: "liveSourceOrder") ?? [ud.string(forKey: "liveSource") ?? "auto"]
     var order: [String] = []
     for id in saved where kLiveSources.contains(id) && !order.contains(id) { order.append(id) }
-    return order + kLiveSources.filter { !order.contains($0) } + ["worker"]
+    // Automatic order: the proxies ranked by the ad breaks measured on them (fewest first);
+    // official Twitch stays behind them.
+    let auto = order.isEmpty ? LiveAdStats.ranked(kLiveSources.filter { $0 != "twitch" }) + ["twitch"] : kLiveSources
+    return order + auto.filter { !order.contains($0) } + ["worker"]
+}
+
+/// Ad breaks seen per live source and how long it was watched, kept across launches, so the
+/// automatic source order can put the source with the fewest ads first.
+enum LiveAdStats {
+    private static let key = "liveAdStats"
+    private static let lock = NSLock()
+    /// source → [ad breaks, seconds watched]
+    private static var stats: [String: [Double]] =
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: [Double]]) ?? [:]
+    private static var lastSave = Date.distantPast
+
+    static func record(source: String, watched seconds: Double, breaks: Int) {
+        guard kLiveSources.contains(source), seconds > 0 || breaks > 0 else { return }
+        lock.withLock {
+            var v = stats[source] ?? [0, 0]
+            v[0] += Double(breaks); v[1] += seconds
+            stats[source] = v
+            // Written at most once a minute: called with every playlist reload.
+            if Date().timeIntervalSince(lastSave) > 60 || breaks > 0 {
+                lastSave = Date()
+                UserDefaults.standard.set(stats, forKey: key)
+            }
+        }
+    }
+
+    /// `sources` with those measured for 20+ minutes first, by ad breaks per hour, then the rest
+    /// in their default order; unchanged until two are measured.
+    /// ponytail: old measurements never decay; clear the key if the sources change a lot.
+    static func ranked(_ sources: [String]) -> [String] {
+        let snapshot = lock.withLock { stats }
+        let rated: [(String, Double)] = sources.compactMap { s in
+            guard let v = snapshot[s], v[1] >= 20 * 60 else { return nil }
+            return (s, v[0] / (v[1] / 3600))
+        }
+        guard rated.count >= 2 else { return sources }
+        let first = rated.sorted { $0.1 < $1.1 }.map(\.0)
+        return first + sources.filter { !first.contains($0) }
+    }
 }
 
 /// Result of one live source attempt (empty `links` = nothing). Only
@@ -933,6 +975,37 @@ private func usherLiveLinks(login: String, token: (value: String, signature: Str
     let master = parseMaster(body, baseURL: url)
     logger.success("LIVE", "✅ Twitch officiel : \(master.links.count) qualités")
     return master
+}
+
+// MARK: – Ad-break backup stream
+/// Player types whose tokens often get no stitched ads while the "site" one shows a break
+/// (embedded players, popout, autoplay previews).
+private let kBackupPlayerTypes = ["embed", "popout", "autoplay"]
+
+/// A media playlist of `login`, closest to `quality`, with no stitched ad in it right now:
+/// its segments fill the gap an ad break leaves in the live stream (LiveDVRPlaylist).
+/// nil when every player type gets the break too.
+func adFreeBackupPlaylist(login: String, quality: String) async -> URL? {
+    let q = """
+    query($l: String!, $p: String!) { streamPlaybackAccessToken(channelName: $l,
+      params: {platform: "web", playerBackend: "mediaplayer", playerType: $p}) { value signature } }
+    """
+    for type in kBackupPlayerTypes {
+        guard let data = await gqlRequest(q, ["l": login, "p": type]),
+              let pat = data["streamPlaybackAccessToken"] as? [String: Any],
+              let value = pat["value"] as? String, let sig = pat["signature"] as? String else { continue }
+        let master = await usherLiveLinks(login: login, token: (value, sig), lowLatency: true)
+        let key = preferredQualityKey(Array(master.links.keys), pref: quality, variants: master.variants)
+        guard let link = master.links[key], let url = URL(string: link),
+              let (d, r) = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 6)),
+              (r as? HTTPURLResponse)?.statusCode == 200 else { continue }
+        if !String(decoding: d, as: UTF8.self).contains("stitched-ad") {
+            logger.success("PUB", "Ersatz-Stream ohne Werbung", "playerType \(type) · \(key)")
+            return url
+        }
+        logger.info("PUB", "Ersatz-Stream hat auch Werbung", "playerType \(type)")
+    }
+    return nil
 }
 
 /// Worker Cloudflare : sa propre chaîne de sources, en dernier recours.

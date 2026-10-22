@@ -821,6 +821,9 @@ struct VideoPlayerView: View {
     /// Pause pub cousue par Twitch dans le direct : bandeau, son coupé.
     @StateObject private var adBreaks = AdBreakWatcher()
     @State private var noticeShown: String? = nil
+    /// Live ad break left as a gap (no backup stream): when the stream goes on (LiveDVRPlaylist).
+    @State private var adGapEnd: Date? = nil
+    @State private var playing = true
 
     /// Qualité lue : celle choisie, sinon (pas encore choisie, ou absente des
     /// nouveaux liens) la préférence. Calculée ici plutôt que corrigée après
@@ -877,7 +880,10 @@ struct VideoPlayerView: View {
             onSpeedChange: onSpeedChange,
             adBreaks: adBreaks,
             // Audio seul : rien à regarder, l'écran peut s'éteindre.
-            onPlaying: { playing in onPlaying(playing && !isAudioQuality(playedQuality)) },
+            onPlaying: { now in
+                playing = now
+                onPlaying(now && !isAudioQuality(playedQuality))
+            },
             onTap: onTap,
             goLiveRequest: goLiveRequest
         )
@@ -889,7 +895,28 @@ struct VideoPlayerView: View {
             }
         }
         .overlay(alignment: .top) {
-            AdBreakBanner(watcher: adBreaks).padding(.top, 44).padding(.horizontal, 12)
+            AdBreakBanner(watcher: adBreaks, compact: true).padding(.top, 12)
+        }
+        // The player waits at an ad gap: a quiet hint with the time left, instead of a spinner only.
+        .overlay(alignment: .top) {
+            if isLive, let end = adGapEnd, !playing {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    let left = max(1, Int(end.timeIntervalSince(ctx.date).rounded(.up)))
+                    Label(store.t("ad_gap").replacingOccurrences(of: "{n}", with: "\(left)"),
+                          systemImage: "megaphone.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .tGlass(in: Capsule(), fallback: .black.opacity(0.6))
+                }
+                .padding(.top, 12)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .liveAdGap)) { note in
+            let end = note.userInfo?["end"] as? Date
+            if adGapEnd != end { withAnimation { adGapEnd = end } }
         }
         .overlay(alignment: .bottom) {
             if let text = noticeShown {

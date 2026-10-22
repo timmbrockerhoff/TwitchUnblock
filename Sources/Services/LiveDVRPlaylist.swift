@@ -14,6 +14,11 @@ import AVFoundation
 //  No recording (VODs turned off): the past is only what was seen live since the stream was
 //  opened, kept by appending every live segment.
 //
+//  Ad breaks: Twitch replaces the live segments by ad segments. Those are left out; their
+//  time is filled from a backup playlist of another player type that has no ad right
+//  now (adFreeBackupPlaylist). Without one, playback waits at the gap and goes on after it
+//  (`liveAdGap` tells the player view, for its hint).
+//
 //  Addresses `tudvr://<token>` point to a registered live/recording pair.
 // ═══════════════════════════════════════════════════════════════════════════
 final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
@@ -33,15 +38,28 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         let uri: String
         let duration: Double
         let date: Date
+        /// From the ad-break backup playlist.
+        var backup = false
+        /// Origin changed from the segment before: a discontinuity.
+        var disc = false
     }
 
     private final class Session {
         let live: URL
         let recording: URL?
+        /// Channel and quality, for the ad-break backup; source, for the ad statistics.
+        let login: String?
+        let quality: String
+        let source: String?
         var past: [Segment]? = nil
         var appended: [Segment] = []
-        init(live: URL, recording: URL?) {
+        var backup: URL? = nil
+        var backupTried = Date.distantPast
+        var inBreak = false
+        var lastReload = Date()
+        init(live: URL, recording: URL?, login: String?, quality: String, source: String?) {
             self.live = live; self.recording = recording
+            self.login = login; self.quality = quality; self.source = source
             if recording == nil { past = [] }
         }
     }
@@ -52,7 +70,8 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
     // MARK: Addresses
     /// One `tudvr://` address per quality present in both link sets; nil when none match.
     /// `recording` nil: live only, its past built up from the moment the stream is opened.
-    static func wrap(live: QualityLinks, recording: QualityLinks?) -> QualityLinks? {
+    static func wrap(live: QualityLinks, recording: QualityLinks?,
+                     login: String? = nil, source: String? = nil) -> QualityLinks? {
         var out: QualityLinks = [:]
         for (quality, link) in live {
             guard let liveURL = URL(string: link) else { continue }
@@ -62,7 +81,8 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
                 recURL = url
             }
             let token = UUID().uuidString
-            shared.lock.withLock { shared.sessions[token] = Session(live: liveURL, recording: recURL) }
+            let session = Session(live: liveURL, recording: recURL, login: login, quality: quality, source: source)
+            shared.lock.withLock { shared.sessions[token] = session }
             out[quality] = "\(scheme)://\(token)/index.m3u8"
         }
         return out.isEmpty ? nil : out
@@ -75,7 +95,10 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         guard url.scheme == scheme, let old = url.host,
               let s = shared.lock.withLock({ shared.sessions[old] }), s.recording != nil else { return nil }
         let token = UUID().uuidString
-        shared.lock.withLock { shared.sessions[token] = Session(live: s.live, recording: s.recording) }
+        shared.lock.withLock {
+            shared.sessions[token] = Session(live: s.live, recording: s.recording,
+                                             login: s.login, quality: s.quality, source: s.source)
+        }
         return URL(string: "\(scheme)://\(token)/index.m3u8")
     }
 
@@ -121,6 +144,16 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         let pastText = needsPast ? await s.recording.asyncMap(fetch) ?? nil : nil
         guard let liveText = await liveText else { return nil }
         let live = Self.segments(liveText, base: s.live, skipAds: true)
+        // Ad segments in the live playlist (or a break announced): fill from the backup.
+        let adsNow = liveText.contains("stitched-ad")
+            || Self.segments(liveText, base: s.live, skipAds: false).count > live.count
+        var fill: [Segment] = []
+        if adsNow, let url = await backupURL(s), let text = await fetch(url) {
+            fill = Self.segments(text, base: url, skipAds: true).map { var seg = $0; seg.backup = true; return seg }
+            // The backup got the break too: a fresh one next time.
+            if text.contains("stitched-ad") { lock.withLock { s.backup = nil } }
+        }
+        noteBreak(s, adsNow: adsNow, filled: !fill.isEmpty, liveText: liveText)
 
         let pastSegments = pastText.flatMap { t in s.recording.map { Self.segments(t, base: $0, skipAds: false) } }
         return lock.withLock { () -> String? in
@@ -129,14 +162,70 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
                 s.past = pastSegments
             }
             let past = s.past ?? []
-            // Live segments after the recording's end, appended once each.
+            // Live (and backup) segments after the recording's end, appended once each, in time
+            // order; a backup segment for the same moment as a live one is a duplicate.
             let pastEnd = past.last.map { $0.date.addingTimeInterval($0.duration - 0.5) } ?? .distantPast
-            let lastDate = s.appended.last?.date ?? pastEnd
-            for seg in live where seg.date > lastDate && seg.date > pastEnd {
+            var last = s.appended.last?.date ?? pastEnd
+            for var seg in (live + fill).sorted(by: { $0.date < $1.date })
+            where seg.date > last.addingTimeInterval(0.5) && seg.date > pastEnd {
+                seg.disc = (s.appended.last?.backup ?? false) != seg.backup
                 s.appended.append(seg)
+                last = seg.date
             }
             return Self.render(past: past, live: s.appended)
         }
+    }
+
+    // MARK: Ad breaks
+    /// The backup playlist for this session's channel, fetched once per break (retried at most
+    /// every 20 s while none has been found).
+    private func backupURL(_ s: Session) async -> URL? {
+        guard let login = s.login else { return nil }
+        let (cached, due) = lock.withLock { () -> (URL?, Bool) in
+            if let b = s.backup { return (b, false) }
+            guard Date().timeIntervalSince(s.backupTried) > 20 else { return (nil, false) }
+            s.backupTried = Date()
+            return (nil, true)
+        }
+        if let cached { return cached }
+        guard due, let url = await adFreeBackupPlaylist(login: login, quality: s.quality) else { return nil }
+        lock.withLock { s.backup = url }
+        return url
+    }
+
+    /// Break start/end: statistics per source, and the player view's hint while the gap has
+    /// no backup (`end` from the break's DATERANGE, nil once over or filled).
+    private func noteBreak(_ s: Session, adsNow: Bool, filled: Bool, liveText: String) {
+        let (started, watched) = lock.withLock { () -> (Bool, Double) in
+            let started = adsNow && !s.inBreak
+            if !adsNow { s.backup = nil; s.backupTried = .distantPast }
+            s.inBreak = adsNow
+            let watched = min(10, Date().timeIntervalSince(s.lastReload))
+            s.lastReload = Date()
+            return (started, watched)
+        }
+        if let source = s.source { LiveAdStats.record(source: source, watched: watched, breaks: started ? 1 : 0) }
+        if started { logger.info("PUB", filled ? "Werbepause, mit Ersatz-Stream überbrückt" : "Werbepause ohne Ersatz", nil) }
+        let end = adsNow && !filled ? Self.breakEnd(liveText) ?? Date().addingTimeInterval(30) : nil
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .liveAdGap, object: nil, userInfo: end.map { ["end": $0] })
+        }
+    }
+
+    /// End of the latest stitched-ad break announced in the playlist (START-DATE + DURATION).
+    private static func breakEnd(_ text: String) -> Date? {
+        var end: Date? = nil
+        for line in text.components(separatedBy: "\n") where line.hasPrefix("#EXT-X-DATERANGE") && line.contains("stitched-ad") {
+            func attr(_ name: String) -> String? {
+                guard let r = line.range(of: name + "=") else { return nil }
+                return line[r.upperBound...].split(separator: ",", maxSplits: 1).first
+                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+            }
+            guard let start = attr("START-DATE").flatMap({ dateParser.date(from: $0) ?? datePlain.date(from: $0) }),
+                  let duration = attr("DURATION").flatMap(Double.init) else { continue }
+            end = max(end ?? .distantPast, start.addingTimeInterval(duration))
+        }
+        return end
     }
 
     // MARK: Playlist text
@@ -184,6 +273,7 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
                      "#EXT-X-PLAYLIST-TYPE:EVENT", "#EXT-X-MEDIA-SEQUENCE:0",
                      "#EXT-X-DISCONTINUITY-SEQUENCE:0"]
         func add(_ s: Segment) {
+            if s.disc { lines.append("#EXT-X-DISCONTINUITY") }
             lines.append("#EXT-X-PROGRAM-DATE-TIME:" + dateParser.string(from: s.date))
             lines.append(String(format: "#EXTINF:%.3f,", s.duration))
             lines.append(s.uri)
@@ -193,6 +283,11 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         live.forEach(add)
         return lines.joined(separator: "\n") + "\n"
     }
+}
+
+extension Notification.Name {
+    /// Live ad break with no backup on screen soon: userInfo["end"] its end; none = over.
+    static let liveAdGap = Notification.Name("tuLiveAdGap")
 }
 
 private extension Optional {
