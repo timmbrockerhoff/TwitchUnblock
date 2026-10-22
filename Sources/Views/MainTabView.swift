@@ -1857,13 +1857,19 @@ struct MainTabView: View {
                     var viaRecording = false
                     // Apple's player: live joined to its running recording (LiveDVRPlaylist), so
                     // Apple's bar spans the broadcast and its edge is the real live stream.
-                    // No recording: the plain live stream.
-                    if !store.immersivePlayer, let dvr = data.dvrVideoId {
-                        let rec = await getM3U8(vodId: dvr)
-                        if let joined = LiveDVRPlaylist.wrap(live: links, recording: rec.links) {
-                            playable = joined; viaRecording = true
-                            logger.info("LECTEUR", "Direct avec son passé (enregistrement)", dvr)
+                    // No recording: the live stream keeps its own past from now on.
+                    if !store.immersivePlayer {
+                        var joined: QualityLinks? = nil
+                        if let dvr = data.dvrVideoId {
+                            let rec = await getM3U8(vodId: dvr)
+                            joined = LiveDVRPlaylist.wrap(live: links, recording: rec.links)
+                            if joined != nil { logger.info("LECTEUR", "Direct avec son passé (enregistrement)", dvr) }
                         }
+                        if joined == nil {
+                            joined = LiveDVRPlaylist.wrap(live: links, recording: nil)
+                            if joined != nil { logger.info("LECTEUR", "Direct avec son passé (depuis l'ouverture)", nil) }
+                        }
+                        if let joined { playable = joined; viaRecording = true }
                     }
                     await MainActor.run {
                         guard gen == loadGeneration else { return }

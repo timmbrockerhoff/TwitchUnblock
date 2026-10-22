@@ -90,6 +90,8 @@ English, short, explaining *why*.
   TARGETDURATION (10 s recording segments) from the end: ~30 s behind real live; tried and failed:
   configuredTimeOffsetFromLive (clamped), TARGETDURATION 2 (won't play), SERVER-CONTROL HOLD-BACK
   (won't play). Live chat delayed by `liveLatency` − 6 s; > 5 min → VOD chat replay.
+  Channels without a recording (VODs off): `LiveDVRPlaylist.wrap(live:recording: nil)` keeps the
+  live segments seen since opening → rewind back to that moment, 2 s segments so little delay.
   No custom timeline around the video (user rejected it repeatedly).
   Header LIVE pill (outside the video): red while `liveLatency` < 60 s, grey when behind; tap
   bumps `goLiveRequest` → NativeVideoPlayer seeks to the seekable end. Apple's bar keeps its

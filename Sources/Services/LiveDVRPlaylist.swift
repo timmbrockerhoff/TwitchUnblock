@@ -11,6 +11,9 @@ import AVFoundation
 //  recording segments (frozen when the stream is opened), a discontinuity,
 //  then every live segment seen since, only ever appended (EVENT rule).
 //
+//  No recording (VODs turned off): the past is only what was seen live since the stream was
+//  opened, kept by appending every live segment.
+//
 //  Addresses `tudvr://<token>` point to a registered live/recording pair.
 // ═══════════════════════════════════════════════════════════════════════════
 final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
@@ -34,10 +37,13 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
 
     private final class Session {
         let live: URL
-        let recording: URL
+        let recording: URL?
         var past: [Segment]? = nil
         var appended: [Segment] = []
-        init(live: URL, recording: URL) { self.live = live; self.recording = recording }
+        init(live: URL, recording: URL?) {
+            self.live = live; self.recording = recording
+            if recording == nil { past = [] }
+        }
     }
 
     private let lock = NSLock()
@@ -45,11 +51,16 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
 
     // MARK: Addresses
     /// One `tudvr://` address per quality present in both link sets; nil when none match.
-    static func wrap(live: QualityLinks, recording: QualityLinks) -> QualityLinks? {
+    /// `recording` nil: live only, its past built up from the moment the stream is opened.
+    static func wrap(live: QualityLinks, recording: QualityLinks?) -> QualityLinks? {
         var out: QualityLinks = [:]
         for (quality, link) in live {
-            guard let rec = recording[quality], let liveURL = URL(string: link),
-                  let recURL = URL(string: rec) else { continue }
+            guard let liveURL = URL(string: link) else { continue }
+            var recURL: URL? = nil
+            if let recording {
+                guard let rec = recording[quality], let url = URL(string: rec) else { continue }
+                recURL = url
+            }
             let token = UUID().uuidString
             shared.lock.withLock { shared.sessions[token] = Session(live: liveURL, recording: recURL) }
             out[quality] = "\(scheme)://\(token)/index.m3u8"
@@ -91,11 +102,11 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
     private func playlist(_ s: Session) async -> String? {
         async let liveText = fetch(s.live)
         let needsPast = lock.withLock { s.past == nil }
-        let pastText = needsPast ? await fetch(s.recording) : nil
+        let pastText = needsPast ? await s.recording.asyncMap(fetch) ?? nil : nil
         guard let liveText = await liveText else { return nil }
         let live = Self.segments(liveText, base: s.live, skipAds: true)
 
-        let pastSegments = pastText.map { Self.segments($0, base: s.recording, skipAds: false) }
+        let pastSegments = pastText.flatMap { t in s.recording.map { Self.segments(t, base: $0, skipAds: false) } }
         return lock.withLock { () -> String? in
             if s.past == nil {
                 guard let pastSegments, !pastSegments.isEmpty else { return nil }
@@ -165,5 +176,12 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         if !past.isEmpty, !live.isEmpty { lines.append("#EXT-X-DISCONTINUITY") }
         live.forEach(add)
         return lines.joined(separator: "\n") + "\n"
+    }
+}
+
+private extension Optional {
+    func asyncMap<T>(_ f: (Wrapped) async -> T) async -> T? {
+        guard let self else { return nil }
+        return await f(self)
     }
 }
