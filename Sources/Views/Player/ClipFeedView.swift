@@ -32,6 +32,10 @@ final class ClipFeedPlayers: ObservableObject {
     @Published private(set) var muted = false
     /// Held down on the video: 2× while the finger stays.
     @Published private(set) var fast = false
+    /// Top buttons and bottom info shown. In landscape they lie on the picture and fade out
+    /// 3 s after the last touch; in portrait they sit on the black bars and stay.
+    @Published private(set) var chromeVisible = true
+    private var hideTask: Task<Void, Never>?
     let progress = ClipProgress()
     /// The clip on screen reached its end (the feed moves on).
     var onEnded: ((String) -> Void)?
@@ -62,6 +66,18 @@ final class ClipFeedPlayers: ObservableObject {
     func togglePause() {
         paused.toggle()
         syncPlayback()
+    }
+
+    /// Shows the controls; `autoHide` (landscape) fades them out again after 3 s.
+    func showChrome(autoHide: Bool) {
+        chromeVisible = true
+        hideTask?.cancel()
+        guard autoHide else { return }
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { self?.chromeVisible = false }
+        }
     }
 
     func toggleMute() {
@@ -211,13 +227,13 @@ struct ClipFeedView: View {
             }
             .offset(x: dragX)
             .overlay(alignment: .leading) { edgeSwipe(width: geo.size.width) }
-            .overlay(alignment: .topLeading) {
-                TIconButton(icon: "xmark", tint: .white, size: 40) { close() }
-                    .accessibilityLabel(store.t("close"))
-                    .padding(.leading, max(geo.safeAreaInsets.leading, TSpace.lg))
-                    .padding(.top, geo.safeAreaInsets.top + TSpace.sm)
+            .overlay(alignment: .top) {
+                topBar(insets: geo.safeAreaInsets, landscape: landscape)
                     .offset(x: dragX)
+                    .opacity(pool.chromeVisible ? 1 : 0)
+                    .allowsHitTesting(pool.chromeVisible)
             }
+            .onChange(of: landscape, initial: true) { _, l in pool.showChrome(autoHide: l) }
             .ignoresSafeArea()
         }
         .statusBarHidden()
@@ -297,6 +313,56 @@ struct ClipFeedView: View {
             .accessibilityAction(named: Text(store.t("close")), close)
     }
 
+    private var currentPlayback: ClipPlayback? { current.flatMap { pool.playbacks[$0] } }
+
+    private func openChannel(_ login: String) { leave { onOpenChannel(login) } }
+
+    // MARK: Top bar
+    /// As in Apple's own full-screen video: close top left, sound and a "⋯" menu top right;
+    /// the rarer actions live in the menu, nothing sits on the picture's sides.
+    private func topBar(insets: EdgeInsets, landscape: Bool) -> some View {
+        HStack(spacing: TSpace.sm) {
+            TIconButton(icon: "xmark", tint: .white, size: 36) { close() }
+                .accessibilityLabel(store.t("close"))
+            Spacer()
+            TIconButton(icon: pool.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", tint: .white, size: 36) {
+                pool.toggleMute()
+                pool.showChrome(autoHide: landscape)
+            }
+            .accessibilityLabel(store.t(pool.muted ? "clip_sound_on" : "clip_sound_off"))
+            Menu {
+                if let pb = currentPlayback, pb.vodId != nil, pb.vodOffset != nil {
+                    Button {
+                        // Sideways: no turn back, the player takes the landscape over.
+                        rotated = false
+                        leave { onOpenVod(pb, landscape) }
+                    } label: { Label(store.t("clip_full_vod"), systemImage: "play.rectangle") }
+                }
+                if let login = currentPlayback?.broadcasterLogin, !login.isEmpty {
+                    Button { openChannel(login) } label: {
+                        Label(store.t("clip_channel"), systemImage: "person.crop.circle")
+                    }
+                }
+                if let id = current, let url = URL(string: "https://clips.twitch.tv/\(id)") {
+                    ShareLink(item: url) { Label(store.t("share"), systemImage: "square.and.arrow.up") }
+                }
+                Button { rotate(toLandscape: !landscape) } label: {
+                    Label(store.t(landscape ? "rotate_portrait" : "rotate_landscape"),
+                          systemImage: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .tGlass(in: Circle(), fallback: .black.opacity(0.4))
+            }
+            .accessibilityLabel(store.t("more"))
+        }
+        .padding(.horizontal, max(max(insets.leading, insets.trailing), TSpace.lg))
+        .padding(.top, insets.top + TSpace.sm)
+    }
+
     private func feed(insets: EdgeInsets, landscape: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
@@ -304,13 +370,7 @@ struct ClipFeedView: View {
                     ForEach(clips) { clip in
                         ClipFeedPage(clip: clip, isCurrent: current == clip.id, insets: insets,
                                      landscape: landscape, pool: pool,
-                                     onOpenChannel: { login in leave { onOpenChannel(login) } },
-                                     onOpenVod: { pb in
-                                         // Sideways: no turn back, the player takes the landscape over.
-                                         rotated = false
-                                         leave { onOpenVod(pb, landscape) }
-                                     },
-                                     onRotate: { rotate(toLandscape: !landscape) })
+                                     onOpenChannel: openChannel)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(clip.id)
                     }
@@ -336,8 +396,6 @@ private struct ClipFeedPage: View {
     let landscape: Bool
     @ObservedObject var pool: ClipFeedPlayers
     let onOpenChannel: (String) -> Void
-    let onOpenVod: (ClipPlayback) -> Void
-    let onRotate: () -> Void
 
     @EnvironmentObject private var store: AppStore
 
@@ -392,7 +450,12 @@ private struct ClipFeedPage: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { if pool.players[clip.id] != nil { pool.togglePause() } }
+        // Landscape with the controls faded out: a tap only brings them back.
+        .onTapGesture {
+            if landscape && !pool.chromeVisible { pool.showChrome(autoHide: true); return }
+            if pool.players[clip.id] != nil { pool.togglePause() }
+            pool.showChrome(autoHide: landscape)
+        }
         // Held down: 2× until let go (a plain tap still pauses).
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.35)
@@ -412,67 +475,25 @@ private struct ClipFeedPage: View {
                     .allowsHitTesting(false)
             }
         }
-        .overlay(alignment: .bottom) { bottomBar }
-        .overlay(alignment: .bottomTrailing) { actionRail }
-    }
-
-    // MARK: Actions
-    /// Glass buttons down the right side, as in TikTok or Reels.
-    private var actionRail: some View {
-        let size: CGFloat = landscape ? 40 : 46
-        return VStack(spacing: landscape ? TSpace.sm : TSpace.lg) {
-            if let login = playback?.broadcasterLogin, !login.isEmpty {
-                Button { onOpenChannel(login) } label: { railItem("person.crop.circle", "clip_channel", size) }
-                    .buttonStyle(.plain)
-            }
-            if let pb = playback, pb.vodId != nil, pb.vodOffset != nil {
-                Button { onOpenVod(pb) } label: { railItem("play.rectangle.fill", "clip_full_vod", size) }
-                    .buttonStyle(.plain)
-            }
-            if let url = URL(string: "https://clips.twitch.tv/\(clip.id)") {
-                ShareLink(item: url) { railItem("square.and.arrow.up", "share", size) }
-                    .buttonStyle(.plain)
-            }
-            Button { pool.toggleMute() } label: {
-                railItem(pool.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                         pool.muted ? "clip_sound_on" : "clip_sound_off", size)
-            }
-            .buttonStyle(.plain)
-            Button(action: onRotate) {
-                railItem(landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
-                         landscape ? "rotate_portrait" : "rotate_landscape", size)
-            }
-            .buttonStyle(.plain)
+        .overlay(alignment: .bottom) {
+            bottomBar
+                .opacity(pool.chromeVisible ? 1 : 0)
+                .allowsHitTesting(pool.chromeVisible)
         }
-        .padding(.trailing, max(insets.trailing, TSpace.md))
-        .padding(.bottom, insets.bottom + (landscape ? TSpace.lg : 110))
-    }
-
-    /// Icon in a glass circle; its label under it in portrait, hidden in landscape (no room).
-    private func railItem(_ icon: String, _ key: String, _ size: CGFloat) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: size, height: size)
-                .tGlass(in: Circle(), fallback: .black.opacity(0.4))
-            if !landscape {
-                Text(store.t(key))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.7), radius: 3)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(store.t(key))
     }
 
     /// Channel, title and meta over a dark gradient, so the text stays
     /// readable on bright frames; the progress line above them.
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(playback?.broadcasterName ?? " ")
-                .font(.system(size: 17, weight: .bold))
+            // The channel's name opens it, like an artist's name in Apple Music.
+            Button {
+                if let login = playback?.broadcasterLogin, !login.isEmpty { onOpenChannel(login) }
+            } label: {
+                Text(playback?.broadcasterName ?? " ")
+                    .font(.system(size: 17, weight: .bold))
+            }
+            .buttonStyle(.plain)
             Text(clip.title)
                 .font(.system(size: 15))
                 .lineLimit(landscape ? 1 : 2)
@@ -491,8 +512,7 @@ private struct ClipFeedPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .shadow(color: .black.opacity(0.7), radius: 4)
         .padding(.leading, max(insets.leading, TSpace.lg))
-        // Clear of the action rail.
-        .padding(.trailing, landscape ? 80 : TSpace.lg)
+        .padding(.trailing, max(insets.trailing, TSpace.lg))
         .padding(.top, 60)
         .padding(.bottom, insets.bottom + (landscape ? TSpace.sm : TSpace.lg))
         .background(
