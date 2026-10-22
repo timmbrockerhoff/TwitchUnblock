@@ -10,16 +10,33 @@ struct ClipFeedItem: Identifiable {
     var load: (() async -> [ClipData])? = nil
 }
 
+/// Time of the clip on screen, apart from the pool: it changes ~10×/s and only
+/// the progress line watches it, not the whole feed.
+@MainActor
+final class ClipProgress: ObservableObject {
+    @Published var time: Double = 0
+    @Published var duration: Double = 0
+}
+
 /// Players of the clip on screen and its two neighbours, kept at feed level:
 /// pages off screen don't exist yet (LazyVStack), so they can't preload
 /// themselves. A swipe then lands on a player that has already buffered.
+@available(iOS 17.0, *)
 @MainActor
 final class ClipFeedPlayers: ObservableObject {
-    @Published private(set) var players: [String: AVQueuePlayer] = [:]
+    @Published private(set) var players: [String: AVPlayer] = [:]
     @Published private(set) var playbacks: [String: ClipPlayback] = [:]
     @Published private(set) var failed: Set<String> = []
     @Published private(set) var paused = false
-    private var loopers: [String: AVPlayerLooper] = [:]
+    /// Sound off for the whole feed, the next clips included.
+    @Published private(set) var muted = false
+    /// Held down on the video: 2× while the finger stays.
+    @Published private(set) var fast = false
+    let progress = ClipProgress()
+    /// The clip on screen reached its end (the feed moves on).
+    var onEnded: ((String) -> Void)?
+    private var timeObservers: [String: Any] = [:]
+    private var endObservers: [String: NSObjectProtocol] = [:]
     private var linkTasks: [String: Task<ClipPlayback?, Never>] = [:]
     private var kept: Set<String> = []
     private var current: String?
@@ -32,14 +49,13 @@ final class ClipFeedPlayers: ObservableObject {
         self.quality = quality
         kept = Set(keep)
         paused = false
-        for (k, p) in players where !kept.contains(k) {
-            p.pause()
-            players[k] = nil
-            loopers[k] = nil
-        }
+        fast = false
+        for k in Array(players.keys) where !kept.contains(k) { drop(k) }
         failed.subtract(keep)   // a failed clip is retried when swiped to again
         for k in keep where players[k] == nil { Task { await makePlayer(k) } }
         for k in links { Task { _ = await link(k) } }
+        progress.time = 0
+        progress.duration = players[id]?.currentItem?.duration.seconds.finiteOrZero ?? 0
         syncPlayback()
     }
 
@@ -48,11 +64,41 @@ final class ClipFeedPlayers: ObservableObject {
         syncPlayback()
     }
 
+    func toggleMute() {
+        muted.toggle()
+        players.values.forEach { $0.isMuted = muted }
+    }
+
+    func setFast(_ on: Bool) {
+        fast = on
+        syncPlayback()
+    }
+
+    /// Scrubbing the line: `fraction` of the clip on screen.
+    func seek(_ fraction: Double) {
+        guard let current, let p = players[current], progress.duration > 0 else { return }
+        let t = max(0, min(1, fraction)) * progress.duration
+        progress.time = t
+        p.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    /// From the start again (last clip of the feed ended).
+    func restart(_ id: String) {
+        players[id]?.seek(to: .zero)
+        syncPlayback()
+    }
+
     func stopAll() {
-        players.values.forEach { $0.pause() }
-        players = [:]
-        loopers = [:]
+        for k in Array(players.keys) { drop(k) }
         kept = []
+    }
+
+    private func drop(_ id: String) {
+        guard let p = players[id] else { return }
+        p.pause()
+        if let o = timeObservers.removeValue(forKey: id) { p.removeTimeObserver(o) }
+        if let o = endObservers.removeValue(forKey: id) { NotificationCenter.default.removeObserver(o) }
+        players[id] = nil
     }
 
     private func link(_ id: String) async -> ClipPlayback? {
@@ -73,9 +119,27 @@ final class ClipFeedPlayers: ObservableObject {
             failed.insert(id)
             return
         }
-        let q = AVQueuePlayer()
-        loopers[id] = AVPlayerLooper(player: q, templateItem: AVPlayerItem(url: url))
-        players[id] = q
+        let item = AVPlayerItem(url: url)
+        let p = AVPlayer(playerItem: item)
+        p.isMuted = muted
+        // Its end moves the feed on (no looper any more).
+        endObservers[id] = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.current == id else { return }
+                self.onEnded?(id)
+            }
+        }
+        timeObservers[id] = p.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10),
+                                                      queue: .main) { [weak self, weak p] t in
+            MainActor.assumeIsolated {
+                guard let self, self.current == id else { return }
+                self.progress.time = t.seconds.finiteOrZero
+                self.progress.duration = p?.currentItem?.duration.seconds.finiteOrZero ?? 0
+            }
+        }
+        players[id] = p
         syncPlayback()
     }
 
@@ -83,7 +147,7 @@ final class ClipFeedPlayers: ObservableObject {
     private func syncPlayback() {
         for (k, p) in players {
             if k == current && !paused {
-                p.play()
+                p.rate = fast ? 2 : 1
             } else {
                 p.pause()
                 if k != current { p.seek(to: .zero) }
@@ -92,12 +156,21 @@ final class ClipFeedPlayers: ObservableObject {
     }
 }
 
+private extension Double {
+    var finiteOrZero: Double { isFinite ? self : 0 }
+}
+
 /// Clips as a full-screen vertical feed, swiped up/down like TikTok, always
-/// showing the whole frame. No buttons: a swipe from the left edge closes it.
+/// showing the whole frame. A swipe from the left edge or the close button
+/// closes it; at a clip's end the next one comes.
 @available(iOS 17.0, *)
 struct ClipFeedView: View {
     let load: (() async -> [ClipData])?
     let onClose: () -> Void
+    /// The clip's channel page, or its whole VOD from the clip's moment (the feed closes first).
+    var onOpenChannel: (String) -> Void = { _ in }
+    /// `landscape`: the clip was watched sideways, the VOD stays sideways.
+    var onOpenVod: (ClipPlayback, _ landscape: Bool) -> Void = { _, _ in }
 
     @EnvironmentObject private var store: AppStore
     @State private var clips: [ClipData]
@@ -106,10 +179,16 @@ struct ClipFeedView: View {
     @StateObject private var pool = ClipFeedPlayers()
     /// Edge swipe in progress: the feed follows the finger to the right.
     @State private var dragX: CGFloat = 0
+    /// Turned to landscape by the button: back to portrait on close.
+    @State private var rotated = false
 
-    init(item: ClipFeedItem, onClose: @escaping () -> Void) {
+    init(item: ClipFeedItem, onClose: @escaping () -> Void,
+         onOpenChannel: @escaping (String) -> Void = { _ in },
+         onOpenVod: @escaping (ClipPlayback, Bool) -> Void = { _, _ in }) {
         load = item.load
         self.onClose = onClose
+        self.onOpenChannel = onOpenChannel
+        self.onOpenVod = onOpenVod
         _clips = State(initialValue: item.clips)
         _loading = State(initialValue: item.load != nil)
         let start = item.clips.indices.contains(item.start) ? item.clips[item.start].id : item.clips.first?.id
@@ -118,6 +197,7 @@ struct ClipFeedView: View {
 
     var body: some View {
         GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
             ZStack {
                 Color.black
                 if loading {
@@ -126,11 +206,18 @@ struct ClipFeedView: View {
                     Text(store.t("no_clips"))
                         .font(.tBody).foregroundColor(.white.opacity(0.8))
                 } else {
-                    feed(insets: geo.safeAreaInsets)
+                    feed(insets: geo.safeAreaInsets, landscape: landscape)
                 }
             }
             .offset(x: dragX)
             .overlay(alignment: .leading) { edgeSwipe(width: geo.size.width) }
+            .overlay(alignment: .topLeading) {
+                TIconButton(icon: "xmark", tint: .white, size: 40) { close() }
+                    .accessibilityLabel(store.t("close"))
+                    .padding(.leading, max(geo.safeAreaInsets.leading, TSpace.lg))
+                    .padding(.top, geo.safeAreaInsets.top + TSpace.sm)
+                    .offset(x: dragX)
+            }
             .ignoresSafeArea()
         }
         .statusBarHidden()
@@ -147,11 +234,46 @@ struct ClipFeedView: View {
             let links = clips.indices.contains(i + 2) ? [clips[i + 2].id] : []
             pool.focus(id, keep: keep, links: links, quality: store.preferredQuality)
         }
-        .onAppear { PlaybackAudio.shared.claim("clips") }
+        .onAppear {
+            PlaybackAudio.shared.claim("clips")
+            pool.onEnded = { id in advance(after: id) }
+        }
         .onDisappear {
             pool.stopAll()
             PlaybackAudio.shared.release("clips")
+            if rotated { rotate(toLandscape: false) }
         }
+    }
+
+    /// End of a clip: the next one, or this one again when it was the last.
+    private func advance(after id: String) {
+        guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+        if clips.indices.contains(i + 1) {
+            withAnimation(.easeInOut(duration: 0.35)) { current = clips[i + 1].id }
+        } else {
+            pool.restart(id)
+        }
+    }
+
+    /// Closes, then `then` once a turn back to portrait has settled: the player opened during
+    /// the turn came up reduced.
+    private func leave(then: @escaping () -> Void) {
+        let turning = rotated
+        close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + (turning ? 0.6 : 0), execute: then)
+    }
+
+    private func close() {
+        if rotated { rotate(toLandscape: false) }
+        onClose()
+    }
+
+    /// Works with the rotation lock on too (same as the player's rotate item).
+    private func rotate(toLandscape: Bool) {
+        rotated = toLandscape
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: toLandscape ? .landscapeRight : .portrait)) { _ in }
     }
 
     /// Thin strip on the left edge, like the system back swipe: past a third
@@ -166,22 +288,29 @@ struct ClipFeedView: View {
                     .onEnded { v in
                         if v.translation.width > width / 3 || v.predictedEndTranslation.width > width / 2 {
                             withAnimation(.easeOut(duration: 0.2)) { dragX = width }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { onClose() }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { close() }
                         } else {
                             withAnimation(.spring(duration: 0.25)) { dragX = 0 }
                         }
                     }
             )
-            .accessibilityAction(named: Text(store.t("close")), onClose)
+            .accessibilityAction(named: Text(store.t("close")), close)
     }
 
-    private func feed(insets: EdgeInsets) -> some View {
+    private func feed(insets: EdgeInsets, landscape: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(clips) { clip in
                         ClipFeedPage(clip: clip, isCurrent: current == clip.id, insets: insets,
-                                     pool: pool)
+                                     landscape: landscape, pool: pool,
+                                     onOpenChannel: { login in leave { onOpenChannel(login) } },
+                                     onOpenVod: { pb in
+                                         // Sideways: no turn back, the player takes the landscape over.
+                                         rotated = false
+                                         leave { onOpenVod(pb, landscape) }
+                                     },
+                                     onRotate: { rotate(toLandscape: !landscape) })
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(clip.id)
                     }
@@ -204,7 +333,11 @@ private struct ClipFeedPage: View {
     let isCurrent: Bool
     /// Safe area of the screen: the page itself runs under the bars.
     let insets: EdgeInsets
+    let landscape: Bool
     @ObservedObject var pool: ClipFeedPlayers
+    let onOpenChannel: (String) -> Void
+    let onOpenVod: (ClipPlayback) -> Void
+    let onRotate: () -> Void
 
     @EnvironmentObject private var store: AppStore
 
@@ -224,6 +357,8 @@ private struct ClipFeedPage: View {
         if clip.viewCount > 0 { parts.append("\(formatViewers(clip.viewCount)) Aufrufe") }
         return parts.joined(separator: " · ")
     }
+
+    private var playback: ClipPlayback? { pool.playbacks[clip.id] }
 
     var body: some View {
         ZStack {
@@ -258,34 +393,144 @@ private struct ClipFeedPage: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { if pool.players[clip.id] != nil { pool.togglePause() } }
+        // Held down: 2× until let go (a plain tap still pauses).
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.35)
+                .sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { v in
+                    if case .second(true, _) = v, isCurrent, !pool.fast, !pool.paused { pool.setFast(true) }
+                }
+                .onEnded { _ in if pool.fast { pool.setFast(false) } }
+        )
+        .overlay(alignment: .top) {
+            if isCurrent && pool.fast {
+                Label("2×", systemImage: "forward.fill")
+                    .font(.subheadline.weight(.bold)).foregroundColor(.white)
+                    .padding(.horizontal, TSpace.md).padding(.vertical, 6)
+                    .background(Color.black.opacity(0.55), in: Capsule())
+                    .padding(.top, insets.top + TSpace.lg)
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .bottom) { bottomBar }
+        .overlay(alignment: .bottomTrailing) { actionRail }
+    }
+
+    // MARK: Actions
+    /// Glass buttons down the right side, as in TikTok or Reels.
+    private var actionRail: some View {
+        let size: CGFloat = landscape ? 40 : 46
+        return VStack(spacing: landscape ? TSpace.sm : TSpace.lg) {
+            if let login = playback?.broadcasterLogin, !login.isEmpty {
+                Button { onOpenChannel(login) } label: { railItem("person.crop.circle", "clip_channel", size) }
+                    .buttonStyle(.plain)
+            }
+            if let pb = playback, pb.vodId != nil, pb.vodOffset != nil {
+                Button { onOpenVod(pb) } label: { railItem("play.rectangle.fill", "clip_full_vod", size) }
+                    .buttonStyle(.plain)
+            }
+            if let url = URL(string: "https://clips.twitch.tv/\(clip.id)") {
+                ShareLink(item: url) { railItem("square.and.arrow.up", "share", size) }
+                    .buttonStyle(.plain)
+            }
+            Button { pool.toggleMute() } label: {
+                railItem(pool.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                         pool.muted ? "clip_sound_on" : "clip_sound_off", size)
+            }
+            .buttonStyle(.plain)
+            Button(action: onRotate) {
+                railItem(landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                         landscape ? "rotate_portrait" : "rotate_landscape", size)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.trailing, max(insets.trailing, TSpace.md))
+        .padding(.bottom, insets.bottom + (landscape ? TSpace.lg : 110))
+    }
+
+    /// Icon in a glass circle; its label under it in portrait, hidden in landscape (no room).
+    private func railItem(_ icon: String, _ key: String, _ size: CGFloat) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: size, height: size)
+                .tGlass(in: Circle(), fallback: .black.opacity(0.4))
+            if !landscape {
+                Text(store.t(key))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.7), radius: 3)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(store.t(key))
     }
 
     /// Channel, title and meta over a dark gradient, so the text stays
-    /// readable on bright frames.
+    /// readable on bright frames; the progress line above them.
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(pool.playbacks[clip.id]?.broadcasterName ?? " ")
+            Text(playback?.broadcasterName ?? " ")
                 .font(.system(size: 17, weight: .bold))
             Text(clip.title)
                 .font(.system(size: 15))
-                .lineLimit(2)
+                .lineLimit(landscape ? 1 : 2)
             if !meta.isEmpty {
                 Text(meta)
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.75))
                     .lineLimit(1)
             }
+            if isCurrent {
+                ClipProgressLine(progress: pool.progress) { pool.seek($0) }
+                    .padding(.top, TSpace.xs)
+            }
         }
         .foregroundColor(.white)
         .frame(maxWidth: .infinity, alignment: .leading)
         .shadow(color: .black.opacity(0.7), radius: 4)
-        .padding(.horizontal, TSpace.lg)
+        .padding(.leading, max(insets.leading, TSpace.lg))
+        // Clear of the action rail.
+        .padding(.trailing, landscape ? 80 : TSpace.lg)
         .padding(.top, 60)
-        .padding(.bottom, insets.bottom + TSpace.lg)
+        .padding(.bottom, insets.bottom + (landscape ? TSpace.sm : TSpace.lg))
         .background(
             LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
+    }
+}
+
+/// Thin line of the clip's progress; dragged, it thickens and scrubs.
+@available(iOS 17.0, *)
+private struct ClipProgressLine: View {
+    @ObservedObject var progress: ClipProgress
+    let onSeek: (Double) -> Void
+    @State private var dragging: Double? = nil
+
+    var body: some View {
+        GeometryReader { geo in
+            let fraction = dragging ?? (progress.duration > 0 ? progress.time / progress.duration : 0)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.3))
+                Capsule().fill(Color.white)
+                    .frame(width: geo.size.width * max(0, min(1, fraction)))
+            }
+            .frame(height: dragging == nil ? 3 : 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        let f = max(0, min(1, v.location.x / max(1, geo.size.width)))
+                        dragging = f
+                        onSeek(f)
+                    }
+                    .onEnded { _ in dragging = nil }
+            )
+            .animation(.easeOut(duration: 0.15), value: dragging == nil)
+        }
+        .frame(height: 28)
     }
 }
