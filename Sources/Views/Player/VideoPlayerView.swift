@@ -196,7 +196,10 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         /// Départ de `item`, appliqué une fois l'élément prêt.
         func arm(_ item: AVPlayerItem, _ start: Start) {
             clearPending()
-            pendingSeek = !isLive && start.seconds > 5 ? start.seconds : nil
+            // Short starts are applied too: a running broadcast's recording has no end yet and
+            // AVPlayer opens it at its newest point, so "from the start" landed near the live edge.
+            // applyPendingSeek skips them again for finished videos, which start at 0:00 anyway.
+            pendingSeek = !isLive ? start.seconds : nil
             pendingIsResume = start.resume
             pendingBehind = isLive ? start.behind : nil
             guard pendingSeek != nil || pendingBehind != nil else { return }
@@ -242,6 +245,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
             // Elle se rouvrait sur sa dernière seconde, et « Tout lire » passait
             // aussitôt à la suivante. Un enregistrement en cours n'a pas de fin.
             let length = item.duration.seconds
+            if target <= 5, length.isFinite { return }
             if resume, length.isFinite, length > 0, target > length - 30 {
                 logger.info("LECTEUR", "VOD déjà vue jusqu'au bout", "reprise au début")
                 return
