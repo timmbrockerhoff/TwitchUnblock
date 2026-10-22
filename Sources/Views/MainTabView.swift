@@ -547,6 +547,12 @@ struct MainTabView: View {
                     VStack(spacing: TSpace.sm) {
                         TEmptyState(icon: "exclamationmark.triangle", title: err,
                                     actionTitle: store.t("retry"), action: { reloadCurrent() })
+                        // Recording of a live failed: the live itself still plays.
+                        if let backLive = backToLiveAction {
+                            Button(store.t("back_to_live_full"), action: backLive)
+                                .font(.tLabel)
+                                .buttonStyle(.plain)
+                        }
                         Button(store.t("back")) { stopPlayer() }
                             .font(.tLabel)
                             .foregroundColor(.tMuted)
@@ -1141,6 +1147,8 @@ struct MainTabView: View {
         guard let ch = currentChannelName, let dvr = liveDvrVideoId else { return nil }
         return {
             pendingDvrChannel = ch
+            // From the very start, not where this recording was left last time.
+            store.setVodProgress(dvr, time: 0)
             playVod(dvr, statusTitle, nil, ch, soft: true)
         }
     }
@@ -1723,6 +1731,10 @@ struct MainTabView: View {
                     guard gen == loadGeneration else { return }
                     if stats.viewerCount > 0  { liveViewerCount = stats.viewerCount }
                     if let s = stats.startedAt { liveStartedAt  = s }
+                    // Recording created after the stream was opened.
+                    if liveDvrVideoId == nil, let a = stats.archiveId {
+                        liveDvrVideoId = a
+                    }
                 }
             }
         }

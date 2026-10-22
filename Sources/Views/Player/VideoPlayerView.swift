@@ -766,7 +766,7 @@ struct VideoPlayerView: View {
 
                 if let rewind = onRewind {
                     Button(action: rewind) {
-                        actionLabel(text: store.t("rewind"), icon: "gobackward",
+                        actionLabel(text: store.t("rewind"), icon: "backward.end.fill",
                                     fg: .tPrimary, bg: Color.tPrimary.opacity(0.15),
                                     border: .tPrimary)
                     }

@@ -705,7 +705,13 @@ final class AppStore: ObservableObject {
         lowLatency         = ud.object(forKey: "cfg_low_latency") as? Bool ?? true
         vodSpeed           = VodSpeed.nearest(ud.object(forKey: "cfg_vod_speed") as? Double ?? 1)
         multiLiveChat      = ud.object(forKey: "cfg_multi_chat") as? Bool ?? true
-        immersivePlayer    = ud.object(forKey: "cfg_immersive")   as? Bool ?? true
+        // Apple's player is the default since 1.4.44 (the user prefers it);
+        // switched once for everyone, the toggle still brings the other back.
+        if !ud.bool(forKey: "cfg_player_native_v1") {
+            ud.set(false, forKey: "cfg_immersive")
+            ud.set(true, forKey: "cfg_player_native_v1")
+        }
+        immersivePlayer    = ud.object(forKey: "cfg_immersive")   as? Bool ?? false
         // Ordre des sources ; avant lui, une seule source préférée
         // (« liveSource »), mise en tête. Réécrit pour getLive.
         liveSourceOrder    = liveSourceSteps().filter { $0 != "worker" }

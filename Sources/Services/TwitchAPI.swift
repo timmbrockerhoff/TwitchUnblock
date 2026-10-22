@@ -947,21 +947,24 @@ private func workerLiveLinks(login: String) async -> (master: MasterPlaylist, in
 }
 
 // MARK: – getStreamStats (rafraîchissement LÉGER viewers/uptime, sans re-fetch des liens)
-func getStreamStats(channelName: String) async -> (viewerCount: Int, startedAt: Date?) {
+/// `archiveId`: the running broadcast's recording, which may only appear a
+/// few minutes after the stream started (rewinding needs it).
+func getStreamStats(channelName: String) async -> (viewerCount: Int, startedAt: Date?, archiveId: String?) {
     let login = channelName.trimmingCharacters(in: .whitespaces).lowercased()
-    let q = "query { user(login: \"\(gqlStr(login))\") { stream { viewersCount createdAt } } }"
+    let q = "query { user(login: \"\(gqlStr(login))\") { stream { viewersCount createdAt archiveVideo { id } } } }"
     guard let json   = try? await twitchGQL(q) as? [String: Any],
           let data   = json["data"]   as? [String: Any],
           let user   = data["user"]   as? [String: Any],
           let stream = user["stream"] as? [String: Any] else {
-        return (0, nil)
+        return (0, nil, nil)
     }
+    let archiveId = (stream["archiveVideo"] as? [String: Any])?["id"] as? String
     let viewerCount = stream["viewersCount"] as? Int ?? 0
     var startedAt: Date? = nil
     if let createdAtStr = stream["createdAt"] as? String {
         startedAt = parseTwitchDate(createdAtStr)
     }
-    return (viewerCount, startedAt)
+    return (viewerCount, startedAt, archiveId)
 }
 
 // MARK: – Page d'une chaîne (bandeau)
