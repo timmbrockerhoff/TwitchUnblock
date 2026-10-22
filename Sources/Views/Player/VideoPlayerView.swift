@@ -45,6 +45,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         vc.allowsPictureInPicturePlayback = true
         vc.canStartPictureInPictureAutomaticallyFromInline = true
         vc.showsPlaybackControls = true
+        // Apple's "⋯" in the bar only held Live Text (frame analysis); off, the button goes.
+        vc.allowsVideoFrameAnalysis = false
         vc.delegate = context.coordinator
         context.coordinator.playerVC = vc
         context.coordinator.adBreaks = adBreaks

@@ -643,9 +643,6 @@ struct SettingsView: View {
                 toggleRow(store.t("cfg_drops_notice"), store.t("cfg_drops_notice_sub"),
                           $store.showDropsNotice, log: "Carte des drops")
                 Divider().background(Color.tBorder)
-                toggleRow(store.t("cfg_follow"), store.t("cfg_follow_sub"),
-                          $store.showFollowButton,   log: "Bouton suivre")
-                Divider().background(Color.tBorder)
                 toggleRow(store.t("cfg_streak"), store.t("cfg_streak_sub"),
                           $store.showWatchStreak,    log: "Série de visionnage")
                 Divider().background(Color.tBorder)

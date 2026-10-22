@@ -22,7 +22,6 @@ struct ChatView: View {
     @StateObject private var pointsService = ChannelPointsService()
     @StateObject private var pubsub        = ChatPubSub()
     @StateObject private var dropsNotice   = ChannelDropsNotice()
-    @StateObject private var follow        = FollowService()
     @StateObject private var events        = LiveEventsService()
     @StateObject private var raidService   = RaidService()
 
@@ -42,8 +41,6 @@ struct ChatView: View {
     /// Sondages, prédictions et hype trains fermés (×), par `noticeKey` :
     /// gardés tant que ce chat vit (mini-lecteur, rotation compris).
     @State private var closedNotices: Set<String> = []
-    /// « Ne plus suivre » touché : on demande d'abord confirmation.
-    @State private var confirmUnfollow = false
     /// Emote ou badge touché : sa fiche (nom exact, source, copier).
     @State private var infoItem: ChatInfoItem? = nil
     @State private var chromeWidth: CGFloat = 320
@@ -71,13 +68,6 @@ struct ChatView: View {
 
             // ── Barre de statut ─────────────────────────────────────
             HStack(spacing: 6) {
-                // Seul le point dit l'état de la connexion : la place va aux
-                // pastilles utiles (synchro, série, suivre, épinglé).
-                Circle()
-                    .fill(chat.readOnly ? Color.tWarning : (chat.isConnected ? Color.tSuccess : Color.tDanger))
-                    .frame(width: 7, height: 7)
-                    .accessibilityLabel(chat.readOnly ? store.t("chat_ban_banner")
-                                        : chat.isConnected ? store.t("chat_connected") : store.t("chat_connecting"))
                 Spacer(minLength: 4)
                 // Synchro auto : décalage appliqué au chat. Un appui le retouche
                 // d'une seconde : le bon réglage dépend aussi du retard des
@@ -123,51 +113,6 @@ struct ChatView: View {
                     .foregroundColor(.tWarning)
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(Color.tWarning.opacity(0.15)).cornerRadius(6)
-                }
-                // Bouton Suivre / Ne plus suivre. Juste sous la vidéo en
-                // portrait, à portée de pouce : ne plus suivre se confirme
-                // (sur Twitch avec la session web, et les notifications avec).
-                if store.showFollowButton, let following = follow.isFollowing {
-                    Button {
-                        if follow.isFollowing == true {
-                            confirmUnfollow = true
-                            return
-                        }
-                        Task { @MainActor in
-                            await follow.toggle(token: store.twitchWebToken)
-                            // Suivie (aussi sur Twitch) : plus masquée des listes.
-                            if follow.isFollowing == true { store.unhideChannel(channelName) }
-                        }
-                    } label: {
-                        Label(following ? store.t("following") : store.t("follow"),
-                              systemImage: following ? "heart.fill" : "heart")
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .buttonStyle(.bordered)
-                    .tCapsuleShape()
-                    .controlSize(.mini)
-                    .tint(following ? .tDanger : .tPrimary)
-                    .disabled(follow.busy)
-                    .opacity(follow.busy ? 0.5 : 1)
-                    .confirmationDialog(
-                        store.t("unfollow_confirm").replacingOccurrences(of: "{c}", with: channelName),
-                        isPresented: $confirmUnfollow, titleVisibility: .visible
-                    ) {
-                        // Action explicite, jamais une bascule : un statut relu
-                        // entre-temps ne peut pas la changer en abonnement.
-                        Button(store.t("unfollow"), role: .destructive) {
-                            Task { @MainActor in await follow.unfollow(token: store.twitchWebToken) }
-                        }
-                        Button(store.t("follow_hide_button")) {
-                            store.showFollowButton = false
-                            logger.settingChanged("Bouton suivre", value: "désactivé")
-                        }
-                        Button(store.t("cancel"), role: .cancel) {}
-                    } message: {
-                        Text(store.t("follow_hide_hint"))
-                    }
                 }
                 // Épingle réduite : une pastille la rouvre.
                 if store.showPinnedMessages, let pin = pubsub.pinned, pin.id == dismissedPinId {
@@ -285,6 +230,13 @@ struct ChatView: View {
     }
 
     /// Événements présents dont le bandeau a été fermé (×) : leur pastille.
+    private var chromeHasChips: Bool {
+        (store.autoChatDelay && (chatDelay >= 0.5 || store.chatSyncNudge != 0))
+            || (store.showWatchStreak && events.watchStreak > 0)
+            || (store.showPinnedMessages && pubsub.pinned != nil && pubsub.pinned?.id == dismissedPinId)
+            || !closedKinds.isEmpty
+    }
+
     private var closedKinds: [ChatNoticeKind] {
         guard store.showLiveEvents, !closedNotices.isEmpty else { return [] }
         var kinds: [ChatNoticeKind] = []
@@ -427,7 +379,9 @@ struct ChatView: View {
     private var content: some View {
         VStack(spacing: 0) {
 
-            if style.showsChrome { chrome }
+            // Only when it has something to show (sync, streak, collapsed pin, closed notices):
+            // an empty bar between video and chat was just a strip.
+            if style.showsChrome && chromeHasChips { chrome }
             noticesArea
 
             // ── Zone principale ─────────────────────────────────────
@@ -553,15 +507,6 @@ struct ChatView: View {
                     viewerId:    store.twitchUserId
                 )
             }
-            // Sans ça, le bouton gardait le mode d'avant (appareil ou compte)
-            // et ne faisait plus rien, en silence.
-            // Bouton masqué : statut oublié, relu quand on le réactive.
-            if store.showFollowButton { Task { await loadFollow() } } else { follow.reset() }
-        }
-        // Bouton Suivre réactivé pendant le live : il revient tout de suite.
-        .onChange(of: store.showFollowButton) { show in
-            guard show, follow.isFollowing == nil else { return }
-            Task { await loadFollow() }
         }
         // Événement terminé : sa fermeture (×) est oubliée, le suivant
         // s'affiche même s'il reprend la même clé (id absent).
@@ -688,8 +633,6 @@ struct ChatView: View {
             dropsNotice.start(channelId: cid)
         }
         if let cid = channelId {
-            // Statut de suivi (nécessite le token web pour le champ self.follower)
-            if store.showFollowButton { await loadFollow() }
             // Événements live (série de visionnage, sondage, prédiction, hype train)
             if store.showWatchStreak || store.showLiveEvents {
                 events.start(login: channelName, channelId: cid,
@@ -701,17 +644,6 @@ struct ChatView: View {
             if store.enableRaids {
                 raidService.connect(channelId: cid, token: store.twitchWebToken ?? "")
             }
-        }
-    }
-
-    /// Statut de suivi : celui du compte avec la session web (champ
-    /// self.follower), sinon le suivi gardé sur cet appareil.
-    private func loadFollow() async {
-        guard let cid = channelId else { return }
-        if store.twitchWebToken == nil {
-            follow.loadLocal(login: channelName, store: store)
-        } else {
-            await follow.load(login: channelName, channelId: cid, token: store.twitchWebToken)
         }
     }
 
