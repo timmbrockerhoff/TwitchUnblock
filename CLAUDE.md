@@ -139,3 +139,6 @@ English, short, explaining *why*.
   check.yml (icons, version, plist fixes, buildipa.sh) and copies it to
   `~/Library/Mobile Documents/com~apple~CloudDocs/TwitchUnblock.ipa` (~1 min). Don't copy the
   CI IPA there any more.
+- The user's own app icon is Twitch's Glitch logo, kept **local only** in `assets/local/`
+  (gitignored; from Twitch's brand ZIP, brand.twitch.com): `buildlocal.sh` swaps it in for
+  `assets/icon.png` + dark/tinted. Never commit it (public repo); CI keeps the default icon.
