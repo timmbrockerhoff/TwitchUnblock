@@ -36,12 +36,18 @@ final class PlayerControlsModel: ObservableObject {
     private var statusObs: NSKeyValueObservation?
     private var hideTask: Task<Void, Never>?
     private(set) var isLive = false
+    /// Last end of the seekable range, and when it grew (live edge smoothing, see tick).
+    private var edgeBase: Double = 0
+    private var edgeBaseAt = Date.distantPast
+    /// The real seekable end (the shown one runs ahead of it between playlist reloads).
+    private var seekableEnd: Double = 0
     /// A seek of ours (bar, ±10 s, back to live) to this time: the live-edge keeping must
     /// not undo it.
     var onUserSeek: ((Double) -> Void)?
 
-    /// Live within this many seconds of the edge counts as live (the edge itself moves).
-    static let edgeSlack: Double = 8
+    /// Live within this many seconds of the edge counts as live (the edge itself moves). Under
+    /// a ±10 s skip with room for the edge's jitter: at 8 a "-0:10" wobbled into "Live".
+    static let edgeSlack: Double = 5
 
     // MARK: Player
     /// A new AVPlayer (opening, other quality): follow it instead.
@@ -49,6 +55,8 @@ final class PlayerControlsModel: ObservableObject {
         detach()
         self.player = player
         self.isLive = isLive
+        edgeBase = 0
+        edgeBaseAt = .distantPast
         observed = player
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4),
                                                       queue: .main) { [weak self] _ in
@@ -89,6 +97,16 @@ final class PlayerControlsModel: ObservableObject {
             end = item.duration.seconds
         }
         guard t.isFinite else { return }
+        seekableEnd = end
+        if isLive, end > 0 {
+            // The playlist's end grows in steps (one reload adds several seconds), while the
+            // real edge moves on all the time: "-0:10" counted down to "Live" and jumped back.
+            // Between steps the edge advances with the clock, capped so a stalled playlist
+            // doesn't run away.
+            let now = Date()
+            if end > edgeBase + 0.5 || end < edgeBase - 30 { edgeBase = end; edgeBaseAt = now }
+            end = max(end, edgeBase + min(now.timeIntervalSince(edgeBaseAt), 15))
+        }
         if abs(clock.time - t) > 0.05 { clock.time = t }
         if clock.start != start { clock.start = start }
         if clock.end != end { clock.end = end }
@@ -109,7 +127,7 @@ final class PlayerControlsModel: ObservableObject {
 
     func seek(to t: Double) {
         guard let player else { return }
-        let target = max(clock.start, min(clock.end, t))
+        let target = max(clock.start, min(seekableEnd > 0 ? seekableEnd : clock.end, t))
         clock.time = target
         onUserSeek?(target)
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
@@ -326,7 +344,8 @@ private struct LiveTimeLabel: View {
         let atEdge = behind < PlayerControlsModel.edgeSlack
         HStack(spacing: TSpace.sm) {
             if !atEdge {
-                Text("-" + playerClockText(behind))
+                // Rounded: the smoothed edge still wobbles by a fraction of a second.
+                Text("-" + playerClockText(behind.rounded()))
                     .font(.footnote.weight(.semibold).monospacedDigit())
                     .foregroundColor(.white)
             }
