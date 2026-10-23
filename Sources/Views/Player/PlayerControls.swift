@@ -220,22 +220,27 @@ struct PlayerControlsOverlay: View {
                 rippleLabel
             }
         }
-        // Settings top right in the video, as on YouTube.
+        // AirPlay and settings top right in the video, as on YouTube.
         .overlay(alignment: .topTrailing) {
             if model.visible {
-                Button {
-                    model.poke()
-                    onSettings()
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 3)
+                HStack(spacing: 0) {
+                    AirPlayButton()
                         .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                        .shadow(color: .black.opacity(0.5), radius: 3)
+                    Button {
+                        model.poke()
+                        onSettings()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 3)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(store.t("settings"))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(store.t("settings"))
                 .padding(.trailing, PlayerScrubBar.inset(landscape) - 14)
                 .padding(.top, 4)
                 .transition(.opacity)
@@ -343,8 +348,6 @@ struct PlayerControlsOverlay: View {
                 VodTimeLabel(clock: model.clock)
             }
             Spacer(minLength: 0)
-            AirPlayButton()
-                .frame(width: 44, height: 44)
             // 44 pt and the whole square tappable: with the plain style only the thin arrow
             // strokes took the tap, a finger landed beside them and only hid the controls.
             Button(action: onFullscreen) {

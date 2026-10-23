@@ -119,7 +119,9 @@ English, short, explaining *why*.
   (grey dot, tap = live edge; "-0:10" stood still and looked frozen; the edge advances with the
   clock between playlist reloads, "at the edge" < 5 s) /
   "● Live" red at the edge, VOD "t / total", ±10 s + play/pause, double tap ±10 s, fullscreen =
-  `rotatePlayer`, fade-out 3 s while playing; speed moved to the header ⋯ menu. Our seeks call
+  `rotatePlayer` (bottom right), AirPlay + gear top right (gear → `PlayerSettingsSheet`:
+  quality, speed, chat, sleep timer, rewind; no app settings row), fade-out 3 s while playing.
+  The header ⋯ is for the immersive player only. Our seeks call
   `Coordinator.userSeeked(to:)` so the edge catch-up (`LiveLatencyController.userSeek`) and the
   dropped-segment reload leave them alone. fMP4 channels (EXT-X-MAP) need the MAP lines in
   `LiveDVRPlaylist.render` (VERSION 6). Never a second timeline around the video.
