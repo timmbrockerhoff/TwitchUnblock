@@ -73,6 +73,9 @@ struct MainTabView: View {
     // ── Minuteur de veille ────────────────────────────────────────────────
     @ObservedObject private var sleepTimer = SleepTimerService.shared
     @State private var showSleepSheet  = false
+    /// Settings sheet of the native player (gear in the video).
+    @State private var showPlayerSettings = false
+    @State private var playerIsLandscape = false
     @State private var showSettings    = false
     @State private var showPlayerMenu  = false
     /// Qualité retenue par le lecteur immersif (vide = meilleure disponible).
@@ -327,6 +330,22 @@ struct MainTabView: View {
                     .transition(.opacity)
             }
         }
+        .sheet(isPresented: $showPlayerSettings) {
+            let landscape = playerIsLandscape
+            PlayerSettingsSheet(
+                qualities: sortQualities(Array((qualityLinks ?? [:]).keys), variants: qualityVariants),
+                quality: currentQuality(qualityLinks ?? [:]),
+                onQuality: { selectQuality($0, qualityLinks ?? [:]) },
+                speed: isLivePlaying ? nil : playbackSpeed,
+                onSpeed: { setPlaybackSpeed($0) },
+                landscape: landscape,
+                chatHidden: $chatHidden,
+                onSleepTimer: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showSleepSheet = true } },
+                onRewind: rewindAction,
+                onAppSettings: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showSettings = true } }
+            )
+            .environmentObject(store)
+        }
         // Menu « ⋯ » du lecteur immersif.
         .sheet(isPresented: $showPlayerMenu) {
             PlayerMenuSheet(
@@ -527,11 +546,12 @@ struct MainTabView: View {
     /// (SwiftUI refuse une seconde feuille, « Mes signalements » ne s'ouvrait
     /// pas). Tout se ferme, puis l'action part une fois la fermeture finie.
     private func afterClosingPresentations(_ action: @escaping () -> Void) {
-        let open = showSettings || showPlayerMenu || clipFeed != nil
+        let open = showSettings || showPlayerMenu || showPlayerSettings || clipFeed != nil
             || showDownloadSheet || showSleepSheet || channelSheet != nil || showMultiLive
         guard open else { action(); return }
         showSettings = false
         showPlayerMenu = false
+        showPlayerSettings = false
         clipFeed = nil
         showDownloadSheet = false
         showSleepSheet = false
@@ -547,6 +567,8 @@ struct MainTabView: View {
         // verticalement ne laisserait qu'un timbre-poste à l'image.
         GeometryReader { geo in
             let landscape = geo.size.width > geo.size.height
+            // The settings sheet shows the chat setting of this orientation.
+            let _ = { if playerIsLandscape != landscape { DispatchQueue.main.async { playerIsLandscape = landscape } } }()
 
             ZStack(alignment: .top) {
                 Color.tDark.ignoresSafeArea()
@@ -907,7 +929,8 @@ struct MainTabView: View {
                 notice: accountNotice,
                 controls: playerControls,
                 landscape: landscape,
-                onFullscreen: { rotatePlayer(toLandscape: !landscape) }
+                onFullscreen: { rotatePlayer(toLandscape: !landscape) },
+                onSettings: { showPlayerSettings = true }
             )
         }
     }
@@ -989,7 +1012,9 @@ struct MainTabView: View {
                 .accessibilityLabel(store.t("back_to_live_full"))
             }
 
-            playerMoreMenu(landscape: landscape)
+            // The player's settings moved into the video (gear, as on YouTube); the immersive
+            // player draws its own header.
+            if store.immersivePlayer { playerMoreMenu(landscape: landscape) }
 
             TIconButton(icon: "xmark", size: 32) { stopPlayer() }
                 .accessibilityLabel(store.t("close"))

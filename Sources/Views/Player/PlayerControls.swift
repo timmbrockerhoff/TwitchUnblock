@@ -192,6 +192,8 @@ struct PlayerControlsOverlay: View {
     let isLive: Bool
     let landscape: Bool
     let onFullscreen: () -> Void
+    /// The gear top right: the player's settings sheet.
+    var onSettings: () -> Void = {}
 
     @EnvironmentObject private var store: AppStore
     /// Side of the last double tap (−1 left, +1 right), for its "10 Sekunden" flash.
@@ -216,6 +218,27 @@ struct PlayerControlsOverlay: View {
             ZStack {
                 if model.visible { centerButtons.transition(.opacity) }
                 rippleLabel
+            }
+        }
+        // Settings top right in the video, as on YouTube.
+        .overlay(alignment: .topTrailing) {
+            if model.visible {
+                Button {
+                    model.poke()
+                    onSettings()
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 3)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(store.t("settings"))
+                .padding(.trailing, PlayerScrubBar.inset(landscape) - 14)
+                .padding(.top, 4)
+                .transition(.opacity)
             }
         }
         .background {
