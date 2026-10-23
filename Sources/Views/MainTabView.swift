@@ -713,9 +713,9 @@ struct MainTabView: View {
                         // their safe area so the Dynamic Island never covers the picture.
                         .ignoresSafeArea(split ? .all : [], edges: .vertical)
                 }
-                // Chat shown: the stream in one line between video and chat.
+                // Chat open: its own header with ✕ between video and chat, as on YouTube.
                 if !split && !chatOnly && !store.immersivePlayer && !chatHidden {
-                    playerInfoStrip
+                    chatHeader
                 }
             }
             .frame(maxWidth: .infinity)
@@ -1179,6 +1179,7 @@ struct MainTabView: View {
                         .padding(.horizontal, TSpace.lg)
                 }
                 .padding(.horizontal, -TSpace.lg)
+                chatCard.padding(.top, TSpace.xs)
             }
             .padding(TSpace.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1186,16 +1187,12 @@ struct MainTabView: View {
         .background(Color.tDark)
     }
 
-    /// Chat shown: avatar, name and the details in one line; a tap hides the chat for the full
-    /// details. Pulling it down reduces the player.
-    private var playerInfoStrip: some View {
+    /// Chat open: "Live-Chat" (VOD: "Chat-Wiedergabe") with ✕ back to the details; dragging it
+    /// down reduces the player. Clip arrows and "back to live" stay reachable here.
+    private var chatHeader: some View {
         HStack(spacing: TSpace.sm) {
-            playerAvatar(28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(currentChannelName ?? playerChannelLogin ?? statusTitle)
-                    .font(.subheadline.weight(.semibold)).foregroundColor(.tText).lineLimit(1)
-                detailsLine(font: .caption)
-            }
+            Text(store.t(isLivePlaying ? "live_chat" : "chat_replay"))
+                .font(.headline).foregroundColor(.tText)
             Spacer(minLength: 0)
             if let backLive = backToLiveAction {
                 Button(action: backLive) {
@@ -1209,17 +1206,44 @@ struct MainTabView: View {
                 clipArrowButton(icon: "backward.end.fill", action: prevClipAction)
                 clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
             }
-            Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundColor(.tMuted)
+            Button { withAnimation { chatHidden = true } } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.tText)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.t("chat_hide"))
         }
-        .padding(.horizontal, TSpace.lg)
-        .padding(.vertical, TSpace.sm)
+        .padding(.leading, TSpace.lg)
+        .padding(.trailing, TSpace.xs)
+        .frame(height: 48)
         .background(Color.tDark)
         .overlay(alignment: .bottom) { Divider().background(Color.tBorder) }
         .contentShape(Rectangle())
-        .onTapGesture { withAnimation { chatHidden = true } }
         .gesture(topBarPull)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint(store.t("chat_hide"))
+    }
+
+    /// Chat closed: a card under the details that opens it (YouTube's live chat card).
+    private var chatCard: some View {
+        Button { withAnimation { chatHidden = false } } label: {
+            HStack(spacing: TSpace.md) {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.title3).foregroundColor(.tPrimary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.t(isLivePlaying ? "live_chat" : "chat_replay"))
+                        .font(.headline).foregroundColor(.tText)
+                    Text(store.t("tap_to_open")).font(.footnote).foregroundColor(.tMuted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(.tMuted)
+            }
+            .padding(TSpace.md)
+            .background(Color.tSurface, in: RoundedRectangle(cornerRadius: TRadius.card, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func playerAvatar(_ size: CGFloat) -> some View {
@@ -1251,7 +1275,6 @@ struct MainTabView: View {
 
     /// Actions under the details, as YouTube's capsule row.
     @ViewBuilder private var playerActionChips: some View {
-        actionChip(store.t("chat_show"), "bubble.left.and.bubble.right") { withAnimation { chatHidden = false } }
         if let multiLive = multiLiveAction {
             // Short label; a filled icon and checkmark say it is in the multi-live.
             actionChip(store.t("multi_title"),
