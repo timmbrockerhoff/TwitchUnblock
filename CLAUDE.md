@@ -159,8 +159,11 @@ English, short, explaining *why*.
   per campaign + "Drops verknüpfen" chip in the player, Drops page: ready campaigns first, linked
   ones folded. Verified 2026-10-23 in the Simulator with the user's account: chests auto-claimed;
   Twitch badge drops (Alien: Isolation) are granted by Twitch itself without a claim.
-  Simulator only: after switching live channels the video sometimes stays black/frozen while the
-  player reports ready (IOSurface errors); not seen on a device so far.
+  Simulator only (investigated 2026-10-23): some live channels stay black while audio, time and
+  buffer run (AVPlayerViewController.isReadyForDisplay stays false); which ones varies from run
+  to run, with or without LiveDVRPlaylist (tudvr) / LivePlaylistLoader (tulive), first stream or
+  after a switch, and their segments are identical to working ones (H.264 Main 480p, ffprobe).
+  Reboot of the simulator didn't help. Not an app bug as far as tested; check on a device first.
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
