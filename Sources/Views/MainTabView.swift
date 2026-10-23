@@ -720,9 +720,12 @@ struct MainTabView: View {
                                  controlsInset: controlsInset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .frame(height: videoHeight)
-                        // Full height (status bar and home indicator areas); the sides keep
-                        // their safe area so the Dynamic Island never covers the picture.
-                        .ignoresSafeArea(split ? .all : [], edges: .vertical)
+                        // Full height (status bar and home indicator areas). Beside the chat,
+                        // also the free side's margin: more picture, less letterboxing (the
+                        // controls sit in the corners, clear of a Dynamic Island in the middle).
+                        // Chat closed: both sides, so the picture stays centred.
+                        .ignoresSafeArea(split ? .all : [],
+                                         edges: split ? (chatVisible ? [.vertical, .leading] : .all) : .vertical)
                 }
                 // Chat open: its own header with ✕ between video and chat, as on YouTube.
                 if !split && !chatOnly && !store.immersivePlayer && !chatHidden {
