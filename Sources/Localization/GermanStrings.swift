@@ -149,7 +149,6 @@ let kGermanStrings: [String: String] = [
     "not_affiliated": "Unabhängiges Projekt, nicht mit Twitch verbunden.",
     "version_label": "Version",
     "see_channel": "Kanal ansehen",
-    "channel_short": "Kanal",
     "highlight_words": "Hervorgehobene Wörter",
     "highlight_words_sub": "Durch Kommas getrennt. Nachrichten, die sie enthalten (oder dich erwähnen), werden hervorgehoben.",
     "pinned": "Angeheftete Nachricht",

@@ -1161,16 +1161,15 @@ struct MainTabView: View {
                     detailsLine(font: .footnote)
                 }
                 HStack(spacing: TSpace.md) {
+                    // Avatar and name open the channel; the button is the follow status, as on
+                    // YouTube (a "Kanal" button repeated what the name already does).
                     playerAvatar(40)
                     Text(currentChannelName ?? playerChannelLogin ?? "")
                         .font(.headline).foregroundColor(.tText).lineLimit(1)
+                        .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
                     Spacer(minLength: 0)
                     if let login = playerChannelLogin {
-                        Button(store.t("channel_short")) { store.openChannelPage(login) }
-                            .font(.subheadline.weight(.semibold))
-                            .tProminentStyle()
-                            .tCapsuleShape()
-                            .tint(.tPrimary)
+                        PlayerFollowButton(login: login, channelId: isLivePlaying ? currentChannelId : nil)
                     }
                 }
                 // Edge to edge, so the row scrolls out under the screen edge instead of being cut.
@@ -2208,6 +2207,66 @@ struct TabAccessory<Accessory: View>: ViewModifier {
         #else
         content
         #endif
+    }
+}
+
+/// Follow status of the channel playing, as a capsule under the video: "Folgen" (purple) or
+/// "Folge ich" (grey, unfollow after confirming). Same service as the channel page: a real
+/// Twitch follow with the web session, else kept on this device.
+private struct PlayerFollowButton: View {
+    let login: String
+    let channelId: String?
+
+    @EnvironmentObject private var store: AppStore
+    @StateObject private var follow = FollowService()
+    @State private var confirmUnfollow = false
+
+    var body: some View {
+        // A ZStack, not a Group: an empty Group has no view to run `.task` on, so the status was
+        // never read and the button never appeared.
+        ZStack {
+            if let on = follow.isFollowing {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    if on { confirmUnfollow = true; return }
+                    Task { @MainActor in
+                        await follow.toggle(token: store.twitchWebToken)
+                        if follow.isFollowing == true { store.unhideChannel(login) }
+                    }
+                } label: {
+                    Label(store.t(on ? "following" : "follow"), systemImage: on ? "checkmark" : "heart")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .modifier(FollowStyle(on: on))
+                .tCapsuleShape()
+                .disabled(follow.busy)
+                .opacity(follow.busy ? 0.5 : 1)
+                .confirmationDialog(
+                    store.t("unfollow_confirm").replacingOccurrences(of: "{c}", with: login),
+                    isPresented: $confirmUnfollow, titleVisibility: .visible
+                ) {
+                    Button(store.t("unfollow"), role: .destructive) {
+                        Task { @MainActor in await follow.unfollow(token: store.twitchWebToken) }
+                    }
+                    Button(store.t("cancel"), role: .cancel) {}
+                }
+            }
+        }
+        .task(id: login) {
+            guard let web = store.twitchWebToken else { follow.loadLocal(login: login, store: store); return }
+            var cid = channelId ?? ""
+            if cid.isEmpty { cid = await getUserIdGQL(login: login) ?? "" }
+            guard !cid.isEmpty else { return }
+            await follow.load(login: login, channelId: cid, token: web)
+        }
+    }
+}
+
+/// Not following: filled purple; following: grey outline.
+private struct FollowStyle: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.tBorderedStyle().tint(.secondary) } else { content.tProminentStyle().tint(.tPrimary) }
     }
 }
 
