@@ -145,9 +145,12 @@ English, short, explaining *why*.
   page, and now also on every app foreground (`TwitchUnblockApp`, ForegroundRefresh).
   Not verifiable in the Simulator (no web session there).
   Two logins exist: app OAuth (ASWebAuthenticationSession, Helix/IRC) and the web session
-  (WKWebView twitch.tv, cookie `auth-token`, GQL claims). Logout clears both; after an app login
-  without web session the web login sheet now opens right away (Home + Settings
-  `openWebLoginIfMissing`) instead of the Home banner popping up later.
+  (WKWebView twitch.tv, cookie `auth-token`, GQL claims). Since 2026-10-23 ONE login: "Mit Twitch
+  anmelden" (Home, Settings, account switch) opens `TwitchWebLoginSheet(onAppToken:)`; after the
+  cookie is captured the same WebView loads the app's authorize URL (signed in already: at most an
+  "Authorize" tap the first time) and `decidePolicyFor` reads the token from the redirect
+  (auth.html# or its twitchunblock://auth? hop). Failing that, `AppStore.adoptAppToken(nil)` falls
+  back to the Safari OAuth login. Not tested end to end (no credentials in the Simulator).
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

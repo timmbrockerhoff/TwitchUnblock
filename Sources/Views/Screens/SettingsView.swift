@@ -25,8 +25,9 @@ struct SettingsView: View {
     @State private var showLogoutAlert = false
     @State private var showClearAlert  = false
     @State private var showWebLogin    = false   // login web (points de chaîne)
+    /// The login sheet also signs the app in (login, account switch).
+    @State private var webLoginForApp  = false
     @State private var webLoginClear   = false
-    @State private var apiLoggingIn    = false
     @State private var cacheBytes: Int64 = 0
     @State private var cacheFiles      = 0
     @ObservedObject private var sleepTimer = SleepTimerService.shared
@@ -89,7 +90,8 @@ struct SettingsView: View {
         .sheet(isPresented: $showWebLogin) {
             TwitchWebLoginSheet(
                 clearSession: webLoginClear,
-                expectedLogin: store.twitchLogin,
+                expectedLogin: webLoginForApp ? nil : store.twitchLogin,
+                onAppToken: webLoginForApp ? { store.adoptAppToken($0) } : nil,
                 onComplete: { webToken, webLogin in
                     showWebLogin = false
                     Task {
@@ -1145,18 +1147,18 @@ struct SettingsView: View {
                     title: store.t("account_api"),
                     sub: store.t("account_api_sub"),
                     connected: store.twitchToken != nil,
-                    busy: apiLoggingIn,
+                    busy: false,
                     actionLabel: store.twitchToken != nil ? store.t("btn_logout")
                                                           : store.t("btn_login_twitch")
                 ) {
                     if store.twitchToken != nil { showLogoutAlert = true }
-                    else { Task { await handleApiLogin() } }
+                    else { handleApiLogin() }
                 }
 
                 // Passer sur un autre compte sans repasser par Safari, qui
                 // reconnectait aussitôt le compte dont il se souvient.
                 if store.twitchToken != nil {
-                    Button { Task { await switchAccount() } } label: {
+                    Button { switchAccount() } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.left.arrow.right.circle.fill")
                                 .font(.callout)
@@ -1172,7 +1174,6 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(apiLoggingIn)
                 }
 
                 Divider().background(Color.tBorder)
@@ -1511,55 +1512,25 @@ struct SettingsView: View {
     }
 
     // MARK: – Actions login
-    private func handleApiLogin() async {
-        apiLoggingIn = true
-        defer { apiLoggingIn = false }
-        if let token = await TwitchAuthManager.shared.login() {
-            store.adoptToken(token)
-            logger.success("AUTH", "Connexion API réussie", nil)
-            openWebLoginIfMissing()
-        }
+    /// One login (twitch.tv page) for the app and the web session.
+    private func handleApiLogin() {
+        webLoginForApp = true
+        webLoginClear = false
+        showWebLogin = true
     }
 
-    /// Changer de compte : Twitch demande les identifiants dans une session
-    /// privée. Le compte actuel reste en place tant que le nouveau n'est pas
-    /// connecté — annuler ne déconnecte pas.
-    private func switchAccount() async {
-        apiLoggingIn = true
-        defer { apiLoggingIn = false }
+    /// Changer de compte : la page twitch.tv repart sans cookies et demande les
+    /// identifiants ; la nouvelle connexion remplace app et session web d'un coup.
+    /// Annuler ne déconnecte pas.
+    private func switchAccount() {
         logger.info("AUTH", "Changement de compte…", nil)
-        let previous = store.twitchUserId
-        guard let token = await TwitchAuthManager.shared.login(chooseAccount: true) else { return }
-        let user = await getTwitchUser(token: token)
-        // Autre compte : la session web (points de chaîne) était celle de
-        // l'ancien, et ses bandeaux (expirée, autre compte) avec elle.
-        if user == nil || user?.id != previous {
-            if store.twitchWebToken != nil {
-                store.twitchWebToken = nil
-                await TwitchWebSession.clear()
-            }
-            store.webSessionExpired = false
-            store.webSessionMismatch = nil
-        }
-        store.adoptToken(token)
-        if let user {
-            store.twitchUserId = user.id
-            store.twitchLogin  = user.login
-            if !user.profileImageURL.isEmpty { store.twitchAvatar = user.profileImageURL }
-        }
-        logger.success("AUTH", "Compte changé", user?.login)
-        openWebLoginIfMissing()
-    }
-
-    /// Points, chests and drops need Twitch's own web session, a second login: asked for
-    /// right after the app login rather than by a banner later.
-    private func openWebLoginIfMissing() {
-        guard store.twitchWebToken == nil else { return }
-        // After the login page has gone: two presentations at once, the second is dropped.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { startWebLogin() }
+        webLoginForApp = true
+        webLoginClear = true
+        showWebLogin = true
     }
 
     private func startWebLogin() {
+        webLoginForApp = false
         // Session refusée par Twitch ou d'un autre compte : cookies twitch.tv
         // effacés d'abord, sinon la page reprenait aussitôt l'ancienne
         // session au lieu de demander une connexion.

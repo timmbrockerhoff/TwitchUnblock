@@ -25,6 +25,10 @@ struct TwitchWebLoginSheet: View {
     /// Pseudo du compte de l'app : une connexion à un autre compte est refusée
     /// sur place, et la page de connexion revient pour le bon.
     var expectedLogin: String? = nil
+    /// Set when the app has no login yet: once signed in on twitch.tv, the same page also
+    /// authorizes the app (Helix/IRC token), so one login gives both. nil = failed there.
+    /// Called before `onComplete`.
+    var onAppToken: ((String?) -> Void)? = nil
     let onComplete: (_ token: String, _ login: String?) -> Void
     let onCancel: () -> Void
 
@@ -50,6 +54,7 @@ struct TwitchWebLoginSheet: View {
                     clearSession: clearSession,
                     expectedLogin: expectedLogin,
                     reloadCount: reloadCount,
+                    onAppToken: onAppToken,
                     onComplete: onComplete,
                     onLoadingChange: {
                         isLoading = $0
@@ -111,7 +116,7 @@ struct TwitchWebLoginSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
-                        Text(translate("account_web", lang))
+                        Text(translate(onAppToken != nil ? "btn_login_twitch" : "account_web", lang))
                             .font(.subheadline.weight(.bold))
                             .foregroundColor(.tText)
                         Text(translate("web_login_sub", lang))
@@ -142,6 +147,7 @@ private struct TwitchWebLogin: UIViewRepresentable {
     let expectedLogin: String?
     /// Hausse = la page de connexion est rechargée (« Réessayer »).
     let reloadCount: Int
+    let onAppToken: ((String?) -> Void)?
     let onComplete: (_ token: String, _ login: String?) -> Void
     let onLoadingChange: (Bool) -> Void
     let onLoadFailed: () -> Void
@@ -204,6 +210,9 @@ private struct TwitchWebLogin: UIViewRepresentable {
         private var done = false
         /// Mauvais compte en cours d'effacement : pas de capture entre-temps.
         private var resetting = false
+        /// Web session captured, waiting for the app's authorize redirect (onAppToken).
+        private var pendingWeb: (token: String, login: String?)? = nil
+        private var authState = ""
         /// Dernier « Réessayer » traité (updateUIView).
         var reloadCount = 0
 
@@ -282,7 +291,57 @@ private struct TwitchWebLogin: UIViewRepresentable {
                 self.stop()
                 logger.success("AUTH/WEB", "Token de session capturé",
                                "@\(login ?? "?")")
-                DispatchQueue.main.async { self.parent.onComplete(auth, login) }
+                DispatchQueue.main.async {
+                    if self.parent.onAppToken != nil {
+                        self.requestAppToken(web: auth, login: login)
+                    } else {
+                        self.parent.onComplete(auth, login)
+                    }
+                }
+            }
+        }
+
+        /// Already signed in on twitch.tv here: the app's authorize page only asks for a
+        /// tap on "Authorize" the first time, then redirects with the token.
+        private func requestAppToken(web: String, login: String?) {
+            pendingWeb = (web, login)
+            authState = UUID().uuidString
+            guard let url = TwitchAuthManager.authorizeURL(forceVerify: false, state: authState) else {
+                finishAppToken(nil); return
+            }
+            logger.info("AUTH", "Autorisation de l'app dans la même page…", "@\(login ?? "?")")
+            webView?.load(URLRequest(url: url))
+        }
+
+        private func finishAppToken(_ token: String?) {
+            guard let web = pendingWeb else { return }
+            pendingWeb = nil
+            parent.onAppToken?(token)
+            parent.onComplete(web.token, web.login)
+        }
+
+        /// The authorize redirect (auth.html#access_token=…, or its twitchunblock:// hop)
+        /// is read here instead of being loaded.
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            guard pendingWeb != nil, let url = navigationAction.request.url else {
+                decisionHandler(.allow); return
+            }
+            let values = TwitchAuthManager.redirectValues(url)
+            let isRedirect = url.absoluteString.hasPrefix(kRedirectURI) || url.scheme == "twitchunblock"
+            guard isRedirect, values["access_token"] != nil || values["error"] != nil else {
+                decisionHandler(.allow); return
+            }
+            decisionHandler(.cancel)
+            if let token = values["access_token"], !token.isEmpty,
+               token.allSatisfy({ $0.isLetter || $0.isNumber }),
+               values["state"] == nil || values["state"] == authState {
+                logger.success("AUTH", "Connexion app + session web en une fois", nil)
+                finishAppToken(token)
+            } else {
+                logger.warn("AUTH", "Autorisation de l'app refusée",
+                            values["error_description"] ?? values["error"])
+                finishAppToken(nil)
             }
         }
     }

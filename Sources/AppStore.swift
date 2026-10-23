@@ -814,6 +814,18 @@ final class AppStore: ObservableObject {
     /// (id, pseudo, avatar) est oubliée : sinon, en se connectant à un autre
     /// compte, le nouveau jeton partait avec l'ancien id — sauvegarde et chat
     /// visaient le mauvais compte.
+    /// App token from the combined login sheet; nil = the authorize step failed there,
+    /// so the separate Safari login takes over (after the sheet has gone).
+    @MainActor
+    func adoptAppToken(_ token: String?) {
+        if let token { adoptToken(token); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            Task { @MainActor in
+                if let t = await TwitchAuthManager.shared.login() { self.adoptToken(t) }
+            }
+        }
+    }
+
     func adoptToken(_ token: String) {
         oauthExpired = false
         let isNew = token != twitchToken

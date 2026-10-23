@@ -107,6 +107,8 @@ struct HomeView: View {
             TwitchWebLoginSheet(
                 clearSession: store.webSessionExpired || store.webSessionMismatch != nil,
                 expectedLogin: store.twitchLogin,
+                // Not logged in yet: this one login also signs the app in.
+                onAppToken: store.twitchToken == nil ? { store.adoptAppToken($0) } : nil,
                 onComplete: { webToken, webLogin in
                     showWebLogin = false
                     Task {
@@ -279,7 +281,7 @@ struct HomeView: View {
                 Text(store.t("login_optional_msg"))
                     .font(.tMeta).foregroundColor(.tMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                Button { Task { await handleLogin() } } label: {
+                Button { showWebLogin = true } label: {
                     Text(store.t("btn_login_twitch"))
                 }
                 .tProminentStyle()
@@ -722,21 +724,6 @@ struct HomeView: View {
     }
 
     // MARK: – Chargements
-    private func handleLogin() async {
-        if let token = await TwitchAuthManager.shared.login() {
-            store.adoptToken(token)
-            openWebLoginIfMissing()
-        }
-    }
-
-    /// Points, chests and drops need Twitch's own web session, a second login. Asked for
-    /// right after the app login instead of a banner popping up later ("I just logged in").
-    private func openWebLoginIfMissing() {
-        guard store.twitchWebToken == nil else { return }
-        // After the login page has gone: two presentations at once, the second is dropped.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { showWebLogin = true }
-    }
-
     @MainActor private func loadFollowedStreams() async {
         guard let token = store.twitchToken else { return }
         if followedStreams.isEmpty { loadingFollowed = true }
