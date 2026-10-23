@@ -163,7 +163,8 @@ English, short, explaining *why*.
   buffer run (AVPlayerViewController.isReadyForDisplay stays false); which ones varies from run
   to run, with or without LiveDVRPlaylist (tudvr) / LivePlaylistLoader (tulive), first stream or
   after a switch, and their segments are identical to working ones (H.264 Main 480p, ffprobe).
-  Reboot of the simulator didn't help. Not an app bug as far as tested; check on a device first.
+  Reboot of the simulator didn't help. Confirmed Simulator-only: the same channels (shinyatheninja,
+  oxoxotes, morf_, exsl95), opened and switched, all play fine on the user's iPhone (1.4.99).
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
