@@ -19,7 +19,6 @@ struct PlayerSettingsSheet: View {
     var onSleepTimer: () -> Void = {}
     /// Live without its recording joined: open the recording from the start.
     var onRewind: (() -> Void)? = nil
-    var onAppSettings: () -> Void = {}
 
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -65,9 +64,6 @@ struct PlayerSettingsSheet: View {
                         row("gobackward", store.t("rewind"), nil)
                     }
                 }
-                Button { dismiss(); onAppSettings() } label: {
-                    row("gearshape", store.t("settings"), nil, chevron: true)
-                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -81,7 +77,7 @@ struct PlayerSettingsSheet: View {
     }
 
     private var rowCount: Int {
-        (qualities.isEmpty ? 0 : 1) + (speed == nil ? 0 : 1) + 1 + 1 + (onRewind == nil ? 0 : 1) + 1
+        (qualities.isEmpty ? 0 : 1) + (speed == nil ? 0 : 1) + 1 + 1 + (onRewind == nil ? 0 : 1)
     }
 
     private func speedText(_ v: Double) -> String {
@@ -89,14 +85,11 @@ struct PlayerSettingsSheet: View {
     }
 
     /// Icon, title, and the current value in grey on the right (as on YouTube).
-    private func row(_ icon: String, _ title: String, _ value: String?, chevron: Bool = false) -> some View {
+    private func row(_ icon: String, _ title: String, _ value: String?) -> some View {
         HStack {
             Label(title, systemImage: icon).foregroundColor(.primary)
             Spacer()
             if let value { Text(value).foregroundColor(.secondary) }
-            if chevron {
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(.secondary)
-            }
         }
     }
 

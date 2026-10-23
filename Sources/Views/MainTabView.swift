@@ -341,8 +341,7 @@ struct MainTabView: View {
                 landscape: landscape,
                 chatHidden: $chatHidden,
                 onSleepTimer: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showSleepSheet = true } },
-                onRewind: rewindAction,
-                onAppSettings: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showSettings = true } }
+                onRewind: rewindAction
             )
             .environmentObject(store)
         }
