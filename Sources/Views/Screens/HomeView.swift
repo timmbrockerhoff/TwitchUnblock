@@ -725,7 +725,16 @@ struct HomeView: View {
     private func handleLogin() async {
         if let token = await TwitchAuthManager.shared.login() {
             store.adoptToken(token)
+            openWebLoginIfMissing()
         }
+    }
+
+    /// Points, chests and drops need Twitch's own web session, a second login. Asked for
+    /// right after the app login instead of a banner popping up later ("I just logged in").
+    private func openWebLoginIfMissing() {
+        guard store.twitchWebToken == nil else { return }
+        // After the login page has gone: two presentations at once, the second is dropped.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { showWebLogin = true }
     }
 
     @MainActor private func loadFollowedStreams() async {

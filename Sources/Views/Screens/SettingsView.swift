@@ -1517,6 +1517,7 @@ struct SettingsView: View {
         if let token = await TwitchAuthManager.shared.login() {
             store.adoptToken(token)
             logger.success("AUTH", "Connexion API réussie", nil)
+            openWebLoginIfMissing()
         }
     }
 
@@ -1547,6 +1548,15 @@ struct SettingsView: View {
             if !user.profileImageURL.isEmpty { store.twitchAvatar = user.profileImageURL }
         }
         logger.success("AUTH", "Compte changé", user?.login)
+        openWebLoginIfMissing()
+    }
+
+    /// Points, chests and drops need Twitch's own web session, a second login: asked for
+    /// right after the app login rather than by a banner later.
+    private func openWebLoginIfMissing() {
+        guard store.twitchWebToken == nil else { return }
+        // After the login page has gone: two presentations at once, the second is dropped.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { startWebLogin() }
     }
 
     private func startWebLogin() {
