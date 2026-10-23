@@ -48,8 +48,12 @@ final class ChannelPointsService: ObservableObject {
     var autoClaim = true
 
     // MARK: – Anti-spam claim
-    /// Coffres dont le claim a échoué → on ne réessaie pas en boucle (évite le spam).
-    private var failedClaims: Set<String> = []
+    /// Failed attempts per chest. One failure (expired integrity token, network) used to
+    /// blacklist the chest for good, so it waited for a manual click; now the 30 s check
+    /// tries again, up to `maxClaimAttempts`.
+    private var claimAttempts: [String: Int] = [:]
+    private let maxClaimAttempts = 5
+    private func mayClaim(_ id: String) -> Bool { claimAttempts[id, default: 0] < maxClaimAttempts }
 
     // MARK: – Client-Integrity (token minté via WebView éphémère, réutilisé ~1h en natif)
     private var integrityTok:    String? = nil
@@ -167,7 +171,7 @@ final class ChannelPointsService: ObservableObject {
             logger.warn("POINTS", "Balance diminuée", "\(formatted(balance)) → \(formatted(b.balance))")
             balance = b.balance
         }
-        if pendingClaimId == nil, let cid = b.claimId, !failedClaims.contains(cid) {
+        if pendingClaimId == nil, let cid = b.claimId, mayClaim(cid) {
             pendingClaimId = cid
             logger.success("POINTS", "🎁 Coffre détecté", "claimId: \(cid.prefix(8))…")
             if autoClaim { await claimBonus() }
@@ -189,7 +193,7 @@ final class ChannelPointsService: ObservableObject {
               let pts     = selfObj["communityPoints"]                     as? [String: Any],
               let claim   = pts["availableClaim"]                          as? [String: Any],
               let cid     = claim["id"]                                    as? String,
-              !failedClaims.contains(cid)
+              mayClaim(cid)
         else {
             return   // pas de coffre : silencieux (évite un log toutes les 30 s)
         }
@@ -324,18 +328,25 @@ final class ChannelPointsService: ObservableObject {
             "variables":     ["input": ["channelID": channelId, "claimID": claimId]],
             "extensions":    ["persistedQuery": ["version": 1, "sha256Hash": Self.claimQueryHash]]
         ]]
-        guard let json  = await nativeMutation(body: body, tag: "claimBonus"),
-              let data  = json["data"]                  as? [String: Any],
-              let claim = data["claimCommunityPoints"]  as? [String: Any]
+        var json = await nativeMutation(body: body, tag: "claimBonus")
+        // Integrity token refused (nativeMutation dropped it): a fresh one right away.
+        if json?["errors"] != nil, integrityTok == nil {
+            json = await nativeMutation(body: body, tag: "claimBonus")
+        }
+        guard let data  = json?["data"]                as? [String: Any],
+              let claim = data["claimCommunityPoints"] as? [String: Any]
         else {
-            // Échec → on mémorise pour ne pas spammer ce coffre.
-            logger.error("POINTS", "Claim coffre échoué", nil)
-            failedClaims.insert(claimId); pendingClaimId = nil; return
+            // Next 30 s check tries again (pendingClaimId cleared), a few times at most.
+            claimAttempts[claimId, default: 0] += 1
+            logger.error("POINTS", "Claim coffre échoué",
+                         "essai \(claimAttempts[claimId]!)/\(maxClaimAttempts)")
+            pendingClaimId = nil; return
         }
 
         if let err = claim["error"] as? [String: Any], let code = err["code"] as? String {
+            // Refused by Twitch (already claimed, not live…): retrying would not help.
             logger.error("POINTS", "Claim refusé", "code: \(code)")
-            failedClaims.insert(claimId); pendingClaimId = nil; return
+            claimAttempts[claimId] = maxClaimAttempts; pendingClaimId = nil; return
         }
         // Pas d'erreur → succès. Le selection-set de la persisted query ne renvoie pas
         // toujours `currentPoints` : on nettoie le coffre et on rafraîchit le solde.

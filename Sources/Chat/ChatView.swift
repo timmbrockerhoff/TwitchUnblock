@@ -94,6 +94,9 @@ struct ChatView: View {
         }
     }
 
+    /// Points capsule next to the field: portrait input bar only.
+    private var pointsCapsuleShown: Bool { style.showsChrome && canSendMessages && !chat.readOnly }
+
     private var infoHasItems: Bool { !chat.roomModes.isEmpty || chromeHasChips }
 
     @ViewBuilder private var infoItems: some View {
@@ -136,8 +139,8 @@ struct ChatView: View {
                          + (store.chatSyncNudge != 0 ? String(format: " (%+.0f)", store.chatSyncNudge) : ""))
             }
         }
-        // Série de visionnage
-        if store.showWatchStreak, events.watchStreak > 0 {
+        // Série de visionnage (in the points capsule when that is shown)
+        if store.showWatchStreak, events.watchStreak > 0, !pointsCapsuleShown {
             infoText("flame.fill", "\(events.watchStreak)")
         }
         // Landscape has its own strip for these (NoticesHideStrip).
@@ -250,7 +253,7 @@ struct ChatView: View {
 
     private var chromeHasChips: Bool {
         (store.autoChatDelay && (chatDelay >= 0.5 || store.chatSyncNudge != 0))
-            || (store.showWatchStreak && events.watchStreak > 0)
+            || (store.showWatchStreak && events.watchStreak > 0 && !pointsCapsuleShown)
             || (style.showsChrome && store.showPinnedMessages && pubsub.pinned != nil
                 && pubsub.pinned?.id == dismissedPinId)
             || (style.showsChrome && !closedKinds.isEmpty)
@@ -818,7 +821,8 @@ struct ChatView: View {
 
                     // 🎁 Points de chaîne — en colonne étroite le champ texte passe avant.
                     if style.showsChrome {
-                        ChannelPointsButton(service: pointsService) {
+                        ChannelPointsButton(service: pointsService,
+                                            streak: store.showWatchStreak ? events.watchStreak : 0) {
                             showEmotePicker = false
                             showPointsSheet = true
                         }

@@ -135,6 +135,15 @@ English, short, explaining *why*.
   "Hinweise im Chat" (subpage: pinned, polls, drops, streak), chatters, bot commands, name colour
   (logged in only), "Chat neu laden" (emotes + reconnect). ChatView applies these switches live
   (`syncEvents`, pubsub/drops onChange); before, they only took effect on the next chat opening.
+  Watch streak lives in the points capsule ("👑 20 · 🔥 5"); the info line shows it only when
+  there is no capsule (landscape, logged out). User rejected it as a lone line twice.
+- Rewards auto-claim (2026-10-23): chest = `ChannelPointsService` (runs inside ChatView, which
+  stays mounted in every live layout; needs the web session `twitchWebToken` + an integrity
+  token minted in an ephemeral WebView). A failed claim used to blacklist the chest for good →
+  now retried by the 30 s check (≤ 5 tries, one immediate retry with a fresh integrity token).
+  Drops: claimed by the heartbeat's 5-min inventory while a drops channel plays, on the Drops
+  page, and now also on every app foreground (`TwitchUnblockApp`, ForegroundRefresh).
+  Not verifiable in the Simulator (no web session there).
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

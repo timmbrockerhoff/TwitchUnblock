@@ -3,6 +3,8 @@ import SwiftUI
 // MARK: – Bouton déclencheur (dans la barre de chat)
 struct ChannelPointsButton: View {
     @ObservedObject var service: ChannelPointsService
+    /// Watch streak, shown with the balance (both are the viewer's rewards); 0 hides it.
+    var streak = 0
     let onTap: () -> Void
 
     /// A small capsule with the balance next to the chat field; green with a dot when a
@@ -14,6 +16,12 @@ struct ChannelPointsButton: View {
                 Image(systemName: "crown.fill").font(.system(size: 12, weight: .bold))
                 Text(formatViewers(service.balance))
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                if streak > 0 {
+                    Image(systemName: "flame.fill").font(.system(size: 11, weight: .bold))
+                        .foregroundColor(bonus ? .white : .tWarning)
+                        .padding(.leading, 4)
+                    Text("\(streak)").font(.system(size: 13, weight: .semibold).monospacedDigit())
+                }
             }
             .foregroundColor(bonus ? .white : .tText)
             .padding(.horizontal, 10)

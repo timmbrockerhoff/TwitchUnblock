@@ -50,6 +50,13 @@ struct TwitchUnblockApp: App {
                                 Task { @MainActor in _ = await LiveNotifier.check(notify: false) },
                                 // ntfy : chaînes suivies changées (ou une fois par jour).
                                 Task { @MainActor in _ = await NtfyNotifier.sync(lang: store.lang) },
+                                // Drops finished while no drops channel was playing: claimed on
+                                // return, not only when the Drops page is opened.
+                                Task { @MainActor in
+                                    guard store.autoClaimDrops, let web = store.twitchWebToken,
+                                          !web.isEmpty else { return }
+                                    await DropsService.shared.refresh(token: web, autoClaim: true)
+                                },
                             ]
                         }
                         // Téléchargements : l'app reprend la main sur iOS,
