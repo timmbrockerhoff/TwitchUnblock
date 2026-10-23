@@ -12,8 +12,8 @@ struct ChatActions {
     let isAuthenticated: Bool
     let chatOnly: Binding<Bool>
     let chat: ChatService
-    let onReloadEmotes: () -> Void
-    let onReconnect: () -> Void
+    /// Emotes and badges fetched again, IRC reconnected.
+    let onReload: () -> Void
     /// Bot command picked: put in the chat field (nil = copied).
     var onUseCommand: ((String) -> Void)? = nil
 }
@@ -30,26 +30,34 @@ struct ChatSettingsSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if let actions { actionsSection(actions) }
-                Section(store.t("chat_sec_messages")) {
-                    toggle("clock", "cfg_timestamps", $store.chatTimestamps)
-                    toggle("strikethrough", "cfg_deleted", $store.chatShowDeleted)
-                    toggle("cpu", "hide_bots", $store.chatHideBots)
-                    toggle("exclamationmark.bubble", "hide_commands", $store.chatHideCommands)
-                }
-                Section(store.t("chat_sec_top")) {
-                    toggle("pin", "cfg_pinned", $store.showPinnedMessages)
-                    toggle("chart.bar", "cfg_events", $store.showLiveEvents)
-                    toggle("gift", "cfg_drops_notice", $store.showDropsNotice)
-                    toggle("flame", "cfg_streak", $store.showWatchStreak)
-                }
                 Section {
+                    if let a = actions { toggle("bubble.left", "menu_chat_only", a.chatOnly) }
                     Stepper(value: $store.chatFontSize, in: 10...20, step: 1) {
                         HStack {
                             Label(store.t("cfg_font_size"), systemImage: "textformat.size")
                             Spacer()
                             Text("\(Int(store.chatFontSize)) pt").foregroundColor(.secondary).monospacedDigit()
                         }
+                    }
+                    toggle("clock", "cfg_timestamps", $store.chatTimestamps)
+                    toggle("strikethrough", "cfg_deleted", $store.chatShowDeleted)
+                    // One switch for both: they hide the same kind of noise.
+                    toggle("cpu", "chat_hide_noise", Binding(
+                        get: { store.chatHideBots && store.chatHideCommands },
+                        set: { store.chatHideBots = $0; store.chatHideCommands = $0 }))
+                }
+                if let a = actions {
+                    Section {
+                        NavigationLink { noticesPage } label: {
+                            row("bell.badge", "chat_notices", "\(noticesOn) / 4")
+                        }
+                        Button { showChatters = true } label: { row("person.2", "menu_chatters", chevron: true) }
+                        Button { showBotCommands = true } label: { row("terminal", "bot_commands", chevron: true) }
+                        // Needs the account (Helix); a greyed row without a reason only confused.
+                        if a.isAuthenticated {
+                            Button { showColors = true } label: { row("paintpalette", "menu_color", chevron: true) }
+                        }
+                        Button { a.onReload(); dismiss() } label: { row("arrow.clockwise", "chat_reload") }
                     }
                 }
             }
@@ -85,36 +93,31 @@ struct ChatSettingsSheet: View {
         }
     }
 
-    /// Chat only, refresh, reconnect, name colour, chatters, bot commands.
-    @ViewBuilder private func actionsSection(_ a: ChatActions) -> some View {
-        Section("Chat") {
-            Toggle(isOn: a.chatOnly) {
-                Label(store.t("menu_chat_only"), systemImage: "bubble.left").foregroundColor(.primary)
-            }
-            .tint(.tPrimary)
-            Button { a.onReloadEmotes(); dismiss() } label: {
-                actionLabel("arrow.triangle.2.circlepath", "menu_reload_emotes")
-            }
-            Button { a.onReconnect(); dismiss() } label: {
-                actionLabel("wifi.exclamationmark", "menu_reconnect")
-            }
-            Button { showColors = true } label: {
-                actionLabel("paintpalette", "menu_color", chevron: true)
-            }
-            .disabled(!a.isAuthenticated)
-            Button { showChatters = true } label: {
-                actionLabel("person.2", "menu_chatters", chevron: true)
-            }
-            Button { showBotCommands = true } label: {
-                actionLabel("terminal", "bot_commands", chevron: true)
-            }
-        }
+    private var noticesOn: Int {
+        [store.showPinnedMessages, store.showLiveEvents, store.showDropsNotice, store.showWatchStreak]
+            .filter { $0 }.count
     }
 
-    private func actionLabel(_ icon: String, _ key: String, chevron: Bool = false) -> some View {
+    /// Banners on top of the chat and the streak in the line above the field.
+    private var noticesPage: some View {
+        List {
+            toggle("pin", "cfg_pinned", $store.showPinnedMessages)
+            toggle("chart.bar", "cfg_events", $store.showLiveEvents)
+            toggle("gift", "cfg_drops_notice", $store.showDropsNotice)
+            toggle("flame", "cfg_streak", $store.showWatchStreak)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(.secondarySystemBackground))
+        .navigationTitle(store.t("chat_notices"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func row(_ icon: String, _ key: String, _ value: String? = nil, chevron: Bool = false) -> some View {
         HStack {
             Label(store.t(key), systemImage: icon).foregroundColor(.primary)
             Spacer()
+            if let value { Text(value).foregroundColor(.secondary).monospacedDigit() }
             if chevron {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(.secondary)
             }

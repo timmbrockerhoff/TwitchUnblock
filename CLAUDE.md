@@ -131,6 +131,10 @@ English, short, explaining *why*.
   opens `ChatSettingsSheet(actions:)` presented by ChatView (`showSettings` binding; VOD chat:
   display settings only); without that header (landscape, chat only, multi-live) the gear sits at
   the end of the info line.
+  The sheet: Nur Chat, font size, timestamps, deleted, one "Bots und !Befehle" switch; then
+  "Hinweise im Chat" (subpage: pinned, polls, drops, streak), chatters, bot commands, name colour
+  (logged in only), "Chat neu laden" (emotes + reconnect). ChatView applies these switches live
+  (`syncEvents`, pubsub/drops onChange); before, they only took effect on the next chat opening.
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

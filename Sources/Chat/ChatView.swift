@@ -480,8 +480,8 @@ struct ChatView: View {
                 isAuthenticated: chat.isAuthenticated,
                 chatOnly: $chatOnly,
                 chat: chat,
-                onReloadEmotes: { Task { await reloadEmotesAndBadges() } },
-                onReconnect: {
+                onReload: {
+                    Task { await reloadEmotesAndBadges() }
                     chat.reconnect(token: token, login: login)
                 },
                 onUseCommand: canSendMessages ? { cmd in
@@ -540,9 +540,19 @@ struct ChatView: View {
         .onChange(of: liveNoticeKeys) { keys in
             closedNotices.formIntersection(keys)
         }
-        // Événements masqués ou réaffichés pendant le live : le relevé du
-        // hype train (toutes les 5 s pendant une approche) suit.
-        .onChange(of: store.showLiveEvents) { events.setHypeEnabled($0) }
+        // Switched in the gear sheet while watching: start or stop what feeds them now
+        // (they used to be read only when the chat opened, so turning one on did nothing).
+        .onChange(of: store.showLiveEvents) { _ in syncEvents() }
+        .onChange(of: store.showWatchStreak) { _ in syncEvents() }
+        .onChange(of: store.showPinnedMessages) { on in
+            guard isSetup else { return }
+            if on, let cid = channelId { pubsub.connect(channelId: cid) } else { pubsub.disconnect() }
+        }
+        .onChange(of: store.showDropsNotice) { on in
+            guard isSetup else { return }
+            if on, let cid = channelId { dropsNotice.start(channelId: cid) } else { dropsNotice.stop() }
+        }
+        .onChange(of: store.chatShowDeleted) { chat.keepDeleted = $0 }
         // ── Token OAuth mis à jour → reconnecte uniquement l'IRC ──────
         .onChange(of: store.twitchToken) { newToken in
             guard let tok = newToken else { return }
@@ -659,18 +669,29 @@ struct ChatView: View {
         if store.showDropsNotice, let cid = channelId {
             dropsNotice.start(channelId: cid)
         }
+        // Événements live (série de visionnage, sondage, prédiction, hype train)
+        syncEvents()
         if let cid = channelId {
-            // Événements live (série de visionnage, sondage, prédiction, hype train)
-            if store.showWatchStreak || store.showLiveEvents {
-                events.start(login: channelName, channelId: cid,
-                             token: store.twitchWebToken,
-                             viewerId: store.twitchUserId ?? "",
-                             hype: store.showLiveEvents)
-            }
             // Raid sortant (auto-bascule vers la chaîne raidée)
             if store.enableRaids {
                 raidService.connect(channelId: cid, token: store.twitchWebToken ?? "")
             }
+        }
+    }
+
+    /// Live events run while the streak or the events are shown; the hype train is
+    /// polled (every 5 s during an approach) only when events are shown.
+    private func syncEvents() {
+        guard isSetup, let cid = channelId else { return }
+        if !(store.showWatchStreak || store.showLiveEvents) {
+            events.stop()
+        } else if !events.running {
+            events.start(login: channelName, channelId: cid,
+                         token: store.twitchWebToken,
+                         viewerId: store.twitchUserId ?? "",
+                         hype: store.showLiveEvents)
+        } else {
+            events.setHypeEnabled(store.showLiveEvents)
         }
     }
 
