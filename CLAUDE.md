@@ -151,6 +151,16 @@ English, short, explaining *why*.
   "Authorize" tap the first time) and `decidePolicyFor` reads the token from the redirect
   (auth.html# or its twitchunblock://auth? hop). Failing that, `AppStore.adoptAppToken(nil)` falls
   back to the Safari OAuth login. Not tested end to end (no credentials in the Simulator).
+- Game account links for drops (2026-10-23): can't be automated (each publisher's own login and
+  consent). `DropsLink.group` = one entry per link page; `DropsService.linksNeeded` (inventory +
+  `DropsHeartbeat.channelCampaigns`, read with the web session when a drops channel plays).
+  Home card after login (✕ hides until the set changes), `DropsLinkSheet` (publisher page in a
+  WKWebView with the app's twitch.tv cookies, refresh on return), tappable `.dropLink` notice once
+  per campaign + "Drops verknüpfen" chip in the player, Drops page: ready campaigns first, linked
+  ones folded. Verified 2026-10-23 in the Simulator with the user's account: chests auto-claimed;
+  Twitch badge drops (Alien: Isolation) are granted by Twitch itself without a claim.
+  Simulator only: after switching live channels the video sometimes stays black/frozen while the
+  player reports ready (IOSurface errors); not seen on a device so far.
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

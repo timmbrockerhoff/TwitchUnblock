@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import WebKit
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Réglages → Drops : réglages, drop en cours, campagnes et réclamation.
@@ -15,9 +16,11 @@ struct DropsPanel: View {
     @ObservedObject private var heartbeat = DropsHeartbeat.shared
     /// Mode d'emploi déplié (replié une fois lu, et ça reste).
     @AppStorage("drops_help_open") private var helpOpen = true
-    @Environment(\.openURL) private var openURL
     /// Campagnes ouvertes dépliées (récompenses affichées).
     @State private var expanded: Set<String> = []
+    /// Campaigns waiting for a game account link: folded under the ready ones.
+    @State private var linkGroupOpen = false
+    @State private var showLinks = false
 
     private var webToken: String? {
         guard let t = store.twitchWebToken, !t.isEmpty else { return nil }
@@ -78,6 +81,9 @@ struct DropsPanel: View {
             if on { askNotificationPermission() }
         }
         .onDisappear { drops.notice = nil }
+        .sheet(isPresented: $showLinks) {
+            DropsLinkSheet { Task { await reload() } }
+        }
     }
 
     /// iOS ne demande qu'une fois : sans effet si l'autorisation est déjà réglée.
@@ -96,7 +102,9 @@ struct DropsPanel: View {
     // MARK: Campagnes ouvertes (tous les jeux)
     @ViewBuilder private var availableList: some View {
         let started = Set(drops.campaigns.map(\.id))
+        // Usable right away (Twitch badges, emotes) first; game account links last.
         let open = drops.available.filter { !started.contains($0.id) }
+            .sorted { !$0.needsAccountLink && $1.needsAccountLink }
         HStack {
             Text(store.t("drops_available"))
                 .font(.tSection).foregroundColor(.tText)
@@ -163,7 +171,7 @@ struct DropsPanel: View {
             .buttonStyle(.plain)
 
             if isOpen {
-                if c.needsAccountLink, let link = c.accountLinkURL, let url = URL(string: link) {
+                if c.needsAccountLink, let link = c.accountLinkURL, URL(string: link) != nil {
                     HStack(alignment: .top, spacing: TSpace.sm) {
                         Image(systemName: "link")
                             .font(.footnote.weight(.semibold)).foregroundColor(.tWarning)
@@ -171,7 +179,7 @@ struct DropsPanel: View {
                             .font(.tMeta).foregroundColor(.tMuted)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 4)
-                        Button(store.t("drops_link_btn")) { openURL(url) }
+                        Button(store.t("drops_link_btn")) { showLinks = true }
                             .font(.tMeta.weight(.semibold))
                             .foregroundColor(.tPrimary)
                             .buttonStyle(.plain)
@@ -309,7 +317,36 @@ struct DropsPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tCard()
         }
-        ForEach(drops.campaigns) { c in campaignCard(c, token: token) }
+        let ready = drops.campaigns.filter { !$0.needsAccountLink }
+        let waiting = drops.campaigns.filter(\.needsAccountLink)
+        ForEach(ready) { c in campaignCard(c, token: token) }
+        if !waiting.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { linkGroupOpen.toggle() }
+                } label: {
+                    HStack(spacing: TSpace.sm) {
+                        Image(systemName: "link").font(.footnote.weight(.semibold)).foregroundColor(.tWarning)
+                        Text(store.t("drops_link_group").replacingOccurrences(of: "{n}", with: "\(waiting.count)"))
+                            .font(.tCardTitle).foregroundColor(.tText)
+                        Spacer()
+                        Image(systemName: linkGroupOpen ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.semibold)).foregroundColor(.tMuted)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text(store.t("drops_link"))
+                    .font(.tMeta).foregroundColor(.tMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(store.t("drops_link_all")) { showLinks = true }
+                    .tProminentStyle().tCapsuleShape().controlSize(.small).tint(.tPrimary)
+            }
+            .tCard()
+            if linkGroupOpen {
+                ForEach(waiting) { c in campaignCard(c, token: token) }
+            }
+        }
     }
 
     private func campaignCard(_ c: DropCampaign, token: String) -> some View {
@@ -331,7 +368,9 @@ struct DropsPanel: View {
                         .font(.tMeta).foregroundColor(.tPurple)
                         .lineLimit(1)
                     if let end = c.endAt {
-                        Text(store.t("drops_ends").replacingOccurrences(of: "{d}", with: relative(end)))
+                        // "Endet vor 6 Tagen" read as nonsense for a campaign that is over.
+                        Text(store.t(end < Date() ? "drops_ended" : "drops_ends")
+                                .replacingOccurrences(of: "{d}", with: relative(end)))
                             .font(.tMeta).foregroundColor(.tMuted)
                     }
                 }
@@ -347,8 +386,8 @@ struct DropsPanel: View {
                         .font(.tMeta).foregroundColor(.tMuted)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 4)
-                    if let link = c.accountLinkURL, let url = URL(string: link) {
-                        Button(store.t("drops_link_btn")) { openURL(url) }
+                    if c.accountLinkURL != nil {
+                        Button(store.t("drops_link_btn")) { showLinks = true }
                             .font(.tMeta.weight(.semibold))
                             .foregroundColor(.tPrimary)
                             .buttonStyle(.plain)
@@ -445,4 +484,77 @@ struct DropsPanel: View {
         if f.locale.identifier != id { f.locale = Locale(identifier: id) }
         return f.localizedString(for: date, relativeTo: Date())
     }
+}
+
+// MARK: – Linking game accounts
+/// Every game account still to link, one row per publisher page; its page opens here, signed
+/// in to Twitch already (same web data as the app's login). Linked rows go away on return.
+struct DropsLinkSheet: View {
+    var onDone: () -> Void = {}
+
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var drops = DropsService.shared
+    @ObservedObject private var heartbeat = DropsHeartbeat.shared
+
+    var body: some View {
+        NavigationStack {
+            List {
+                let links = drops.linksNeeded
+                if links.isEmpty {
+                    Label(store.t("drops_link_done"), systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.tSuccess)
+                } else {
+                    Section {
+                        ForEach(links) { link in
+                            NavigationLink {
+                                DropsLinkPage(url: link.url)
+                                    .navigationTitle(link.games.joined(separator: ", "))
+                                    .navigationBarTitleDisplayMode(.inline)
+                                    .onDisappear { refresh() }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(link.games.joined(separator: ", ")).foregroundColor(.primary)
+                                    Text(link.url.host ?? "").font(.caption).foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    } footer: {
+                        Text(store.t("drops_link_sheet_sub"))
+                    }
+                }
+            }
+            .navigationTitle(store.t("drops_link_title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(store.t("done")) { dismiss() }
+                }
+            }
+        }
+        // Full height: the publishers' pages are cramped in half a screen.
+        .presentationDetents([.large])
+        .onDisappear { onDone() }
+    }
+
+    private func refresh() {
+        guard let token = store.twitchWebToken, !token.isEmpty else { return }
+        Task { await drops.refresh(token: token, autoClaim: store.autoClaimDrops) }
+    }
+}
+
+/// A publisher's link page in a WebView sharing the app's twitch.tv cookies.
+private struct DropsLinkPage: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> WKWebView {
+        let web = WKWebView(frame: .zero)
+        web.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 "
+            + "(KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+        web.allowsBackForwardNavigationGestures = true
+        web.load(URLRequest(url: url))
+        return web
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }

@@ -77,6 +77,8 @@ struct MainTabView: View {
     @State private var showPlayerSettings = false
     @State private var playerIsLandscape = false
     @State private var showChatSettings = false
+    @State private var showDropsLinks = false
+    @ObservedObject private var dropsHeartbeat = DropsHeartbeat.shared
     /// The live chat's gear sheet, presented by ChatView (it holds the chat's actions).
     @State private var showLiveChatSettings = false
     @State private var showSettings    = false
@@ -333,6 +335,8 @@ struct MainTabView: View {
                     .transition(.opacity)
             }
         }
+        .sheet(isPresented: $showDropsLinks) { DropsLinkSheet().environmentObject(store) }
+        .onReceive(NotificationCenter.default.publisher(for: .openDropsLinks)) { _ in showDropsLinks = true }
         .sheet(isPresented: $showChatSettings) {
             ChatSettingsSheet().environmentObject(store)
         }
@@ -1302,6 +1306,11 @@ struct MainTabView: View {
 
     /// Actions under the details, as YouTube's capsule row.
     @ViewBuilder private var playerActionChips: some View {
+        // This stream's drops need a game account: linked from here, not minutes for nothing.
+        if isLivePlaying, !DropsLink.group(dropsHeartbeat.channelCampaigns).isEmpty {
+            actionChip(store.t("drops_chip"), "link") { showDropsLinks = true }
+                .tint(.tWarning)
+        }
         if let multiLive = multiLiveAction {
             // Short label; a filled icon and checkmark say it is in the multi-live.
             actionChip(store.t("multi_title"),

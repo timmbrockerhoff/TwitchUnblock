@@ -66,6 +66,10 @@ struct HomeView: View {
     @State private var lastLoad = Date.distantPast
     /// Bandeau « session web » masqué jusqu'à cette date (bouton ✕).
     @AppStorage("web_banner_hidden_until") private var webBannerHiddenUntil: Double = 0
+    @ObservedObject private var drops = DropsService.shared
+    /// Links the ✕ hid: the card comes back only for another game.
+    @AppStorage("drops_link_hidden") private var dropsLinkHidden = ""
+    @State private var showDropsLinks = false
 
     enum TopLang: Hashable { case local, all }
 
@@ -102,6 +106,12 @@ struct HomeView: View {
                       Date().timeIntervalSince(lastLoad) >= 170 else { continue }
                 await loadAll(isRefresh: true)
             }
+        }
+        .sheet(isPresented: $showDropsLinks) { DropsLinkSheet() }
+        // Login (or app start with a session): which drops need a game account, right away.
+        .task(id: store.twitchWebToken) {
+            guard let web = store.twitchWebToken, !web.isEmpty else { return }
+            await drops.refresh(token: web, autoClaim: store.autoClaimDrops)
         }
         .sheet(isPresented: $showWebLogin) {
             TwitchWebLoginSheet(
@@ -341,6 +351,41 @@ struct HomeView: View {
             .stroke(Color.tPrimary.opacity(0.3), lineWidth: 1))
     }
 
+    private var dropsLinkKey: String { drops.linksNeeded.map(\.id).sorted().joined(separator: "|") }
+
+    private var dropsLinkBanner: some View {
+        let links = drops.linksNeeded
+        let games = links.flatMap(\.games)
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "link.circle.fill")
+                .font(.title).foregroundColor(.tWarning)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(links.count == 1 ? store.t("drops_link_banner_one")
+                     : store.t("drops_link_banner").replacingOccurrences(of: "{n}", with: "\(links.count)"))
+                    .font(.tCardTitle).foregroundColor(.tText)
+                Text(store.t("drops_link_banner_sub")
+                        .replacingOccurrences(of: "{g}", with: games.joined(separator: ", ")))
+                    .font(.tMeta).foregroundColor(.tMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(store.t("drops_link_all")) { showDropsLinks = true }
+                    .tProminentStyle().tCapsuleShape().tint(.tPrimary)
+                    .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+            Button {
+                withAnimation { dropsLinkHidden = dropsLinkKey }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold)).foregroundColor(.tMuted)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .background(Color.tCard)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
     // MARK: – Lives
     @ViewBuilder private var liveSection: some View {
         ScrollView {
@@ -356,6 +401,13 @@ struct HomeView: View {
                 // ── Session web absente : points, coffres, prédictions ──
                 if store.twitchToken != nil && store.twitchWebToken == nil && Date().timeIntervalSince1970 > webBannerHiddenUntil {
                     webSessionBanner
+                        .padding(.horizontal, TSpace.lg)
+                        .padding(.top, TSpace.md)
+                }
+
+                // ── Game accounts to link for drops: asked once, right after login ──
+                if store.twitchWebToken != nil, !dropsLinkKey.isEmpty, dropsLinkKey != dropsLinkHidden {
+                    dropsLinkBanner
                         .padding(.horizontal, TSpace.lg)
                         .padding(.top, TSpace.md)
                 }

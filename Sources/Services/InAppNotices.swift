@@ -12,10 +12,13 @@ import UserNotifications
 struct InAppNotice: Identifiable, Codable, Equatable {
     enum Kind: String, Codable {
         case dropReady, dropClaimed, download
+        /// A stream's drops need a game account link; tapping opens the link list.
+        case dropLink
 
         var icon: String {
             switch self {
             case .dropReady:   return "gift.fill"
+            case .dropLink:    return "link"
             case .dropClaimed: return "checkmark.seal.fill"
             case .download:    return "arrow.down.circle.fill"
             }
@@ -25,6 +28,7 @@ struct InAppNotice: Identifiable, Codable, Equatable {
             switch self {
             case .dropReady, .dropClaimed: return .tPurple
             case .download:                return .tSuccess
+            case .dropLink:                return .tWarning
             }
         }
     }
@@ -95,6 +99,7 @@ final class InAppNotices: ObservableObject {
     /// Bandeau touché : il se ferme.
     func open(_ notice: InAppNotice) {
         dismiss()
+        if notice.kind == .dropLink { NotificationCenter.default.post(name: .openDropsLinks, object: nil) }
     }
 
     /// Retour dans l'app : les avis arrivés en arrière-plan sans permission
@@ -206,4 +211,9 @@ private struct InAppNoticeBanner: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
     }
+}
+
+extension Notification.Name {
+    /// Opens the game-account link list (DropsLinkSheet), from a tapped notice.
+    static let openDropsLinks = Notification.Name("openDropsLinks")
 }

@@ -55,6 +55,27 @@ struct DropCampaign: Identifiable {
     let drops: [TimedDrop]
 }
 
+/// One game account still to link (a publisher's link page, shared by its campaigns).
+struct DropsLink: Identifiable, Equatable {
+    var id: String { url.absoluteString }
+    let url: URL
+    var games: [String]
+
+    /// Campaigns needing a link, one entry per link page.
+    static func group(_ campaigns: [DropCampaign]) -> [DropsLink] {
+        var out: [DropsLink] = []
+        for c in campaigns where c.needsAccountLink {
+            guard let s = c.accountLinkURL, let url = URL(string: s) else { continue }
+            if let i = out.firstIndex(where: { $0.url == url }) {
+                if !out[i].games.contains(c.gameName) { out[i].games.append(c.gameName) }
+            } else {
+                out.append(DropsLink(url: url, games: [c.gameName]))
+            }
+        }
+        return out
+    }
+}
+
 /// Drop crédité en ce moment, et sur quelle chaîne.
 struct DropSession {
     let channelName: String?
@@ -117,6 +138,12 @@ final class DropsService: ObservableObject {
     @Published private(set) var availableFailed = false
     /// Résultat de la dernière réclamation (affiché en haut de l'écran Drops).
     @Published var notice: (text: String, ok: Bool)? = nil
+
+    /// Accounts to link for the campaigns in progress, plus the playing channel's (it may not
+    /// be in the inventory yet). Shown on Home after login, on the Drops page, in the player.
+    var linksNeeded: [DropsLink] {
+        DropsLink.group(campaigns + DropsHeartbeat.shared.channelCampaigns)
+    }
 
     private var integrity: TwitchWebGQL.Integrity?
     /// Session web pour laquelle `integrity` a été obtenu.
@@ -377,6 +404,8 @@ final class DropsService: ObservableObject {
         return .failed(status ?? "null")
     }
 
+    nonisolated static func campaignFromJSON(_ c: [String: Any]) -> DropCampaign? { campaign(c) }
+
     nonisolated private static func campaign(_ c: [String: Any]) -> DropCampaign? {
         guard let id = c["id"] as? String else { return nil }
         let game = c["game"] as? [String: Any]
@@ -429,6 +458,8 @@ final class DropsHeartbeat: ObservableObject {
 
     /// Chaîne dont le flux est « regardé » pour les drops (nil : à l'arrêt).
     private(set) var channelId: String? = nil
+    /// The playing channel's campaigns as seen by the account (link state included).
+    @Published private(set) var channelCampaigns: [DropCampaign] = []
     private var task: Task<Void, Never>? = nil
     /// Segments déjà demandés (les 256 derniers).
     private var seen: [String] = []
@@ -455,6 +486,7 @@ final class DropsHeartbeat: ObservableObject {
         task?.cancel()
         task = nil
         channelId = nil
+        channelCampaigns = []
         seen.removeAll()
         status = .idle
         runningLogin = nil
@@ -495,6 +527,7 @@ final class DropsHeartbeat: ObservableObject {
                 if let id = found {
                     channelId = id
                     status = .active(login)
+                    await loadChannelCampaigns(login: login, token: token)
                     logger.success("DROPS", "Drops sur \(login)",
                                    pollSegments ? "progression : HEAD des segments toutes les 10 s"
                                                 : "progression : flux du lecteur (direct par le compte)")
@@ -534,6 +567,35 @@ final class DropsHeartbeat: ObservableObject {
             }
             let pause: UInt64 = channelId == nil || !pollSegments ? 60 : (failures > 2 ? 60 : 10)
             try? await Task.sleep(nanoseconds: pause * 1_000_000_000)
+        }
+    }
+
+    /// The channel's campaigns for this account. One whose game account is not linked would
+    /// collect minutes for nothing: said once per campaign, with the way to link it.
+    private func loadChannelCampaigns(login: String, token: String) async {
+        let q = """
+        query($l: String!) { user(login: $l) { channel { viewerDropCampaigns {
+          id name status accountLinkURL self { isAccountConnected }
+          game { displayName boxArtURL(width: 144, height: 192) }
+        } } } }
+        """
+        guard let json = await webGQL(["query": q, "variables": ["l": login]], token: token),
+              let list = (((json["data"] as? [String: Any])?["user"] as? [String: Any])?["channel"]
+                          as? [String: Any])?["viewerDropCampaigns"] as? [[String: Any]] else {
+            logger.debug("DROPS", "Campagnes de la chaîne illisibles", gqlErrors(nil))
+            return
+        }
+        guard runningLogin == login else { return }
+        channelCampaigns = list.compactMap(DropsService.campaignFromJSON)
+        for c in channelCampaigns where c.needsAccountLink {
+            let key = "drops_link_hint_\(c.id)"
+            guard !UserDefaults.standard.bool(forKey: key) else { continue }
+            UserDefaults.standard.set(true, forKey: key)
+            logger.warn("DROPS", "Compte de jeu non lié", "\(c.gameName) sur \(login)")
+            InAppNotices.shared.show(InAppNotice(
+                kind: .dropLink,
+                title: translate("drops_link_hint", .de).replacingOccurrences(of: "{g}", with: c.gameName),
+                body: translate("drops_link_hint_sub", .de)))
         }
     }
 
