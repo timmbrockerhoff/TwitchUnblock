@@ -213,6 +213,7 @@ private struct TwitchWebLogin: UIViewRepresentable {
         /// Web session captured, waiting for the app's authorize redirect (onAppToken).
         private var pendingWeb: (token: String, login: String?)? = nil
         private var authState = ""
+        private var authLoads = 0
         /// Dernier « Réessayer » traité (updateUIView).
         var reloadCount = 0
 
@@ -238,6 +239,11 @@ private struct TwitchWebLogin: UIViewRepresentable {
         }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             parent.onLoadingChange(false)
+            // Our authorize load was replaced by twitch.tv's own page (the login page moves
+            // on to the home page after setting the cookie): ask again.
+            if pendingWeb != nil, webView.url?.host?.contains("id.twitch.tv") != true {
+                loadAuthorize()
+            }
             captureToken()
         }
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -306,10 +312,25 @@ private struct TwitchWebLogin: UIViewRepresentable {
         private func requestAppToken(web: String, login: String?) {
             pendingWeb = (web, login)
             authState = UUID().uuidString
-            guard let url = TwitchAuthManager.authorizeURL(forceVerify: false, state: authState) else {
+            logger.info("AUTH", "Autorisation de l'app dans la même page…", "@\(login ?? "?")")
+            // Right after login the page still navigates to twitch.tv's home and replaced an
+            // authorize load sent now (the sheet then sat on the home page): wait for it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.loadAuthorize() }
+            // Never stuck: the web session is kept and the Safari login takes over.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
+                guard let self, self.pendingWeb != nil else { return }
+                logger.warn("AUTH", "Autorisation de l'app sans réponse", "connexion Safari à la place")
+                self.finishAppToken(nil)
+            }
+        }
+
+        private func loadAuthorize() {
+            guard pendingWeb != nil else { return }
+            guard authLoads < 4,
+                  let url = TwitchAuthManager.authorizeURL(forceVerify: false, state: authState) else {
                 finishAppToken(nil); return
             }
-            logger.info("AUTH", "Autorisation de l'app dans la même page…", "@\(login ?? "?")")
+            authLoads += 1
             webView?.load(URLRequest(url: url))
         }
 
