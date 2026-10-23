@@ -113,10 +113,14 @@ English, short, explaining *why*.
   in n s". `LiveAdStats` counts breaks per source per hour; the automatic source order puts the
   proxies with the fewest first (once two have 20+ min measured). Immersive/multi-live players
   still only mute + banner.
-  No custom timeline around the video (user rejected it repeatedly).
-  Header LIVE pill (outside the video): red while `liveLatency` < 60 s, grey when behind; tap
-  bumps `goLiveRequest` → NativeVideoPlayer seeks to the seekable end. Apple's bar keeps its
-  clock time for live content (no API; removing PDT didn't change it).
+  Controls (2026-10-23): our own YouTube-style overlay (`PlayerControls.swift`) instead of
+  Apple's (`showsPlaybackControls = false`, the UIKit view takes no touches): purple bar over the
+  video's bottom edge (all seekable ranges), "-h:mm:ss · ● Live" (grey dot, tap = live edge) /
+  "● Live" red at the edge, VOD "t / total", ±10 s + play/pause, double tap ±10 s, fullscreen =
+  `rotatePlayer`, fade-out 3 s while playing; speed moved to the header ⋯ menu. Our seeks call
+  `Coordinator.userSeeked(to:)` so the edge catch-up (`LiveLatencyController.userSeek`) and the
+  dropped-segment reload leave them alone. fMP4 channels (EXT-X-MAP) need the MAP lines in
+  `LiveDVRPlaylist.render` (VERSION 6). Never a second timeline around the video.
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

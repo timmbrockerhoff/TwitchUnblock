@@ -42,6 +42,8 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         var backup = false
         /// Origin changed from the segment before: a discontinuity.
         var disc = false
+        /// Initialization section of an fMP4 stream (EXT-X-MAP), nil for MPEG-TS.
+        var map: String? = nil
     }
 
     private final class Session {
@@ -270,9 +272,13 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
         var nextDate: Date? = Self.undatedStart(text)
         var pendingDuration: Double? = nil
         var pendingIsAd = false
+        var map: String? = nil
         for raw in text.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.hasPrefix("#EXT-X-PROGRAM-DATE-TIME:") {
+            if line.hasPrefix("#EXT-X-MAP:"), let r = line.range(of: "URI=\"") {
+                let uri = line[r.upperBound...].prefix { $0 != "\"" }
+                map = URL(string: String(uri), relativeTo: base)?.absoluteString
+            } else if line.hasPrefix("#EXT-X-PROGRAM-DATE-TIME:") {
                 let v = String(line.dropFirst("#EXT-X-PROGRAM-DATE-TIME:".count))
                 nextDate = dateParser.date(from: v) ?? datePlain.date(from: v)
             } else if line.hasPrefix("#EXTINF:") {
@@ -287,7 +293,7 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
                 nextDate = nil
                 guard let date, !pendingIsAd,
                       let abs = URL(string: line, relativeTo: base)?.absoluteString else { continue }
-                out.append(Segment(uri: abs, duration: d, date: date))
+                out.append(Segment(uri: abs, duration: d, date: date, map: map))
             }
         }
         return out
@@ -317,19 +323,29 @@ final class LiveDVRPlaylist: NSObject, AVAssetResourceLoaderDelegate {
 
     private static func render(past: [Segment], live: [Segment]) -> String {
         let longest = (past + live).map(\.duration).max() ?? 10
-        var lines = ["#EXTM3U", "#EXT-X-VERSION:3",
+        // fMP4 (some channels, live and recording): its init section before its segments,
+        // and the HLS version that allows it. Without it, the whole item failed.
+        let fmp4 = (past + live).contains { $0.map != nil }
+        var lines = ["#EXTM3U", "#EXT-X-VERSION:\(fmp4 ? 6 : 3)",
                      "#EXT-X-TARGETDURATION:\(max(1, Int(longest.rounded(.up))))",
                      "#EXT-X-PLAYLIST-TYPE:EVENT", "#EXT-X-MEDIA-SEQUENCE:0",
                      "#EXT-X-DISCONTINUITY-SEQUENCE:0"]
+        var currentMap: String? = nil
         func add(_ s: Segment) {
             if s.disc { lines.append("#EXT-X-DISCONTINUITY") }
+            if let map = s.map, map != currentMap {
+                lines.append("#EXT-X-MAP:URI=\"\(map)\"")
+                currentMap = map
+            }
             lines.append("#EXT-X-PROGRAM-DATE-TIME:" + dateParser.string(from: s.date))
             lines.append(String(format: "#EXTINF:%.3f,", s.duration))
             lines.append(s.uri)
         }
         past.forEach(add)
         if !past.isEmpty, !live.isEmpty { lines.append("#EXT-X-DISCONTINUITY") }
-        live.forEach(add)
+        // ponytail: an fMP4 section followed by MPEG-TS segments can't drop its MAP in HLS;
+        // such segments (a backup of the other format) are left out rather than broken.
+        for seg in live where !(currentMap != nil && seg.map == nil) { add(seg) }
         return lines.joined(separator: "\n") + "\n"
     }
 }
@@ -345,4 +361,5 @@ private extension Optional {
         return await f(self)
     }
 }
+
 
