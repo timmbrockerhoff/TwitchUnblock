@@ -13,7 +13,7 @@ struct PlayerSettingsSheet: View {
     /// VODs and clips; nil hides the row (a live stream plays at 1×).
     var speed: Double? = nil
     var onSpeed: (Double) -> Void = { _ in }
-    /// Portrait: chat shown or not. Landscape: its layout.
+    /// Which chat flag the switch drives (portrait `chatHidden`, landscape `landscapeChat`).
     let landscape: Bool
     @Binding var chatHidden: Bool
     var onSleepTimer: () -> Void = {}
@@ -42,20 +42,15 @@ struct PlayerSettingsSheet: View {
                         row("gauge.with.dots.needle.67percent", store.t("speed"), speedText(speed))
                     }
                 }
-                if landscape {
-                    NavigationLink {
-                        choiceList(title: "Chat", values: LandscapeChat.allCases, selected: store.landscapeChat,
-                                   label: { store.t($0.labelKey) },
-                                   onPick: { m in withAnimation { store.landscapeChat = m } })
-                    } label: {
-                        row("bubble.left.and.bubble.right", "Chat", store.t(store.landscapeChat.labelKey))
-                    }
-                } else {
-                    Toggle(isOn: Binding(get: { !chatHidden }, set: { on in withAnimation { chatHidden = !on } })) {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right").foregroundColor(.primary)
-                    }
-                    .tint(.tPrimary)
+                // Shown or not, the same switch in both orientations (landscape: beside the video).
+                Toggle(isOn: Binding(
+                    get: { landscape ? store.landscapeChat != .hidden : !chatHidden },
+                    set: { on in withAnimation {
+                        if landscape { store.landscapeChat = on ? .column : .hidden } else { chatHidden = !on }
+                    } })) {
+                    Label("Chat", systemImage: "bubble.left.and.bubble.right").foregroundColor(.primary)
                 }
+                .tint(.tPrimary)
                 Button { dismiss(); onSleepTimer() } label: {
                     row("moon.zzz", store.t("sleep_timer"), nil)
                 }

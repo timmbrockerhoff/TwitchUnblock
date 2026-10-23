@@ -63,8 +63,8 @@ struct ChatView: View {
     }
 
     private var settingsShown: Binding<Bool> { showSettings ?? $localSettings }
-    /// No "Live-Chat" header to hold the gear (landscape, chat only, multi-live).
-    private var inlineGear: Bool { showSettings == nil || !style.showsChrome || chatOnly }
+    /// No "Live-Chat" header to hold the gear (chat only, immersive, multi-live: no binding).
+    private var inlineGear: Bool { showSettings == nil || chatOnly }
 
     /// One quiet grey line above the field: room modes, chat sync, watch streak, collapsed
     /// pin, closed banners. Replaces the status strip that sat on top of the chat for
@@ -94,8 +94,8 @@ struct ChatView: View {
         }
     }
 
-    /// Points capsule next to the field: portrait input bar only.
-    private var pointsCapsuleShown: Bool { style.showsChrome && canSendMessages && !chat.readOnly }
+    /// Points capsule next to the field, in the narrow landscape column too (not over the video).
+    private var pointsCapsuleShown: Bool { !style.translucent && canSendMessages && !chat.readOnly }
 
     private var infoHasItems: Bool { !chat.roomModes.isEmpty || chromeHasChips }
 
@@ -819,10 +819,11 @@ struct ChatView: View {
             VStack(spacing: 4) {
                 HStack(spacing: 8) {
 
-                    // 🎁 Points de chaîne — en colonne étroite le champ texte passe avant.
-                    if style.showsChrome {
+                    // 🎁 Points de chaîne (with the watch streak), as in portrait.
+                    if pointsCapsuleShown {
                         ChannelPointsButton(service: pointsService,
-                                            streak: store.showWatchStreak ? events.watchStreak : 0) {
+                                            streak: store.showWatchStreak ? events.watchStreak : 0,
+                                            compact: !style.showsChrome) {
                             showEmotePicker = false
                             showPointsSheet = true
                         }
@@ -830,7 +831,9 @@ struct ChatView: View {
 
                     HStack(spacing: 0) {
                         TextField(
-                            chat.isConnected ? store.t("chat_send_ph") : store.t("chat_connecting_ph"),
+                            // Short in the narrow landscape column ("Nach…" was all that showed).
+                            chat.isConnected ? store.t(style.showsChrome ? "chat_send_ph" : "chat_send_ph_short")
+                                             : store.t("chat_connecting_ph"),
                             text: $messageText
                         )
                         .focused($isInputFocused)
@@ -847,7 +850,7 @@ struct ChatView: View {
                                 }
                             }
                         }
-                        .padding(.leading, 14).padding(.vertical, 9)
+                        .padding(.leading, style.showsChrome ? 14 : 10).padding(.vertical, 9)
 
                         // 😊 Emote picker ↔ keyboard
                         Button {
@@ -863,7 +866,7 @@ struct ChatView: View {
                             Image(systemName: showEmotePicker ? "keyboard" : "face.smiling")
                                 .font(.system(size: 18))
                                 .foregroundColor(showEmotePicker ? .tPrimary : .tMuted)
-                                .frame(width: 40, height: 36)
+                                .frame(width: style.showsChrome ? 40 : 32, height: 36)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

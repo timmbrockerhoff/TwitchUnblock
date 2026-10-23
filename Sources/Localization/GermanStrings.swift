@@ -65,6 +65,7 @@ let kGermanStrings: [String: String] = [
     "chat_connecting": "Verbinden...",
     "chat_send": "Senden",
     "chat_send_ph": "Nachricht senden…",
+    "chat_send_ph_short": "Chatten…",
     "chat_connecting_ph": "Verbinden…",
     "chat_follow": "Folgen",
     "chat_first_message": "Erste Nachricht",

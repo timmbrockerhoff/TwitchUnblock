@@ -820,6 +820,8 @@ struct VideoPlayerView: View {
     var onFullscreen: () -> Void = {}
     var onSettings: () -> Void = {}
     var onReduce: (() -> Void)? = nil
+    var title: AnyView? = nil
+    var onShowChat: (() -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -901,7 +903,7 @@ struct VideoPlayerView: View {
             if let controls {
                 PlayerControlsOverlay(model: controls, isLive: isLive, landscape: landscape,
                                       onFullscreen: onFullscreen, onSettings: onSettings,
-                                      onReduce: onReduce)
+                                      onReduce: onReduce, title: title, onShowChat: onShowChat)
             }
         }
         .overlay(alignment: .topLeading) {

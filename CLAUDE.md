@@ -169,6 +169,13 @@ English, short, explaining *why*.
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
   (opacity 0, IRC keeps running); `streamInfo` shows in its place.
+- Landscape = portrait (2026-10-23): same `PlayerControlsOverlay` (⌄ reduce + `landscapeTitle`
+  channel/uptime/viewers top left, AirPlay + gear top right, 💬 when the chat is closed), no
+  separate header over the video (`landscapeOverlay` deleted, no ✕: close from the mini player).
+  Chat column has the same `chatHeader(landscape:)` (gear, ✕ → `landscapeChat = .hidden`) and the
+  points capsule (compact, "Chatten…"). "Über dem Video" is gone in the native player (stored
+  `.overlay` reads as `.column`); the immersive player keeps its three modes.
+  Older notes below describe the previous landscape layout.
 - Landscape player (Apple's): video column full height (vertical safe areas ignored, sides kept
   for the Dynamic Island), header as `landscapeOverlay` over the video, shown/hidden
   by taps via a UIKit recognizer on AVPlayerViewController (`NativeVideoPlayer.onTap`; SwiftUI

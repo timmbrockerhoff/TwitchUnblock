@@ -194,8 +194,12 @@ struct PlayerControlsOverlay: View {
     let onFullscreen: () -> Void
     /// The gear top right: the player's settings sheet.
     var onSettings: () -> Void = {}
-    /// The chevron top left (portrait, no header above the video): reduce to the mini player.
+    /// The chevron top left (no header above the video): reduce to the mini player.
     var onReduce: (() -> Void)? = nil
+    /// Landscape: who is on, next to the chevron (portrait shows it under the video).
+    var title: AnyView? = nil
+    /// Landscape with the chat closed: its button, before AirPlay.
+    var onShowChat: (() -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     /// Side of the last double tap (−1 left, +1 right), for its "10 Sekunden" flash.
@@ -224,18 +228,25 @@ struct PlayerControlsOverlay: View {
         }
         // Reduce top left in the video, as on YouTube.
         .overlay(alignment: .topLeading) {
-            if model.visible, let onReduce {
-                Button(action: onReduce) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 3)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+            if model.visible, onReduce != nil || title != nil {
+                HStack(spacing: 2) {
+                    if let onReduce {
+                        Button(action: onReduce) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .shadow(color: .black.opacity(0.5), radius: 3)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(store.t("reduce"))
+                    }
+                    title?.shadow(color: .black.opacity(0.5), radius: 3)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(store.t("reduce"))
                 .padding(.leading, PlayerScrubBar.inset(landscape) - 14)
+                // Clear of the buttons on the right.
+                .padding(.trailing, 160)
                 .padding(.top, 4)
                 .transition(.opacity)
             }
@@ -244,6 +255,21 @@ struct PlayerControlsOverlay: View {
         .overlay(alignment: .topTrailing) {
             if model.visible {
                 HStack(spacing: 0) {
+                    if let onShowChat {
+                        Button {
+                            model.poke()
+                            onShowChat()
+                        } label: {
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundColor(.white)
+                                .shadow(color: .black.opacity(0.5), radius: 3)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(store.t("live_chat"))
+                    }
                     AirPlayButton()
                         .frame(width: 44, height: 44)
                         .shadow(color: .black.opacity(0.5), radius: 3)

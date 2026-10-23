@@ -668,7 +668,10 @@ struct MainTabView: View {
     private func playerBody(links: QualityLinks, size: CGSize, landscape: Bool) -> some View {
         // Le mode « chat seul » n'a pas de colonne vidéo : il reste empilé.
         let split  = landscape && !chatOnly
-        let mode   = store.landscapeChat
+        // The native player has no "over the video" chat any more (as in portrait: beside or
+        // closed); the immersive one keeps its three modes.
+        let mode: LandscapeChat = !store.immersivePlayer && store.landscapeChat == .overlay
+            ? .column : store.landscapeChat
         let layout = split ? AnyLayout(HStackLayout(spacing: 0))
                            : AnyLayout(VStackLayout(spacing: 0))
         // Portrait : hauteur 16:9 imposée, le chat prend le reste.
@@ -717,18 +720,13 @@ struct MainTabView: View {
                                  controlsInset: controlsInset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .frame(height: videoHeight)
-                        .overlay {
-                            if split && !store.immersivePlayer {
-                                landscapeOverlay(inset: controlsInset)
-                            }
-                        }
                         // Full height (status bar and home indicator areas); the sides keep
                         // their safe area so the Dynamic Island never covers the picture.
                         .ignoresSafeArea(split ? .all : [], edges: .vertical)
                 }
                 // Chat open: its own header with ✕ between video and chat, as on YouTube.
                 if !split && !chatOnly && !store.immersivePlayer && !chatHidden {
-                    chatHeader
+                    chatHeader(landscape: false)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -747,7 +745,11 @@ struct MainTabView: View {
             // Replié, `opacity` le masque et `allowsHitTesting` coupe les
             // touchers : sans ça on appuyait encore sur un chat invisible, un
             // cadrage nul ne bornant pas les zones tactiles.
-            chatPane(style: chatStyle)
+            // Landscape beside the video: the same header as in portrait (gear, ✕ to close).
+            VStack(spacing: 0) {
+                if split && mode == .column && !store.immersivePlayer { chatHeader(landscape: true) }
+                chatPane(style: chatStyle)
+            }
                 .frame(width: chatWidth)
                 .frame(maxHeight: .infinity)
                 // Bord du chat : une petite poignée pour régler sa largeur,
@@ -842,7 +844,8 @@ struct MainTabView: View {
                     // Lecteur réduit : il le reste (on naviguait ailleurs).
                     playLive(target, keepVisibility: true)
                 },
-                showSettings: $showLiveChatSettings
+                // The gear sits in the "Live-Chat" header; the immersive player has none.
+                showSettings: store.immersivePlayer ? nil : $showLiveChatSettings
             )
             .id(channel)   // changement de chaîne → chat reconstruit à neuf
             .frame(maxHeight: .infinity)
@@ -955,7 +958,11 @@ struct MainTabView: View {
                 landscape: landscape,
                 onFullscreen: { rotatePlayer(toLandscape: !landscape) },
                 onSettings: { showPlayerSettings = true },
-                onReduce: landscape ? nil : { reducePlayer() }
+                onReduce: { reducePlayer() },
+                // Landscape has nothing under the video: who is on sits by the chevron.
+                title: landscape ? AnyView(landscapeTitle) : nil,
+                onShowChat: landscape && store.landscapeChat == .hidden
+                    ? { withAnimation { store.landscapeChat = .column } } : nil
             )
         }
     }
@@ -1127,24 +1134,34 @@ struct MainTabView: View {
 
     /// Landscape controls over Apple's player: header on top, timeline at the bottom, on dark
     /// gradients. A tap shows or hides them; they fade out by themselves after a few seconds.
-    private func landscapeOverlay(inset: CGFloat) -> some View {
-        // Shown and hidden with the player's own controls (one tap for both).
-        ZStack {
-            if playerControls.visible {
-                VStack(spacing: 0) {
-                    playerTopBar(landscape: true)
-                        .background(LinearGradient(colors: [.black.opacity(0.7), .clear],
-                                                   startPoint: .top, endPoint: .bottom))
-                    Spacer(minLength: 0)
+    /// Landscape, next to the chevron in the video: channel (tap → its page), uptime, viewers,
+    /// and a clip list's arrows. Portrait shows the same under the video.
+    private var landscapeTitle: some View {
+        HStack(spacing: TSpace.sm) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(currentChannelName ?? statusTitle)
+                    .font(.tCardTitle).foregroundColor(.white).lineLimit(1)
+                    .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
+                HStack(spacing: TSpace.sm) {
+                    if isLivePlaying {
+                        if let start = liveStartedAt {
+                            LiveUptimeLabel(startedAt: start) { uptime in
+                                TMeta(icon: "dot.radiowaves.left.and.right", text: uptime, tint: .tLive)
+                            }
+                        }
+                        if liveViewerCount > 0 {
+                            TMeta(icon: "eye.fill", text: formatViewers(liveViewerCount))
+                        }
+                    } else {
+                        Text(statusTitle).font(.tMeta).foregroundColor(.white.opacity(0.8)).lineLimit(1)
+                    }
                 }
-                // Clear of a chat laid over the video.
-                .padding(.trailing, inset)
-                // Touching the controls keeps them up.
-                .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in playerControls.poke() })
-                .transition(.opacity)
+            }
+            if clipQueueIndex != nil {
+                clipArrowButton(icon: "backward.end.fill", action: prevClipAction)
+                clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
             }
         }
-        .onAppear { playerControls.poke() }
     }
 
     private func rotatePlayer(toLandscape: Bool) {
@@ -1208,7 +1225,7 @@ struct MainTabView: View {
 
     /// Chat open: "Live-Chat" (VOD: "Chat-Wiedergabe") with ✕ back to the details; dragging it
     /// down reduces the player. Clip arrows and "back to live" stay reachable here.
-    private var chatHeader: some View {
+    private func chatHeader(landscape: Bool) -> some View {
         HStack(spacing: TSpace.sm) {
             Text(store.t(isLivePlaying ? "live_chat" : "chat_replay"))
                 .font(.headline).foregroundColor(.tText)
@@ -1237,7 +1254,9 @@ struct MainTabView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(store.t("chat_settings"))
-            Button { withAnimation { chatHidden = true } } label: {
+            Button {
+                withAnimation { if landscape { store.landscapeChat = .hidden } else { chatHidden = true } }
+            } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.tText)
@@ -1247,13 +1266,15 @@ struct MainTabView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(store.t("chat_hide"))
         }
-        .padding(.leading, TSpace.lg)
+        .padding(.leading, landscape ? TSpace.md : TSpace.lg)
         .padding(.trailing, TSpace.xs)
         .frame(height: 48)
         .background(Color.tDark)
         .overlay(alignment: .bottom) { Divider().background(Color.tBorder) }
         .contentShape(Rectangle())
-        .gesture(topBarPull)
+        // Pulling the header down reduces the player (portrait only: beside the video it isn't
+        // between video and chat).
+        .gesture(topBarPull, including: landscape ? .subviews : .all)
     }
 
     /// Chat closed: a card under the details that opens it (YouTube's live chat card).
