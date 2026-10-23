@@ -321,19 +321,23 @@ struct PlayerControlsOverlay: View {
             }
             Spacer(minLength: 0)
             AirPlayButton()
-                .frame(width: 32, height: 32)
+                .frame(width: 44, height: 44)
+            // 44 pt and the whole square tappable: with the plain style only the thin arrow
+            // strokes took the tap, a finger landed beside them and only hid the controls.
             Button(action: onFullscreen) {
                 Image(systemName: landscape ? "arrow.down.right.and.arrow.up.left"
                                             : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(store.t(landscape ? "rotate_portrait" : "rotate_landscape"))
         }
-        // Lined up with the bar's ends below.
-        .padding(.horizontal, PlayerScrubBar.inset(landscape) - 6)
+        // Lined up with the bar's ends below (the 44 pt buttons' glyphs, not their frames).
+        .padding(.leading, PlayerScrubBar.inset(landscape) - 6)
+        .padding(.trailing, PlayerScrubBar.inset(landscape) - 14)
     }
 }
 
