@@ -202,17 +202,21 @@ struct PlayerControlsOverlay: View {
         // Tap zones and the bottom strip side by side, never on top of each other: laid over
         // one another, the zones took the bar's touches.
         VStack(spacing: 0) {
-            ZStack {
-                tapZones
-                if model.visible { centerButtons.transition(.opacity) }
-                rippleLabel
-            }
+            tapZones
             if model.visible {
                 bottomRow.transition(.opacity)
                     .background(Color.black.opacity(0.001).onTapGesture { model.toggle() })
             }
             PlayerScrubBar(model: model, clock: model.clock, isLive: isLive,
                            expanded: model.visible, landscape: landscape)
+        }
+        // Middle buttons and the ±10 s flash over the whole picture, so they sit at its centre:
+        // inside the tap area above the bottom strip they ended up too high.
+        .overlay {
+            ZStack {
+                if model.visible { centerButtons.transition(.opacity) }
+                rippleLabel
+            }
         }
         .background {
             if model.visible {
