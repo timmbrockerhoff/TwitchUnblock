@@ -819,6 +819,7 @@ struct VideoPlayerView: View {
     var landscape = false
     var onFullscreen: () -> Void = {}
     var onSettings: () -> Void = {}
+    var onReduce: (() -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -899,7 +900,8 @@ struct VideoPlayerView: View {
         .overlay {
             if let controls {
                 PlayerControlsOverlay(model: controls, isLive: isLive, landscape: landscape,
-                                      onFullscreen: onFullscreen, onSettings: onSettings)
+                                      onFullscreen: onFullscreen, onSettings: onSettings,
+                                      onReduce: onReduce)
             }
         }
         .overlay(alignment: .topLeading) {

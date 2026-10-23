@@ -194,6 +194,8 @@ struct PlayerControlsOverlay: View {
     let onFullscreen: () -> Void
     /// The gear top right: the player's settings sheet.
     var onSettings: () -> Void = {}
+    /// The chevron top left (portrait, no header above the video): reduce to the mini player.
+    var onReduce: (() -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     /// Side of the last double tap (−1 left, +1 right), for its "10 Sekunden" flash.
@@ -218,6 +220,24 @@ struct PlayerControlsOverlay: View {
             ZStack {
                 if model.visible { centerButtons.transition(.opacity) }
                 rippleLabel
+            }
+        }
+        // Reduce top left in the video, as on YouTube.
+        .overlay(alignment: .topLeading) {
+            if model.visible, let onReduce {
+                Button(action: onReduce) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 3)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(store.t("reduce"))
+                .padding(.leading, PlayerScrubBar.inset(landscape) - 14)
+                .padding(.top, 4)
+                .transition(.opacity)
             }
         }
         // AirPlay and settings top right in the video, as on YouTube.

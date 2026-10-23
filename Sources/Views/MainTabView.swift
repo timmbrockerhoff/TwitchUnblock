@@ -694,8 +694,9 @@ struct MainTabView: View {
             VStack(spacing: 0) {
                 // En immersif, la barre est dessinée par-dessus l'image par le
                 // lecteur lui-même : pas de bandeau séparé ici.
-                // Landscape with Apple's player: the bar floats over the video instead.
-                if (!store.immersivePlayer && !split) || chatOnly {
+                // Native player: no header above the video (as on YouTube) — reduce sits in the
+                // video, the stream's details under it; landscape floats its own header.
+                if chatOnly {
                     playerTopBar(landscape: split)
                 }
                 if !chatOnly {
@@ -711,6 +712,10 @@ struct MainTabView: View {
                         // Full height (status bar and home indicator areas); the sides keep
                         // their safe area so the Dynamic Island never covers the picture.
                         .ignoresSafeArea(split ? .all : [], edges: .vertical)
+                }
+                // Chat shown: the stream in one line between video and chat.
+                if !split && !chatOnly && !store.immersivePlayer && !chatHidden {
+                    playerInfoStrip
                 }
             }
             .frame(maxWidth: .infinity)
@@ -929,7 +934,8 @@ struct MainTabView: View {
                 controls: playerControls,
                 landscape: landscape,
                 onFullscreen: { rotatePlayer(toLandscape: !landscape) },
-                onSettings: { showPlayerSettings = true }
+                onSettings: { showPlayerSettings = true },
+                onReduce: landscape ? nil : { reducePlayer() }
             )
         }
     }
@@ -1141,56 +1147,149 @@ struct MainTabView: View {
     }
 
     /// Portrait with the chat hidden: who and what is on, like the info under a YouTube video.
+    /// Under the video with the chat hidden, as on YouTube: title, one grey line of details,
+    /// the channel, then the actions as capsules.
     private var streamInfo: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: TSpace.md) {
-                HStack(spacing: TSpace.md) {
-                    AsyncImage(url: URL(string: liveAvatar ?? "")) { img in
-                        img.resizable().scaledToFill()
-                    } placeholder: {
-                        Image(systemName: "person.crop.circle.fill").resizable()
-                            .foregroundColor(.tMuted)
-                    }
-                    .frame(width: 44, height: 44)
-                    .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(currentChannelName ?? playerChannelLogin ?? "")
-                            .font(.headline).foregroundColor(.tText)
-                        HStack(spacing: TSpace.md) {
-                            if isLivePlaying, let start = liveStartedAt {
-                                LiveUptimeLabel(startedAt: start) { uptime in
-                                    TMeta(icon: "dot.radiowaves.left.and.right", text: uptime, tint: .tLive)
-                                }
-                            }
-                            if isLivePlaying, liveViewerCount > 0 {
-                                TMeta(icon: "eye.fill", text: formatViewers(liveViewerCount))
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
                 Text(statusTitle)
-                    .font(.body).foregroundColor(.tText)
+                    .font(.title3.weight(.bold)).foregroundColor(.tText)
+                    .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
-                if !liveGame.isEmpty {
-                    Text(liveGame)
-                        .font(.footnote.weight(.semibold)).foregroundColor(.tText)
-                        .padding(.horizontal, 10).padding(.vertical, 4)
-                        .background(Color.tSurface, in: Capsule())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isLivePlaying || !liveGame.isEmpty {
+                    detailsLine(font: .footnote)
                 }
-                if let login = playerChannelLogin {
-                    Button { store.openChannelPage(login) } label: {
-                        Label(store.t("see_channel"), systemImage: "person.crop.square")
+                HStack(spacing: TSpace.md) {
+                    playerAvatar(40)
+                    Text(currentChannelName ?? playerChannelLogin ?? "")
+                        .font(.headline).foregroundColor(.tText).lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let login = playerChannelLogin {
+                        Button(store.t("channel_short")) { store.openChannelPage(login) }
+                            .font(.subheadline.weight(.semibold))
+                            .tProminentStyle()
+                            .tCapsuleShape()
+                            .tint(.tPrimary)
                     }
-                    .tBorderedStyle()
-                    .tCapsuleShape()
-                    .tint(.tPrimary)
                 }
+                // Edge to edge, so the row scrolls out under the screen edge instead of being cut.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: TSpace.sm) { playerActionChips }
+                        .padding(.horizontal, TSpace.lg)
+                }
+                .padding(.horizontal, -TSpace.lg)
             }
             .padding(TSpace.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.tDark)
+    }
+
+    /// Chat shown: avatar, name and the details in one line; a tap hides the chat for the full
+    /// details. Pulling it down reduces the player.
+    private var playerInfoStrip: some View {
+        HStack(spacing: TSpace.sm) {
+            playerAvatar(28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(currentChannelName ?? playerChannelLogin ?? statusTitle)
+                    .font(.subheadline.weight(.semibold)).foregroundColor(.tText).lineLimit(1)
+                detailsLine(font: .caption)
+            }
+            Spacer(minLength: 0)
+            if let backLive = backToLiveAction {
+                Button(action: backLive) {
+                    Label(store.t("live_badge"), systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption.weight(.bold))
+                }
+                .tProminentStyle().tCapsuleShape().controlSize(.small).tint(.tLive)
+                .accessibilityLabel(store.t("back_to_live_full"))
+            }
+            if clipQueueIndex != nil {
+                clipArrowButton(icon: "backward.end.fill", action: prevClipAction)
+                clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
+            }
+            Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundColor(.tMuted)
+        }
+        .padding(.horizontal, TSpace.lg)
+        .padding(.vertical, TSpace.sm)
+        .background(Color.tDark)
+        .overlay(alignment: .bottom) { Divider().background(Color.tBorder) }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation { chatHidden = true } }
+        .gesture(topBarPull)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(store.t("chat_hide"))
+    }
+
+    private func playerAvatar(_ size: CGFloat) -> some View {
+        AsyncImage(url: URL(string: liveAvatar ?? "")) { img in
+            img.resizable().scaledToFill()
+        } placeholder: {
+            Image(systemName: "person.crop.circle.fill").resizable().foregroundColor(.tMuted)
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
+    }
+
+    /// "6.3k Zuschauer · ● 3:15:11 · Dark Souls" (live) or the category (VOD), in grey.
+    @ViewBuilder private func detailsLine(font: Font) -> some View {
+        let game = liveGame.isEmpty ? nil : liveGame
+        if isLivePlaying, let start = liveStartedAt {
+            LiveUptimeLabel(startedAt: start) { uptime in
+                (Text(liveViewerCount > 0 ? "\(formatViewers(liveViewerCount)) \(store.t("viewers")) · " : "")
+                 + Text("● ").foregroundColor(.tLive)
+                 + Text(uptime)
+                 + Text(game.map { " · \($0)" } ?? ""))
+                    .font(font).foregroundColor(.tMuted).lineLimit(1)
+            }
+        } else if let game {
+            Text(game).font(font).foregroundColor(.tMuted).lineLimit(1)
+        }
+    }
+
+    /// Actions under the details, as YouTube's capsule row.
+    @ViewBuilder private var playerActionChips: some View {
+        actionChip(store.t("chat_show"), "bubble.left.and.bubble.right") { withAnimation { chatHidden = false } }
+        if let multiLive = multiLiveAction {
+            // Short label; a filled icon and checkmark say it is in the multi-live.
+            actionChip(store.t("multi_title"),
+                       menuMultiLiveOn ? "checkmark.rectangle.stack.fill" : "rectangle.split.2x2", action: multiLive)
+                .accessibilityLabel(store.t(menuMultiLiveOn ? "multi_remove" : "multi_add"))
+        }
+        if let url = shareURL {
+            ShareLink(item: url) {
+                Label(store.t("share"), systemImage: "square.and.arrow.up").font(.subheadline.weight(.semibold))
+            }
+            .tBorderedStyle().tCapsuleShape().tint(.secondary)
+        }
+        if let download = downloadAction {
+            actionChip(store.t("dl_download"), "arrow.down.circle", action: download)
+        }
+        if let backLive = backToLiveAction {
+            actionChip(store.t("back_to_live_full"), "dot.radiowaves.left.and.right", action: backLive)
+        }
+        if sleepTimer.isActive {
+            actionChip(sleepTimer.label, "moon.zzz.fill") { showSleepSheet = true }
+        }
+        if clipQueueIndex != nil {
+            clipArrowButton(icon: "backward.end.fill", action: prevClipAction)
+            clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
+        }
+    }
+
+    private func actionChip(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+        }
+        .tBorderedStyle().tCapsuleShape().tint(.secondary)
+    }
+
+    /// Twitch link of what plays (channel live, or the VOD).
+    private var shareURL: URL? {
+        if !linksAreLive, let id = currentVodId { return URL(string: "https://www.twitch.tv/videos/\(id)") }
+        return playerChannelLogin.flatMap { URL(string: "https://www.twitch.tv/\($0)") }
     }
 
     /// Previous / next clip arrow of the top bar; dimmed at the list's ends.
