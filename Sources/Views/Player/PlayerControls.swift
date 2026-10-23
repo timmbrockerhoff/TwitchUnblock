@@ -212,7 +212,7 @@ struct PlayerControlsOverlay: View {
                     .background(Color.black.opacity(0.001).onTapGesture { model.toggle() })
             }
             PlayerScrubBar(model: model, clock: model.clock, isLive: isLive,
-                           expanded: model.visible)
+                           expanded: model.visible, landscape: landscape)
         }
         .background {
             if model.visible {
@@ -328,8 +328,8 @@ struct PlayerControlsOverlay: View {
             .buttonStyle(.plain)
             .accessibilityLabel(store.t(landscape ? "rotate_portrait" : "rotate_landscape"))
         }
-        .padding(.horizontal, TSpace.md)
-        .padding(.bottom, 2)
+        // Lined up with the bar's ends below.
+        .padding(.horizontal, PlayerScrubBar.inset(landscape) - 6)
     }
 }
 
@@ -385,33 +385,46 @@ private struct PlayerScrubBar: View {
     @ObservedObject var clock: PlayerClock
     let isLive: Bool
     let expanded: Bool
+    let landscape: Bool
     @State private var dragging: Double? = nil
+
+    /// Controls shown: the track sits clear of the screen edges (at the very edge it was hard
+    /// to grab, and its ends were out of reach), in a 44 pt tall touch strip, as on YouTube.
+    static func inset(_ landscape: Bool) -> CGFloat { landscape ? 28 : 18 }
+    private static let strip: CGFloat = 44
+    /// Space under the strip: the home indicator in landscape.
+    private var bottomGap: CGFloat { landscape ? 14 : 0 }
 
     private var span: Double { max(0.001, clock.end - clock.start) }
 
     var body: some View {
+        let shown = expanded || dragging != nil
         GeometryReader { geo in
             let w = geo.size.width
+            let inset = shown ? Self.inset(landscape) : 0
+            let track = max(1, w - inset * 2)
             let current = isLive && clock.end - clock.time < PlayerControlsModel.edgeSlack
                 ? 1 : (clock.time - clock.start) / span
             let fraction = max(0, min(1, dragging ?? current))
-            let shown = expanded || dragging != nil
             let thick = dragging != nil
-            ZStack(alignment: .bottomLeading) {
-                // The drag area: the whole strip, on top of everything under it.
+            let line: CGFloat = shown ? (thick ? 6 : 4) : 3
+            let knob: CGFloat = thick ? 22 : 14
+            // Line centred in the strip when shown; hidden, a thin line on the video's edge.
+            let lineY = shown ? Self.strip / 2 : geo.size.height - line / 2
+            ZStack(alignment: .topLeading) {
                 Color.clear
-                Rectangle().fill(Color.white.opacity(shown ? 0.3 : 0.2))
-                    .frame(height: thick ? 5 : 3)
-                Rectangle().fill(Color.tPrimary)
-                    .frame(width: w * fraction, height: thick ? 5 : 3)
+                Capsule().fill(Color.white.opacity(shown ? 0.3 : 0.2))
+                    .frame(width: track, height: line)
+                    .position(x: inset + track / 2, y: lineY)
+                Capsule().fill(Color.tPrimary)
+                    .frame(width: max(line, track * fraction), height: line)
+                    .position(x: inset + max(line, track * fraction) / 2, y: lineY)
                 if shown {
                     Circle().fill(Color.tPrimary)
-                        .frame(width: thick ? 18 : 12, height: thick ? 18 : 12)
-                        .offset(x: w * fraction - (thick ? 9 : 6), y: thick ? 6.5 : 4.5)
+                        .frame(width: knob, height: knob)
+                        .shadow(color: .black.opacity(0.3), radius: 2)
+                        .position(x: inset + track * fraction, y: lineY)
                 }
-            }
-            .frame(width: w, height: geo.size.height, alignment: .bottomLeading)
-            .overlay(alignment: .topLeading) {
                 if let d = dragging {
                     Text(bubble(d))
                         .font(.footnote.weight(.semibold).monospacedDigit())
@@ -419,15 +432,16 @@ private struct PlayerScrubBar: View {
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Capsule().fill(Color.black.opacity(0.75)))
                         .fixedSize()
-                        .position(x: min(max(w * d, 40), w - 40), y: -14)
+                        .position(x: min(max(inset + track * d, 44), w - 44), y: lineY - 30)
                         .allowsHitTesting(false)
                 }
             }
+            .frame(width: w, height: geo.size.height)
             .contentShape(Rectangle())
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        dragging = max(0, min(1, v.location.x / max(1, w)))
+                        dragging = max(0, min(1, (v.location.x - inset) / track))
                         model.poke()
                     }
                     .onEnded { _ in
@@ -440,8 +454,10 @@ private struct PlayerScrubBar: View {
             .allowsHitTesting(shown)
             .opacity(shown || !isLive ? 1 : 0)
         }
-        .frame(height: 32)
+        .frame(height: shown ? Self.strip + bottomGap : 3)
+        .animation(.easeOut(duration: 0.15), value: dragging != nil)
     }
+
     /// Target while dragging, as a time in the broadcast or VOD ("1:20:00"); "Live" at the edge.
     private func bubble(_ fraction: Double) -> String {
         let t = clock.start + fraction * span
