@@ -35,31 +35,24 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
     var adBreaks: AdBreakWatcher? = nil
     /// Lecture en cours ou non (pause, fin, échec), à chaque changement.
     var onPlaying: (Bool) -> Void = { _ in }
-    /// Tap on the video, seen alongside Apple's own (which shows its controls).
-    var onTap: (() -> Void)? = nil
-    /// Bumped to jump to the live edge (header LIVE pill); applied once per value.
-    var goLiveRequest = 0
+    /// Our own controls (PlayerControls.swift): they follow each new AVPlayer.
+    var controls: PlayerControlsModel? = nil
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let vc = AVPlayerViewController()
         vc.allowsPictureInPicturePlayback = true
         vc.canStartPictureInPictureAutomaticallyFromInline = true
-        vc.showsPlaybackControls = true
-        // Apple's "⋯" in the bar only held Live Text (frame analysis); off, the button goes.
+        // Our own controls instead of Apple's (which can't show "-3:06:25 · Live"). Its view
+        // takes no touches either: it swallowed them even without controls, and the
+        // SwiftUI controls over it never saw a tap.
+        vc.showsPlaybackControls = false
+        vc.view.isUserInteractionEnabled = false
         vc.allowsVideoFrameAnalysis = false
         vc.delegate = context.coordinator
         context.coordinator.playerVC = vc
         context.coordinator.adBreaks = adBreaks
         context.coordinator.onSpeedChange = onSpeedChange
         context.coordinator.onPlaying = onPlaying
-        // SwiftUI gestures over the player never see its taps: a UIKit recognizer that
-        // runs together with AVKit's own.
-        context.coordinator.onTap = onTap
-        context.coordinator.lastGoLive = goLiveRequest
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
-        tap.cancelsTouchesInView = false
-        tap.delegate = context.coordinator
-        vc.view.addGestureRecognizer(tap)
         // Reprise : la progression enregistrée (une VOD vue jusqu'au bout
         // repart du début).
         startPlayer(in: vc, context: context, from: .init(seconds: savedTime, resume: true))
@@ -77,6 +70,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         let item = url.scheme == LiveDVRPlaylist.scheme ? LiveDVRPlaylist.playerItem(url: url)
                                                         : VodUnmuteLoader.playerItem(url: url)
         let player = AVPlayer(playerItem: item)
+        controls?.attach(player, isLive: isLive)
+        controls?.onUserSeek = { [weak coordinator] target in coordinator?.userSeeked(to: target) }
         // Le son continue écran verrouillé, comme dans le lecteur immersif.
         player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
         vc.player = player
@@ -116,14 +111,10 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         let coordinator = context.coordinator
         coordinator.onSpeedChange = onSpeedChange
         coordinator.onPlaying = onPlaying
-        coordinator.onTap = onTap
-        if goLiveRequest != coordinator.lastGoLive {
-            coordinator.lastGoLive = goLiveRequest
-            if let player = vc.player, let edge = player.currentItem?.seekableTimeRanges.last?.timeRangeValue.end,
-               edge.isNumeric {
-                player.seek(to: edge)
-                player.play()
-            }
+        // Speed from the "⋯" menu (Apple's speed menu went with its controls).
+        if !isLive, let player = vc.player, abs(VodSpeed.nearest(speed) - coordinator.speed) > 0.01 {
+            applySpeed(vc, player: player, context: context)
+            if player.rate > 0 { player.rate = Float(coordinator.speed) }
         }
         // Comparée à l'adresse demandée, pas à celle de l'élément : après un
         // repli AirPlay (playlist du CDN), elles différaient toujours, et le
@@ -158,12 +149,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate, UIGestureRecognizerDelegate {
-        var onTap: (() -> Void)?
-        var lastGoLive = 0
-        @objc func tapped() { onTap?() }
-        func gestureRecognizer(_ g: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
 
         weak var playerVC: AVPlayerViewController?
         private var timeObserver: Any?
@@ -198,6 +184,8 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         private var errorObserver: NSObjectProtocol?
         private var stallObserver: NSObjectProtocol?
         private var lastReopen = Date.distantPast
+        /// A seek of our controls: the buffering right after it is no dropped segment.
+        private var lastUserSeek = Date.distantPast
         /// Appel, Siri, autre app qui prend le son : la lecture repart à la
         /// fin (PlaybackInterruptions). nil une fois le lecteur fermé.
         var interruptions: PlaybackInterruptions?
@@ -343,6 +331,17 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
                            settled: Date().timeIntervalSince(lastCatchUp) > 4)
         }
 
+        /// Our controls are about to seek: no edge catch-up meanwhile (it seeked to the edge
+        /// while ours ran and cancelled it), and where it lands is a wanted position.
+        func userSeeked(to target: Double) {
+            lastCatchUp = Date()
+            lastUserSeek = Date()
+            guard let item = playerRef?.currentItem,
+                  let edge = item.seekableTimeRanges.last?.timeRangeValue.end, edge.isNumeric else { return }
+            let behind = edge.seconds - target
+            latency.userSeek(behind: behind.isFinite && behind > latency.minBehind(for: item) + 3)
+        }
+
         /// Les commandes d'AVPlayerViewController (−15 s, barre) ne passent pas
         /// par notre code : un saut loin du bord est un recul voulu, que la
         /// tenue du direct ne doit pas défaire. Les sauts du contrôleur, eux,
@@ -460,7 +459,9 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
             guard !tornDown, let player = playerRef, item === player.currentItem,
                   let url = (item.asset as? AVURLAsset)?.url, url.scheme == LiveDVRPlaylist.scheme,
                   Date().timeIntervalSince(lastReopen) > 30 else { return }
-            // Near the edge a stall is just the network: the live segments are still there.
+            // Near the edge a stall is just the network: the live segments are still there. Right
+            // after a seek of ours it is the new position loading (a reload took us back to live).
+            if item.status != .failed, Date().timeIntervalSince(lastUserSeek) < 20 { return }
             let at = item.currentDate()
             guard item.status == .failed || at.map({ Date().timeIntervalSince($0) > 3 * 60 }) == true,
                   let fresh = LiveDVRPlaylist.reopen(url) else { return }
@@ -812,8 +813,11 @@ struct VideoPlayerView: View {
     var onPlaying: (Bool) -> Void = { _ in }
     /// Annonce brève au lancement (direct servi par le compte, sans pub).
     var notice: String? = nil
-    var onTap: (() -> Void)? = nil
-    var goLiveRequest = 0
+    /// YouTube-style controls over the video (PlayerControls.swift), and the full-screen
+    /// button's action (landscape ↔ portrait).
+    var controls: PlayerControlsModel? = nil
+    var landscape = false
+    var onFullscreen: () -> Void = {}
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -884,11 +888,19 @@ struct VideoPlayerView: View {
                 playing = now
                 onPlaying(now && !isAudioQuality(playedQuality))
             },
-            onTap: onTap,
-            goLiveRequest: goLiveRequest
+            controls: controls
         )
+        // The UIKit player view takes no touches: they go to the controls laid over it
+        // (a UIKit view under a SwiftUI overlay otherwise keeps every touch).
+        .allowsHitTesting(controls == nil)
         .aspectRatio(16/9, contentMode: .fit)
         .background(Color.black)
+        .overlay {
+            if let controls {
+                PlayerControlsOverlay(model: controls, isLive: isLive, landscape: landscape,
+                                      onFullscreen: onFullscreen)
+            }
+        }
         .overlay(alignment: .topLeading) {
             if store.showLatency, isLive {
                 latencyChip.padding(8)

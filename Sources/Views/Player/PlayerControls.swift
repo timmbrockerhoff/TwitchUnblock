@@ -1,0 +1,438 @@
+import SwiftUI
+import AVFoundation
+import AVKit
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  YouTube-style controls over the native player (live and VODs).
+//
+//  Apple's own bar could not be shaped: for a live stream it shows the clock
+//  time, the LIVE badge had to sit in the header, and scrubbing or double taps
+//  were out of reach. These controls read and drive the AVPlayer themselves:
+//  red bar over the whole width, "-3:06:25 · ● Live" while behind (tap: back to
+//  live), "● Live" in red at the edge, "12:34 / 1:23:45" for a VOD, ±10 s and
+//  play/pause in the middle, double tap left/right = ±10 s, fade-out after 3 s.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Time of the player, apart from the visibility: it changes 4×/s and only the
+/// bar and labels watch it, not the screens around the player.
+@MainActor
+final class PlayerClock: ObservableObject {
+    @Published var time: Double = 0
+    @Published var start: Double = 0
+    @Published var end: Double = 0
+}
+
+/// Shown/hidden state and the player behind the controls (one per player screen).
+@MainActor
+final class PlayerControlsModel: ObservableObject {
+    @Published private(set) var visible = true
+    @Published private(set) var playing = false
+    @Published private(set) var buffering = false
+    let clock = PlayerClock()
+
+    private weak var player: AVPlayer?
+    private var timeObserver: Any?
+    private weak var observed: AVPlayer?
+    private var statusObs: NSKeyValueObservation?
+    private var hideTask: Task<Void, Never>?
+    private(set) var isLive = false
+    /// A seek of ours (bar, ±10 s, back to live) to this time: the live-edge keeping must
+    /// not undo it.
+    var onUserSeek: ((Double) -> Void)?
+
+    /// Live within this many seconds of the edge counts as live (the edge itself moves).
+    static let edgeSlack: Double = 8
+
+    // MARK: Player
+    /// A new AVPlayer (opening, other quality): follow it instead.
+    func attach(_ player: AVPlayer, isLive: Bool) {
+        detach()
+        self.player = player
+        self.isLive = isLive
+        observed = player
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4),
+                                                      queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        statusObs = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] p, _ in
+            let status = p.timeControlStatus
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.playing = status != .paused
+                self.buffering = status == .waitingToPlayAtSpecifiedRate
+                // Paused: the controls stay; playing again: they fade out.
+                if status == .paused { self.hideTask?.cancel() } else if self.visible { self.scheduleHide() }
+            }
+        }
+    }
+
+    func detach() {
+        if let o = timeObserver { observed?.removeTimeObserver(o) }
+        timeObserver = nil
+        statusObs = nil
+        observed = nil
+    }
+
+    private func tick() {
+        guard let player, let item = player.currentItem else { return }
+        let t = player.currentTime().seconds
+        var start = 0.0, end = 0.0
+        // All seekable ranges together: a recording joined to the live stream can come as two
+        // (a small gap between them), and the last one alone is just the live part.
+        let ranges = item.seekableTimeRanges.map(\.timeRangeValue)
+        if let first = ranges.first, let last = ranges.last, last.end.seconds > first.start.seconds {
+            start = first.start.seconds
+            end = last.end.seconds
+        }
+        if !isLive, item.duration.seconds.isFinite, item.duration.seconds > 0 {
+            start = 0
+            end = item.duration.seconds
+        }
+        guard t.isFinite else { return }
+        if abs(clock.time - t) > 0.05 { clock.time = t }
+        if clock.start != start { clock.start = start }
+        if clock.end != end { clock.end = end }
+    }
+
+    // MARK: Commands
+    func togglePlay() {
+        guard let player else { return }
+        if player.timeControlStatus == .paused {
+            // A VOD at its end starts over.
+            if !isLive, clock.end > 0, clock.time >= clock.end - 0.5 { player.seek(to: .zero) }
+            player.play()
+        } else {
+            player.pause()
+        }
+        poke()
+    }
+
+    func seek(to t: Double) {
+        guard let player else { return }
+        let target = max(clock.start, min(clock.end, t))
+        clock.time = target
+        onUserSeek?(target)
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func skip(_ seconds: Double) {
+        seek(to: clock.time + seconds)
+    }
+
+    func goLive() {
+        guard let player, let edge = player.currentItem?.seekableTimeRanges.last?.timeRangeValue.end,
+              edge.isNumeric else { return }
+        clock.time = edge.seconds
+        onUserSeek?(edge.seconds)
+        player.seek(to: edge)
+        player.play()
+        poke()
+    }
+
+    /// Seconds behind the live edge (0 at the edge).
+    var behind: Double { max(0, clock.end - clock.time) }
+
+    // MARK: Visibility
+    /// Tap on the picture: show, or hide when shown.
+    func toggle() {
+        if visible { hide() } else { poke() }
+    }
+
+    /// Shown, and the fade-out timer restarted (any touch on the controls).
+    func poke() {
+        if !visible { withAnimation(.easeInOut(duration: 0.2)) { visible = true } }
+        scheduleHide()
+    }
+
+    func hide() {
+        hideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.25)) { visible = false }
+    }
+
+    private func scheduleHide() {
+        hideTask?.cancel()
+        guard playing else { return }
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let self, self.playing else { return }
+            self.hide()
+        }
+    }
+}
+
+/// Clock time as YouTube writes it: "5:03", "1:05:03".
+func playerClockText(_ seconds: Double) -> String {
+    let s = Int(max(0, seconds).rounded(.down))
+    let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
+}
+
+// MARK: – Overlay
+struct PlayerControlsOverlay: View {
+    @ObservedObject var model: PlayerControlsModel
+    let isLive: Bool
+    let landscape: Bool
+    let onFullscreen: () -> Void
+
+    @EnvironmentObject private var store: AppStore
+    /// Side of the last double tap (−1 left, +1 right), for its "10 Sekunden" flash.
+    @State private var ripple: Int? = nil
+    @State private var rippleTask: Task<Void, Never>? = nil
+
+    var body: some View {
+        // Tap zones and the bottom strip side by side, never on top of each other: laid over
+        // one another, the zones took the bar's touches.
+        VStack(spacing: 0) {
+            ZStack {
+                tapZones
+                if model.visible { centerButtons.transition(.opacity) }
+                rippleLabel
+            }
+            if model.visible {
+                bottomRow.transition(.opacity)
+                    .background(Color.black.opacity(0.001).onTapGesture { model.toggle() })
+            }
+            PlayerScrubBar(model: model, clock: model.clock, isLive: isLive,
+                           expanded: model.visible)
+        }
+        .background {
+            if model.visible {
+                LinearGradient(colors: [.black.opacity(0.45), .black.opacity(0.1), .black.opacity(0.55)],
+                               startPoint: .top, endPoint: .bottom)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: Taps
+    /// Left and right halves: one tap shows/hides the controls, two taps skip 10 s.
+    private var tapZones: some View {
+        HStack(spacing: 0) {
+            tapZone(side: -1)
+            tapZone(side: 1)
+        }
+    }
+
+    private func tapZone(side: Int) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                // Live at the edge: nothing ahead.
+                if side > 0, isLive, model.behind < PlayerControlsModel.edgeSlack { return }
+                model.skip(Double(side) * 10)
+                flash(side)
+            }
+            .onTapGesture { model.toggle() }
+    }
+
+    private func flash(_ side: Int) {
+        rippleTask?.cancel()
+        withAnimation(.easeOut(duration: 0.15)) { ripple = side }
+        rippleTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.25)) { ripple = nil }
+        }
+    }
+
+    @ViewBuilder private var rippleLabel: some View {
+        if let side = ripple {
+            HStack {
+                if side > 0 { Spacer() }
+                VStack(spacing: 4) {
+                    Image(systemName: side < 0 ? "backward.fill" : "forward.fill")
+                    Text(store.t("player_ten_seconds")).font(.caption.weight(.semibold))
+                }
+                .foregroundColor(.white)
+                .padding(TSpace.lg)
+                .background(Circle().fill(Color.white.opacity(0.18)).padding(-TSpace.lg))
+                .frame(maxWidth: .infinity)
+                if side < 0 { Spacer() }
+            }
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: Middle
+    private var centerButtons: some View {
+        HStack(spacing: landscape ? 56 : 36) {
+            roundButton(icon: "gobackward.10", size: 44) { model.skip(-10); model.poke() }
+                .accessibilityLabel(store.t("player_back_10"))
+            Group {
+                if model.buffering {
+                    ProgressView().tint(.white).controlSize(.large)
+                        .frame(width: 60, height: 60)
+                } else {
+                    roundButton(icon: model.playing ? "pause.fill" : "play.fill", size: 60) { model.togglePlay() }
+                        .accessibilityLabel(store.t(model.playing ? "pause" : "play"))
+                }
+            }
+            roundButton(icon: "goforward.10", size: 44) { model.skip(10); model.poke() }
+                .accessibilityLabel(store.t("player_forward_10"))
+                // Live at the edge: nothing ahead.
+                .opacity(isLive && model.behind < PlayerControlsModel.edgeSlack ? 0.35 : 1)
+                .disabled(isLive && model.behind < PlayerControlsModel.edgeSlack)
+        }
+    }
+
+    private func roundButton(icon: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.4, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: size, height: size)
+                .tGlass(in: Circle(), fallback: .black.opacity(0.35), clear: true)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Bottom
+    private var bottomRow: some View {
+        HStack(spacing: TSpace.sm) {
+            if isLive {
+                LiveTimeLabel(model: model, clock: model.clock)
+            } else {
+                VodTimeLabel(clock: model.clock)
+            }
+            Spacer(minLength: 0)
+            AirPlayButton()
+                .frame(width: 32, height: 32)
+            Button(action: onFullscreen) {
+                Image(systemName: landscape ? "arrow.down.right.and.arrow.up.left"
+                                            : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.t(landscape ? "rotate_portrait" : "rotate_landscape"))
+        }
+        .padding(.horizontal, TSpace.md)
+        .padding(.bottom, 2)
+    }
+}
+
+/// "-3:06:25 · ● Live" behind, "● Live" (red dot) at the edge; the chip jumps to live.
+private struct LiveTimeLabel: View {
+    @ObservedObject var model: PlayerControlsModel
+    @ObservedObject var clock: PlayerClock
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        let behind = max(0, clock.end - clock.time)
+        let atEdge = behind < PlayerControlsModel.edgeSlack
+        HStack(spacing: TSpace.sm) {
+            if !atEdge {
+                Text("-" + playerClockText(behind))
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+                    .foregroundColor(.white)
+            }
+            Button { if !atEdge { model.goLive() } } label: {
+                HStack(spacing: 5) {
+                    Circle().fill(atEdge ? Color.tLive : Color.white.opacity(0.6)).frame(width: 7, height: 7)
+                    Text(store.t("live_short")).font(.footnote.weight(.semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(Capsule().fill(Color.black.opacity(atEdge ? 0 : 0.35)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.t(atEdge ? "live_on" : "back_to_live_full"))
+        }
+    }
+}
+
+/// "12:34 / 1:23:45".
+private struct VodTimeLabel: View {
+    @ObservedObject var clock: PlayerClock
+
+    var body: some View {
+        (Text(playerClockText(clock.time)).foregroundColor(.white)
+         + Text(" / " + playerClockText(clock.end)).foregroundColor(.white.opacity(0.7)))
+            .font(.footnote.weight(.semibold).monospacedDigit())
+    }
+}
+
+// MARK: – Bar
+/// Bar over the whole width at the video's bottom edge, in the app's purple; dragged, it
+/// thickens, shows a bubble with the target and jumps there on release. Hidden controls:
+/// a thin line only (VODs), touches go to the picture.
+private struct PlayerScrubBar: View {
+    @ObservedObject var model: PlayerControlsModel
+    @ObservedObject var clock: PlayerClock
+    let isLive: Bool
+    let expanded: Bool
+    @State private var dragging: Double? = nil
+
+    private var span: Double { max(0.001, clock.end - clock.start) }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let current = isLive && clock.end - clock.time < PlayerControlsModel.edgeSlack
+                ? 1 : (clock.time - clock.start) / span
+            let fraction = max(0, min(1, dragging ?? current))
+            let shown = expanded || dragging != nil
+            let thick = dragging != nil
+            ZStack(alignment: .bottomLeading) {
+                // The drag area: the whole strip, on top of everything under it.
+                Color.clear
+                Rectangle().fill(Color.white.opacity(shown ? 0.3 : 0.2))
+                    .frame(height: thick ? 5 : 3)
+                Rectangle().fill(Color.tPrimary)
+                    .frame(width: w * fraction, height: thick ? 5 : 3)
+                if shown {
+                    Circle().fill(Color.tPrimary)
+                        .frame(width: thick ? 18 : 12, height: thick ? 18 : 12)
+                        .offset(x: w * fraction - (thick ? 9 : 6), y: thick ? 6.5 : 4.5)
+                }
+            }
+            .frame(width: w, height: geo.size.height, alignment: .bottomLeading)
+            .overlay(alignment: .topLeading) {
+                if let d = dragging {
+                    Text(bubble(d))
+                        .font(.footnote.weight(.semibold).monospacedDigit())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color.black.opacity(0.75)))
+                        .fixedSize()
+                        .position(x: min(max(w * d, 40), w - 40), y: -14)
+                        .allowsHitTesting(false)
+                }
+            }
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        dragging = max(0, min(1, v.location.x / max(1, w)))
+                        model.poke()
+                    }
+                    .onEnded { _ in
+                        if let d = dragging { model.seek(to: clock.start + d * span) }
+                        dragging = nil
+                        model.poke()
+                    },
+                including: shown ? .all : .none
+            )
+            .allowsHitTesting(shown)
+            .opacity(shown || !isLive ? 1 : 0)
+        }
+        .frame(height: 32)
+    }
+    /// Target while dragging: "-1:20:00" behind live, "34:10" in a VOD.
+    private func bubble(_ fraction: Double) -> String {
+        let t = clock.start + fraction * span
+        if isLive {
+            let behind = clock.end - t
+            return behind < PlayerControlsModel.edgeSlack ? "Live" : "-" + playerClockText(behind)
+        }
+        return playerClockText(t)
+    }
+}
+
+
+
+

@@ -63,6 +63,14 @@ struct LiveLatencyController {
         driftSince = nil
     }
 
+    /// The viewer seeked (our own controls): their position counts, the start alignment is
+    /// over (on a stream opened at the edge it had not run yet, and undid the first seek).
+    mutating func userSeek(behind: Bool) {
+        aligned = true
+        holdingBehind = behind
+        driftSince = nil
+    }
+
     /// Retard visé par rapport au bord jouable. Le recul recommandé par AVPlayer
     /// vaut trois fois la durée cible de la playlist : 18 s sur une playlist
     /// Twitch d'origine (cible plafonnée à 8 s), 6 s sur une playlist réécrite
@@ -123,7 +131,7 @@ struct LiveLatencyController {
                 // Trop près : on recule tout de suite au-dessus du plancher.
                 // Tolérance avant seulement : on peut atterrir plus loin du
                 // bord, jamais plus près.
-                lastFloorSeek = Date()
+                        lastFloorSeek = Date()
                 lastJumpAt = Date()
                 driftSince = nil
                 let back = CMTime(seconds: Self.minDelay + 0.5 - total, preferredTimescale: 600)
