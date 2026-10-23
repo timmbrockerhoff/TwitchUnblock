@@ -115,7 +115,9 @@ English, short, explaining *why*.
   still only mute + banner.
   Controls (2026-10-23): our own YouTube-style overlay (`PlayerControls.swift`) instead of
   Apple's (`showsPlaybackControls = false`, the UIKit view takes no touches): purple bar over the
-  video's bottom edge (all seekable ranges), "-h:mm:ss · ● Live" (grey dot, tap = live edge) /
+  video's bottom edge (all seekable ranges), behind live "position / length so far · ● Live"
+  (grey dot, tap = live edge; "-0:10" stood still and looked frozen; the edge advances with the
+  clock between playlist reloads, "at the edge" < 5 s) /
   "● Live" red at the edge, VOD "t / total", ±10 s + play/pause, double tap ±10 s, fullscreen =
   `rotatePlayer`, fade-out 3 s while playing; speed moved to the header ⋯ menu. Our seeks call
   `Coordinator.userSeeked(to:)` so the edge catch-up (`LiveLatencyController.userSeek`) and the

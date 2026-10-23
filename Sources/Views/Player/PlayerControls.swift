@@ -8,7 +8,7 @@ import AVKit
 //  Apple's own bar could not be shaped: for a live stream it shows the clock
 //  time, the LIVE badge had to sit in the header, and scrubbing or double taps
 //  were out of reach. These controls read and drive the AVPlayer themselves:
-//  red bar over the whole width, "-3:06:25 · ● Live" while behind (tap: back to
+//  red bar over the whole width, "2:21:36 / 2:21:46 · ● Live" while behind (tap: back to
 //  live), "● Live" in red at the edge, "12:34 / 1:23:45" for a VOD, ±10 s and
 //  play/pause in the middle, double tap left/right = ±10 s, fade-out after 3 s.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -333,7 +333,7 @@ struct PlayerControlsOverlay: View {
     }
 }
 
-/// "-3:06:25 · ● Live" behind, "● Live" (red dot) at the edge; the chip jumps to live.
+/// "2:21:36 / 2:21:46 · ● Live" behind, "● Live" (red dot) at the edge; the chip jumps to live.
 private struct LiveTimeLabel: View {
     @ObservedObject var model: PlayerControlsModel
     @ObservedObject var clock: PlayerClock
@@ -344,10 +344,11 @@ private struct LiveTimeLabel: View {
         let atEdge = behind < PlayerControlsModel.edgeSlack
         HStack(spacing: TSpace.sm) {
             if !atEdge {
-                // Rounded: the smoothed edge still wobbles by a fraction of a second.
-                Text("-" + playerClockText(behind.rounded()))
+                // Where in the broadcast / its length so far, both running on like a VOD's: the
+                // distance to live ("-0:10") stays put while watching and looked frozen.
+                (Text(playerClockText(clock.time - clock.start)).foregroundColor(.white)
+                 + Text(" / " + playerClockText(clock.end - clock.start)).foregroundColor(.white.opacity(0.7)))
                     .font(.footnote.weight(.semibold).monospacedDigit())
-                    .foregroundColor(.white)
             }
             Button { if !atEdge { model.goLive() } } label: {
                 HStack(spacing: 5) {
@@ -441,14 +442,11 @@ private struct PlayerScrubBar: View {
         }
         .frame(height: 32)
     }
-    /// Target while dragging: "-1:20:00" behind live, "34:10" in a VOD.
+    /// Target while dragging, as a time in the broadcast or VOD ("1:20:00"); "Live" at the edge.
     private func bubble(_ fraction: Double) -> String {
         let t = clock.start + fraction * span
-        if isLive {
-            let behind = clock.end - t
-            return behind < PlayerControlsModel.edgeSlack ? "Live" : "-" + playerClockText(behind)
-        }
-        return playerClockText(t)
+        if isLive, clock.end - t < PlayerControlsModel.edgeSlack { return "Live" }
+        return playerClockText(t - clock.start)
     }
 }
 
