@@ -76,6 +76,7 @@ struct MainTabView: View {
     /// Settings sheet of the native player (gear in the video).
     @State private var showPlayerSettings = false
     @State private var playerIsLandscape = false
+    @State private var showChatSettings = false
     @State private var showSettings    = false
     @State private var showPlayerMenu  = false
     /// Qualité retenue par le lecteur immersif (vide = meilleure disponible).
@@ -330,6 +331,9 @@ struct MainTabView: View {
                     .transition(.opacity)
             }
         }
+        .sheet(isPresented: $showChatSettings) {
+            ChatSettingsSheet().environmentObject(store)
+        }
         .sheet(isPresented: $showPlayerSettings) {
             let landscape = playerIsLandscape
             PlayerSettingsSheet(
@@ -545,12 +549,13 @@ struct MainTabView: View {
     /// (SwiftUI refuse une seconde feuille, « Mes signalements » ne s'ouvrait
     /// pas). Tout se ferme, puis l'action part une fois la fermeture finie.
     private func afterClosingPresentations(_ action: @escaping () -> Void) {
-        let open = showSettings || showPlayerMenu || showPlayerSettings || clipFeed != nil
+        let open = showSettings || showPlayerMenu || showPlayerSettings || showChatSettings || clipFeed != nil
             || showDownloadSheet || showSleepSheet || channelSheet != nil || showMultiLive
         guard open else { action(); return }
         showSettings = false
         showPlayerMenu = false
         showPlayerSettings = false
+        showChatSettings = false
         clipFeed = nil
         showDownloadSheet = false
         showSleepSheet = false
@@ -1205,6 +1210,16 @@ struct MainTabView: View {
                 clipArrowButton(icon: "backward.end.fill", action: prevClipAction)
                 clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
             }
+            // What the chat shows, switched right here (as the player's gear does for the video).
+            Button { showChatSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.tText)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.t("chat_settings"))
             Button { withAnimation { chatHidden = true } } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .semibold))
