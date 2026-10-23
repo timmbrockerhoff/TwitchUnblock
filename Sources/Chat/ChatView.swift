@@ -16,6 +16,9 @@ struct ChatView: View {
     /// « Voir la chaîne » dans la fiche d'une emote. Faux en multi-live : la
     /// mosaïque est plein écran, la page s'ouvrirait dessous.
     var opensChannelPages = true
+    /// Set by the gear next to "Live-Chat" (MainTabView). nil (multi-live): the gear sits in
+    /// the info line above the field instead.
+    var showSettings: Binding<Bool>? = nil
 
     @EnvironmentObject private var store: AppStore
     @StateObject private var chat          = ChatService()
@@ -28,7 +31,7 @@ struct ChatView: View {
     @State private var autoScroll       = true
     @State private var messageText      = ""
     @State private var showEmotePicker  = false
-    @State private var showChatMenu     = false
+    @State private var localSettings    = false
     /// Règles du chat à accepter avant le premier message, et ce message en attente.
     @State private var showRules        = false
     @State private var pendingMessage: String? = nil
@@ -59,95 +62,111 @@ struct ChatView: View {
         messageText.count <= 500
     }
 
-    /// Barre de statut au-dessus des messages : connexion, synchro, suivre,
-    /// épingle réduite. En paysage la colonne est étroite et elle lui
-    /// mangeait la hauteur utile — d'où `ChatStyle.showsChrome`. Les bandeaux
-    /// (épinglé, drops, sondages, raid) sont à part : voir `notices`.
-    @ViewBuilder private var chrome: some View {
-        VStack(spacing: 0) {
+    private var settingsShown: Binding<Bool> { showSettings ?? $localSettings }
+    /// No "Live-Chat" header to hold the gear (landscape, chat only, multi-live).
+    private var inlineGear: Bool { showSettings == nil || !style.showsChrome || chatOnly }
 
-            // ── Barre de statut ─────────────────────────────────────
-            HStack(spacing: 6) {
-                Spacer(minLength: 4)
-                // Synchro auto : décalage appliqué au chat. Un appui le retouche
-                // d'une seconde : le bon réglage dépend aussi du retard des
-                // autres spectateurs, qu'on ne peut qu'estimer.
-                if store.autoChatDelay, chatDelay >= 0.5 || store.chatSyncNudge != 0 {
-                    Menu {
-                        Section(store.t("chat_sync_hint")) {
-                            Button { nudgeChatSync(1) } label: {
-                                Label(store.t("chat_sync_later"), systemImage: "plus.circle")
-                            }
-                            Button { nudgeChatSync(-1) } label: {
-                                Label(store.t("chat_sync_earlier"), systemImage: "minus.circle")
-                            }
-                            if store.chatSyncNudge != 0 {
-                                Button { nudgeChatSync(0) } label: {
-                                    Label(store.t("chat_sync_reset"), systemImage: "arrow.counterclockwise")
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Image(systemName: "clock.arrow.2.circlepath").font(.system(size: 9))
-                            Text(String(format: "%.0fs", chatDelay))
-                                .font(.system(size: 10, weight: .bold).monospacedDigit())
-                            if store.chatSyncNudge != 0 {
-                                Text(String(format: "(%+.0f)", store.chatSyncNudge))
-                                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                                    .opacity(0.75)
-                            }
-                        }
-                        .foregroundColor(.tOutplayer)
-                        .fixedSize()
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Color.tOutplayer.opacity(0.15)).cornerRadius(6)
-                    }
+    /// One quiet grey line above the field: room modes, chat sync, watch streak, collapsed
+    /// pin, closed banners. Replaces the status strip that sat on top of the chat for
+    /// only one or two chips.
+    @ViewBuilder private var infoLine: some View {
+        if infoHasItems || inlineGear {
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) { infoItems }
+                        .padding(.horizontal, style.showsChrome ? 12 : 8)
                 }
-                // Série de visionnage
-                if store.showWatchStreak, events.watchStreak > 0 {
-                    HStack(spacing: 2) {
-                        Text("🔥").font(.system(size: 10))
-                        Text("\(events.watchStreak)").font(.system(size: 10, weight: .bold))
+                if inlineGear {
+                    Button { isInputFocused = false; settingsShown.wrappedValue = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.tMuted)
+                            .frame(width: 36, height: 28)
+                            .contentShape(Rectangle())
                     }
-                    .foregroundColor(.tWarning)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(Color.tWarning.opacity(0.15)).cornerRadius(6)
-                }
-                // Épingle réduite : une pastille la rouvre.
-                if store.showPinnedMessages, let pin = pubsub.pinned, pin.id == dismissedPinId {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) { dismissedPinId = nil }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "pin.fill").font(.system(size: 9))
-                            Text(store.t("pinned_short")).font(.system(size: 10, weight: .bold))
-                        }
-                        .foregroundColor(.tPurple)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(Color.tPurple.opacity(0.15)).cornerRadius(6)
-                    }
-                    .fixedSize()
-                }
-                // Bandeaux fermés (×) : une seule pastille les rouvre tous.
-                if !closedKinds.isEmpty {
-                    ClosedNoticesChip(kinds: closedKinds, pollEnds: pollEnds,
-                                      predictionEnds: predictionEnds,
-                                      hypeEnds: hypeEnds) { reopenClosedNotices() }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(store.t("chat_settings"))
                 }
             }
-            // Hauteur stable même quand seul le point est affiché.
-            .frame(minHeight: 22)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(GeometryReader { g in
-                Color.clear
-                    .onAppear { chromeWidth = g.size.width }
-                    .onChange(of: g.size.width) { chromeWidth = $0 }
-            })
-            .background(Color.tCard)
-            .overlay(Divider().background(Color.tBorder), alignment: .bottom)
+            .frame(minHeight: 28)
+            .padding(.top, 4)
+            .background(style.translucent ? Color.black.opacity(0.45) : Color.tCard)
         }
+    }
+
+    private var infoHasItems: Bool { !chat.roomModes.isEmpty || chromeHasChips }
+
+    @ViewBuilder private var infoItems: some View {
+        let m = chat.roomModes
+        // Who may write: known before typing, rather than from a refused message.
+        if let minutes = m.followersMinutes {
+            infoText("person.2.fill", minutes > 0
+                     ? store.t("chat_mode_followers_min")
+                         .replacingOccurrences(of: "{d}", with: ChatRoomModes.duration(minutes, lang: store.lang))
+                     : store.t("chat_mode_followers"))
+        }
+        if m.subsOnly { infoText("star.fill", store.t("chat_mode_subs")) }
+        if m.emoteOnly { infoText("face.smiling", store.t("chat_mode_emotes")) }
+        if m.slowSeconds > 0 {
+            infoText("tortoise.fill", store.t("chat_mode_slow").replacingOccurrences(of: "{s}", with: "\(m.slowSeconds)"))
+        }
+        if m.uniqueChat { infoText("square.on.square", store.t("chat_mode_unique")) }
+        if m.verifiedOnly { infoText("checkmark.seal.fill", store.t("chat_mode_verified")) }
+
+        // Synchro auto : décalage appliqué au chat. Un appui le retouche
+        // d'une seconde : le bon réglage dépend aussi du retard des
+        // autres spectateurs, qu'on ne peut qu'estimer.
+        if store.autoChatDelay, chatDelay >= 0.5 || store.chatSyncNudge != 0 {
+            Menu {
+                Section(store.t("chat_sync_hint")) {
+                    Button { nudgeChatSync(1) } label: {
+                        Label(store.t("chat_sync_later"), systemImage: "plus.circle")
+                    }
+                    Button { nudgeChatSync(-1) } label: {
+                        Label(store.t("chat_sync_earlier"), systemImage: "minus.circle")
+                    }
+                    if store.chatSyncNudge != 0 {
+                        Button { nudgeChatSync(0) } label: {
+                            Label(store.t("chat_sync_reset"), systemImage: "arrow.counterclockwise")
+                        }
+                    }
+                }
+            } label: {
+                infoText("clock.arrow.2.circlepath", String(format: "%.0f s", chatDelay)
+                         + (store.chatSyncNudge != 0 ? String(format: " (%+.0f)", store.chatSyncNudge) : ""))
+            }
+        }
+        // Série de visionnage
+        if store.showWatchStreak, events.watchStreak > 0 {
+            infoText("flame.fill", "\(events.watchStreak)")
+        }
+        // Landscape has its own strip for these (NoticesHideStrip).
+        if style.showsChrome {
+            // Épingle réduite : une pastille la rouvre.
+            if store.showPinnedMessages, let pin = pubsub.pinned, pin.id == dismissedPinId {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { dismissedPinId = nil }
+                } label: {
+                    infoText("pin.fill", store.t("pinned_short"))
+                }
+                .buttonStyle(.plain)
+            }
+            // Bandeaux fermés (×) : une seule pastille les rouvre tous.
+            if !closedKinds.isEmpty {
+                ClosedNoticesChip(kinds: closedKinds, pollEnds: pollEnds,
+                                  predictionEnds: predictionEnds,
+                                  hypeEnds: hypeEnds) { reopenClosedNotices() }
+            }
+        }
+    }
+
+    private func infoText(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+            Text(text).font(.system(size: 11, weight: .medium).monospacedDigit()).lineLimit(1)
+        }
+        .foregroundColor(.tMuted)
+        .fixedSize()
     }
 
     /// Bandeaux du salon : message épinglé, drops de la chaîne, sondages,
@@ -229,13 +248,15 @@ struct ChatView: View {
         return kinds
     }
 
-    /// Événements présents dont le bandeau a été fermé (×) : leur pastille.
     private var chromeHasChips: Bool {
         (store.autoChatDelay && (chatDelay >= 0.5 || store.chatSyncNudge != 0))
             || (store.showWatchStreak && events.watchStreak > 0)
-            || (store.showPinnedMessages && pubsub.pinned != nil && pubsub.pinned?.id == dismissedPinId)
-            || !closedKinds.isEmpty
+            || (style.showsChrome && store.showPinnedMessages && pubsub.pinned != nil
+                && pubsub.pinned?.id == dismissedPinId)
+            || (style.showsChrome && !closedKinds.isEmpty)
     }
+
+    /// Événements présents dont le bandeau a été fermé (×) : leur pastille.
 
     private var closedKinds: [ChatNoticeKind] {
         guard store.showLiveEvents, !closedNotices.isEmpty else { return [] }
@@ -379,9 +400,6 @@ struct ChatView: View {
     private var content: some View {
         VStack(spacing: 0) {
 
-            // Only when it has something to show (sync, streak, collapsed pin, closed notices):
-            // an empty bar between video and chat was just a strip.
-            if style.showsChrome && chromeHasChips { chrome }
             noticesArea
 
             // ── Zone principale ─────────────────────────────────────
@@ -412,9 +430,19 @@ struct ChatView: View {
             }
 
             // ── Barre d'envoi ───────────────────────────────────────
+            if !style.translucent, infoHasItems || inlineGear || chat.readOnly || canSendMessages {
+                Divider().background(Color.tBorder)
+            }
+            infoLine
             // Compte banni de ce chat : un bandeau à la place du champ.
             if chat.readOnly { readOnlyBar } else if canSendMessages { inputBar }
         }
+        // The pinned banner lays out at the chat's width.
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { chromeWidth = g.size.width }
+                .onChange(of: g.size.width) { chromeWidth = $0 }
+        })
         .task(id: messageText) { await refreshEmoteSuggestions() }
         // Superposé à l'image : pas de fond opaque, mais un dégradé qui assombrit
         // le bas de l'image, là où les messages s'accumulent. Sans lui, du texte
@@ -441,13 +469,13 @@ struct ChatView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        // ── Menu « … » du chat ───────────────────────────────────────
         .sheet(isPresented: $showRules) {
             ChatRulesSheet(channel: chat.channelName, rules: chat.rules) { closeRules(accepted: $0) }
                 .environmentObject(store)
         }
-        .sheet(isPresented: $showChatMenu) {
-            ChatMenuSheet(
+        // ── Zahnrad: display settings + the chat's actions (former "⋯" menu) ──
+        .sheet(isPresented: settingsShown) {
+            ChatSettingsSheet(actions: ChatActions(
                 channelName: channelName,
                 isAuthenticated: chat.isAuthenticated,
                 chatOnly: $chatOnly,
@@ -460,8 +488,7 @@ struct ChatView: View {
                     messageText = cmd + " "
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isInputFocused = true }
                 } : nil
-            )
-            .presentationDetents([.medium, .large])
+            ))
         }
         // ── Sheet points ─────────────────────────────────────────────
         .sheet(isPresented: $showPointsSheet) {
@@ -759,17 +786,16 @@ struct ChatView: View {
     }
 
     // MARK: – Input bar
+    /// Points capsule, rounded field with the emote button inside, and the send arrow only
+    /// once there is something to send (as in Messages).
     @ViewBuilder
     private var inputBar: some View {
         VStack(spacing: 0) {
             autocompleteBar
-            if !style.translucent { Divider().background(Color.tBorder) }
             VStack(spacing: 4) {
-                roomModesLine
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
 
-                    // 🎁 Points de chaîne — le jeton prend de la place et n'a rien
-                    // d'urgent : en colonne étroite il cède le pas au champ texte.
+                    // 🎁 Points de chaîne — en colonne étroite le champ texte passe avant.
                     if style.showsChrome {
                         ChannelPointsButton(service: pointsService) {
                             showEmotePicker = false
@@ -777,72 +803,63 @@ struct ChatView: View {
                         }
                     }
 
-                    // 😊 Emote picker
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            if showEmotePicker {
-                                showEmotePicker = false
-                            } else {
-                                isInputFocused  = false
-                                showEmotePicker = true
+                    HStack(spacing: 0) {
+                        TextField(
+                            chat.isConnected ? store.t("chat_send_ph") : store.t("chat_connecting_ph"),
+                            text: $messageText
+                        )
+                        .focused($isInputFocused)
+                        .autocorrectionDisabled()
+                        .autocapitalization(.sentences)
+                        .foregroundColor(.tText)
+                        .submitLabel(.send)
+                        .onSubmit { sendMessage() }
+                        .disabled(!chat.isConnected || !chat.isAuthenticated)
+                        .onChange(of: isInputFocused) { focused in
+                            if focused && showEmotePicker {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    showEmotePicker = false
+                                }
                             }
                         }
-                    } label: {
-                        Image(systemName: showEmotePicker ? "keyboard" : "face.smiling")
-                            .font(.system(size: 20))
-                            .foregroundColor(showEmotePicker ? .tPrimary : .tMuted)
-                            .frame(width: 32, height: 44)
-                    }
+                        .padding(.leading, 14).padding(.vertical, 9)
 
-                    // Champ texte
-                    TextField(
-                        chat.isConnected ? store.t("chat_send_ph") : store.t("chat_connecting_ph"),
-                        text: $messageText
-                    )
-                    .focused($isInputFocused)
-                    .autocorrectionDisabled()
-                    .autocapitalization(.sentences)
-                    .foregroundColor(.tText)
-                    .submitLabel(.send)
-                    .onSubmit { sendMessage() }
-                    .disabled(!chat.isConnected || !chat.isAuthenticated)
-                    .onChange(of: isInputFocused) { focused in
-                        if focused && showEmotePicker {
+                        // 😊 Emote picker ↔ keyboard
+                        Button {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                showEmotePicker = false
+                                if showEmotePicker {
+                                    showEmotePicker = false
+                                } else {
+                                    isInputFocused  = false
+                                    showEmotePicker = true
+                                }
                             }
+                        } label: {
+                            Image(systemName: showEmotePicker ? "keyboard" : "face.smiling")
+                                .font(.system(size: 18))
+                                .foregroundColor(showEmotePicker ? .tPrimary : .tMuted)
+                                .frame(width: 40, height: 36)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .overlay(Capsule().stroke(Color.tBorder, lineWidth: 1))
+                    .background(Color.tSurface.opacity(style.translucent ? 0.6 : 1), in: Capsule())
 
-                    // Bouton envoyer : the round arrow of Messages.
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, canSend ? Color.tPrimary : Color.tMuted.opacity(0.35))
-                            .frame(width: 36, height: 44)
+                    if hasText {
+                        Button(action: sendMessage) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 30))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, canSend ? Color.tPrimary : Color.tMuted.opacity(0.35))
+                                .frame(width: 34, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSend)
+                        .accessibilityLabel(store.t("chat_send"))
+                        .transition(.scale.combined(with: .opacity))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .accessibilityLabel(store.t("chat_send"))
-
-                    // Menu « … » : actions du chat
-                    Button {
-                        isInputFocused = false
-                        showChatMenu = true
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.tMuted)
-                            // 44 pt : la cible tactile minimale d'Apple. À 32
-                            // de large, coincé dans le coin, on le rate une fois sur deux.
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
                 }
+                .animation(.spring(response: 0.25, dampingFraction: 0.8), value: hasText)
 
                 if messageText.count > 400 {
                     HStack {
@@ -854,18 +871,19 @@ struct ChatView: View {
                 }
             }
             .padding(.horizontal, style.showsChrome ? 12 : 8)
-            .padding(.top, style.showsChrome ? 8 : 4)
-            .padding(.bottom, style.showsChrome ? 10 : 6)
+            .padding(.top, 4)
+            .padding(.bottom, style.showsChrome ? 8 : 6)
             .background(style.translucent ? Color.black.opacity(0.45) : Color.tCard)
         }
     }
 
+    private var hasText: Bool { !messageText.trimmingCharacters(in: .whitespaces).isEmpty }
+
     /// Lecture seule : Twitch refuse le compte dans ce chat (banni), le chat
     /// continue sans lui. Twitch ne prévient pas d'un déban sur l'IRC, d'où
-    /// le bouton qui retente avec le compte. Le menu « … » reste à portée.
+    /// le bouton qui retente avec le compte.
     private var readOnlyBar: some View {
         VStack(spacing: 0) {
-            if !style.translucent { Divider().background(Color.tBorder) }
             HStack(spacing: 8) {
                 Image(systemName: "nosign").font(.system(size: 12, weight: .bold))
                 Text(store.t("chat_ban_banner"))
@@ -885,61 +903,14 @@ struct ChatView: View {
                 .tCapsuleShape()
                 .controlSize(.small)
                 .tint(.tWarning)
-                Button {
-                    showChatMenu = true
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.tMuted)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
             .foregroundColor(.tWarning)
-            .padding(.leading, style.showsChrome ? 12 : 8)
-            .padding(.trailing, style.showsChrome ? 4 : 2)
-            .padding(.vertical, 2)
+            .padding(.horizontal, style.showsChrome ? 12 : 8)
+            .padding(.vertical, 8)
             .background(Color.tWarning.opacity(0.14))
             .accessibilityElement(children: .contain)
             .background(style.translucent ? Color.black.opacity(0.45) : Color.tCard)
         }
-    }
-
-    /// Modes du salon qui limitent qui peut écrire, au-dessus du champ : on le
-    /// sait avant d'écrire, plutôt qu'en voyant son message refusé.
-    @ViewBuilder private var roomModesLine: some View {
-        let m = chat.roomModes
-        if !m.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    if let minutes = m.followersMinutes {
-                        modeChip("person.2.fill", minutes > 0
-                                 ? store.t("chat_mode_followers_min")
-                                     .replacingOccurrences(of: "{d}", with: ChatRoomModes.duration(minutes, lang: store.lang))
-                                 : store.t("chat_mode_followers"))
-                    }
-                    if m.subsOnly { modeChip("star.fill", store.t("chat_mode_subs")) }
-                    if m.emoteOnly { modeChip("face.smiling", store.t("chat_mode_emotes")) }
-                    if m.slowSeconds > 0 {
-                        modeChip("tortoise.fill", store.t("chat_mode_slow").replacingOccurrences(of: "{s}", with: "\(m.slowSeconds)"))
-                    }
-                    if m.uniqueChat { modeChip("square.on.square", store.t("chat_mode_unique")) }
-                    if m.verifiedOnly { modeChip("checkmark.seal.fill", store.t("chat_mode_verified")) }
-                }
-            }
-        }
-    }
-
-    private func modeChip(_ icon: String, _ text: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .bold))
-            Text(text).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-        }
-        .foregroundColor(.tWarning)
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Color.tWarning.opacity(0.14))
-        .clipShape(Capsule())
     }
 
     // MARK: – Actions

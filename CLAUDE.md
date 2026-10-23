@@ -125,6 +125,12 @@ English, short, explaining *why*.
   `Coordinator.userSeeked(to:)` so the edge catch-up (`LiveLatencyController.userSeek`) and the
   dropped-segment reload leave them alone. fMP4 channels (EXT-X-MAP) need the MAP lines in
   `LiveDVRPlaylist.render` (VERSION 6). Never a second timeline around the video.
+  Chat input (2026-10-23): no "⋯" and no status strip on top any more. One grey `infoLine` above
+  the field (room modes, sync, streak, collapsed pin, closed banners), points as a capsule with
+  the balance, emote button inside the field, send arrow only with text. The gear by "Live-Chat"
+  opens `ChatSettingsSheet(actions:)` presented by ChatView (`showSettings` binding; VOD chat:
+  display settings only); without that header (landscape, chat only, multi-live) the gear sits at
+  the end of the info line.
 - Portrait player (Apple's): video edge to edge 16:9, nothing under it; no options
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive

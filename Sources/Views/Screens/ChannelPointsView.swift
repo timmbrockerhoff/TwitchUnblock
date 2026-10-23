@@ -5,34 +5,23 @@ struct ChannelPointsButton: View {
     @ObservedObject var service: ChannelPointsService
     let onTap: () -> Void
 
+    /// A small capsule with the balance next to the chat field; green with a dot when a
+    /// bonus can be claimed.
     var body: some View {
+        let bonus = service.pendingClaimId != nil
         Button(action: onTap) {
-            ZStack {
-                // Fond : vert si bonus dispo, violet sinon
-                Circle()
-                    .fill(service.pendingClaimId != nil ? Color.tSuccess : Color(hex: "1f1f23"))
-                    .frame(width: 40, height: 40)
-                    .overlay(Circle().stroke(
-                        service.pendingClaimId != nil ? Color.tSuccess : Color.tBorder,
-                        lineWidth: 1.5
-                    ))
-                    // Pulse animé quand coffre dispo
-                    .shadow(color: service.pendingClaimId != nil
-                            ? Color.tSuccess.opacity(0.6) : .clear,
-                            radius: 6)
-
-                // Couronne parfaitement centrée dans le cercle
-                Image(systemName: "crown.fill")
-                    .font(.callout.weight(.bold))
-                    .foregroundColor(service.pendingClaimId != nil ? .white : .tPrimary)
+            HStack(spacing: 4) {
+                Image(systemName: "crown.fill").font(.system(size: 12, weight: .bold))
+                Text(formatViewers(service.balance))
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
             }
-            // Point blanc (bonus dispo) en haut-droite, sans décentrer la couronne
+            .foregroundColor(bonus ? .white : .tText)
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(bonus ? Color.tSuccess : Color.tSurface, in: Capsule())
             .overlay(alignment: .topTrailing) {
-                if service.pendingClaimId != nil {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 9, height: 9)
-                        .offset(x: 1, y: -1)
+                if bonus {
+                    Circle().fill(Color.white).frame(width: 8, height: 8).offset(x: -2, y: 2)
                 }
             }
             .overlay(alignment: .top) {
@@ -51,8 +40,10 @@ struct ChannelPointsButton: View {
                         ))
                 }
             }
+            .frame(height: 44)
+            .contentShape(Rectangle())
         }
-        .frame(width: 40, height: 44)
+        .buttonStyle(.plain)
     }
 }
 

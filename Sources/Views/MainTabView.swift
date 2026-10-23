@@ -77,6 +77,8 @@ struct MainTabView: View {
     @State private var showPlayerSettings = false
     @State private var playerIsLandscape = false
     @State private var showChatSettings = false
+    /// The live chat's gear sheet, presented by ChatView (it holds the chat's actions).
+    @State private var showLiveChatSettings = false
     @State private var showSettings    = false
     @State private var showPlayerMenu  = false
     /// Qualité retenue par le lecteur immersif (vide = meilleure disponible).
@@ -549,13 +551,15 @@ struct MainTabView: View {
     /// (SwiftUI refuse une seconde feuille, « Mes signalements » ne s'ouvrait
     /// pas). Tout se ferme, puis l'action part une fois la fermeture finie.
     private func afterClosingPresentations(_ action: @escaping () -> Void) {
-        let open = showSettings || showPlayerMenu || showPlayerSettings || showChatSettings || clipFeed != nil
+        let open = showSettings || showPlayerMenu || showPlayerSettings || showChatSettings || showLiveChatSettings
+            || clipFeed != nil
             || showDownloadSheet || showSleepSheet || channelSheet != nil || showMultiLive
         guard open else { action(); return }
         showSettings = false
         showPlayerMenu = false
         showPlayerSettings = false
         showChatSettings = false
+        showLiveChatSettings = false
         clipFeed = nil
         showDownloadSheet = false
         showSleepSheet = false
@@ -801,6 +805,12 @@ struct MainTabView: View {
             .animation(.easeOut(duration: 0.15), value: dragging)
     }
 
+    private var liveChatReplaced: Bool { liveViaRecording && liveLatency > 300 && liveDvrVideoId != nil }
+    /// chatPane shows ChatView (the gear then opens its sheet, with the chat's actions).
+    private var showsLiveChat: Bool {
+        !liveChatReplaced && currentChannelName != nil && (currentChannelId != nil || !switchingSource)
+    }
+
     /// Le chat, quelle que soit la disposition.
     @ViewBuilder
     private func chatPane(style: ChatStyle) -> some View {
@@ -809,13 +819,13 @@ struct MainTabView: View {
         // arrive avec les liens. Créé sans lui, il ne le prenait jamais (il se
         // configure une fois) : ni emotes de la chaîne, ni badges, ni points,
         // ni épinglé, ni raid jusqu'à la réouverture.
-        if liveViaRecording, liveLatency > 300, let dvr = liveDvrVideoId {
+        if liveChatReplaced, let dvr = liveDvrVideoId {
             // Scrubbed back in the broadcast: the live chat has nothing from then, the replay does.
             VodChatView(videoId: dvr, playbackTime: vodPlaybackTime, style: style)
                 .id("rec-\(dvr)")
                 .frame(maxHeight: .infinity)
 
-        } else if let channel = currentChannelName, currentChannelId != nil || !switchingSource {
+        } else if showsLiveChat, let channel = currentChannelName {
             ChatView(
                 channelName: channel,
                 channelId: currentChannelId,
@@ -827,7 +837,8 @@ struct MainTabView: View {
                 onJoinChannel: { target in   // raid → suit la chaîne raidée
                     // Lecteur réduit : il le reste (on naviguait ailleurs).
                     playLive(target, keepVisibility: true)
-                }
+                },
+                showSettings: $showLiveChatSettings
             )
             .id(channel)   // changement de chaîne → chat reconstruit à neuf
             .frame(maxHeight: .infinity)
@@ -1211,7 +1222,9 @@ struct MainTabView: View {
                 clipArrowButton(icon: "forward.end.fill", action: nextClipAction)
             }
             // What the chat shows, switched right here (as the player's gear does for the video).
-            Button { showChatSettings = true } label: {
+            Button {
+                if showsLiveChat { showLiveChatSettings = true } else { showChatSettings = true }
+            } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.tText)
