@@ -271,6 +271,16 @@ final class VodChatService: ObservableObject {
         for m in out { list.insert(m, at: 0) }
         if list.count > maxMessages { list = Array(list.prefix(maxMessages)) }
         messages = list
+        onReleased(Array(out))
+    }
+
+    /// Messages just shown (for the translator).
+    var onReleased: ([ChatMessage]) -> Void = { _ in }
+
+    /// German translation of a shown message (ChatTranslator).
+    func setTranslation(_ text: String, for id: String) {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[i].translation = text
     }
 
     /// Hors ligne : `t` est la position dans la vidéo téléchargée, qui
@@ -293,6 +303,7 @@ final class VodChatService: ObservableObject {
         guard !out.isEmpty else { return }
         for m in out { messages.insert(m, at: 0) }
         if messages.count > maxMessages { messages = Array(messages.prefix(maxMessages)) }
+        onReleased(out)
     }
 
     private func offlineMessage(_ c: OfflineChat.Comment, images: [String: String]) -> ChatMessage {

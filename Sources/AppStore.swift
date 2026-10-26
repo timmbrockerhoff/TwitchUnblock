@@ -622,6 +622,10 @@ final class AppStore: ObservableObject {
     @Published var chatHideCommands = false {
         didSet { UserDefaults.standard.set(chatHideCommands, forKey: "chat_hide_commands") }
     }
+    /// Foreign chat messages get a German translation under them (iOS 18+, on the device).
+    @Published var chatAutoTranslate = true {
+        didSet { UserDefaults.standard.set(chatAutoTranslate, forKey: "chat_auto_translate") }
+    }
     /// Mots masqués (minuscules) : les messages qui les contiennent disparaissent.
     @Published var chatMutedWords: [String] = [] {
         didSet { UserDefaults.standard.set(chatMutedWords, forKey: "chat_muted_words") }
@@ -672,6 +676,7 @@ final class AppStore: ObservableObject {
         chatHighlightWords = ud.stringArray(forKey: "chat_highlight_words") ?? []
         chatHideBots       = ud.bool(forKey: "chat_hide_bots")
         chatHideCommands   = ud.bool(forKey: "chat_hide_commands")
+        chatAutoTranslate  = ud.object(forKey: "chat_auto_translate") as? Bool ?? true
         chatMutedWords     = ud.stringArray(forKey: "chat_muted_words") ?? []
         chatBlockedUsers   = ud.stringArray(forKey: "chat_blocked_users") ?? []
         twitchToken = Keychain.loadToken("twitch_token")

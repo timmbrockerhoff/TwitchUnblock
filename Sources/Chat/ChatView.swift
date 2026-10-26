@@ -27,6 +27,7 @@ struct ChatView: View {
     @StateObject private var dropsNotice   = ChannelDropsNotice()
     @StateObject private var events        = LiveEventsService()
     @StateObject private var raidService   = RaidService()
+    @StateObject private var translator    = ChatTranslator()
 
     @State private var autoScroll       = true
     @State private var messageText      = ""
@@ -373,6 +374,8 @@ struct ChatView: View {
             // Filters or highlight words changed: messages already shown are
             // decided again (they are no longer re-filtered on every render).
             .onChange(of: chatFilterKey) { _ in chat.reclassify() }
+            .background { if store.chatAutoTranslate { ChatTranslatorHost(translator: translator) } }
+            .onChange(of: store.chatAutoTranslate) { on in if on { translator.prepare() } }
             // En mode lecture (remonté), on met en pause la purge des vieux
             // messages : sinon retirer les plus anciens (en haut) fait « descendre »
             // la vue pendant qu'on lit l'historique.
@@ -387,6 +390,14 @@ struct ChatView: View {
          store.chatBlockedUsers.joined(separator: "\u{1}"),
          store.chatMutedWords.joined(separator: "\u{1}"),
          store.chatHighlightWords.joined(separator: "\u{1}")]
+    }
+
+    /// New messages go to the translator; its results land on the message.
+    private func installTranslator() {
+        let appStore = store, translator = translator, chat = chat
+        translator.apply = { id, text in chat.setTranslation(text, for: id) }
+        chat.onInserted = { msgs in if appStore.chatAutoTranslate { translator.submit(msgs) } }
+        if store.chatAutoTranslate { translator.prepare() }
     }
 
     /// Hide/highlight rules handed to ChatService, applied once per message
@@ -623,6 +634,7 @@ struct ChatView: View {
         // Salon déjà refusé à ce compte pendant la séance : bandeau d'emblée.
         chat.prepare(channel: channelName, login: login)
         installClassifier()
+        installTranslator()
         let assets = Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await EmoteService.shared.loadGlobals() }
@@ -1130,6 +1142,7 @@ struct ChatMessageRowContent: View, Equatable {
     nonisolated static func == (a: ChatMessageRowContent, b: ChatMessageRowContent) -> Bool {
         a.message.id == b.message.id
             && a.message.isDeleted == b.message.isDeleted
+            && a.message.translation == b.message.translation
             && a.isMention == b.isMention
             && a.availableWidth == b.availableWidth
             && a.style == b.style
@@ -1218,11 +1231,25 @@ struct ChatMessageRowContent: View, Equatable {
                     if let accent = message.accent { Rectangle().fill(accent).frame(width: 3) }
                     else if isMention { Rectangle().fill(Color.tPrimary).frame(width: 3) }
                     else if message.isHighlight { Rectangle().fill(Color.tWarning).frame(width: 3) }
-                    WrappingHStack(message: message, timeString: timeString,
-                                   availableWidth: availableWidth - 24,
-                                   style: style)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, style.rowPadding)
+                    VStack(alignment: .leading, spacing: 3) {
+                        WrappingHStack(message: message, timeString: timeString,
+                                       availableWidth: availableWidth - 24,
+                                       style: style)
+                        // Foreign message: its German translation in grey, as in Apple's apps.
+                        if let translation = message.translation {
+                            Label {
+                                Text(translation).fixedSize(horizontal: false, vertical: true)
+                            } icon: {
+                                Image(systemName: "translate").font(.system(size: style.fontSize - 2))
+                            }
+                            .labelStyle(TranslationLabelStyle())
+                            .font(.system(size: style.fontSize - 1))
+                            .foregroundColor(.tMuted)
+                            .frame(width: availableWidth - 24, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, style.rowPadding)
                 }
                 .frame(width: availableWidth, alignment: .leading)
             }
@@ -1436,5 +1463,15 @@ private final class FirstResume {
         cont = nil
         lock.unlock()
         c?.resume(returning: value)
+    }
+}
+
+/// Icon and text on the first line's baseline, close together.
+private struct TranslationLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            configuration.icon
+            configuration.title
+        }
     }
 }

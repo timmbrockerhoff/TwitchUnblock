@@ -15,6 +15,7 @@ struct VodChatView: View {
 
     @EnvironmentObject private var store: AppStore
     @StateObject private var vod = VodChatService()
+    @StateObject private var translator = ChatTranslator()
 
     @State private var autoScroll      = true
     @State private var sentinelVisible = true
@@ -142,7 +143,14 @@ struct VodChatView: View {
                 Color.tDark
             }
         }
+        .background { if store.chatAutoTranslate { ChatTranslatorHost(translator: translator) } }
+        .onChange(of: store.chatAutoTranslate) { on in if on { translator.prepare() } }
         .task(id: videoId) {
+            // New messages go to the translator; its results land on the message.
+            let appStore = store, translator = translator, vod = vod
+            translator.apply = { id, text in vod.setTranslation(text, for: id) }
+            vod.onReleased = { msgs in if appStore.chatAutoTranslate { translator.submit(msgs) } }
+            if store.chatAutoTranslate { translator.prepare() }
             if let offlineFile { await vod.startOffline(file: offlineFile) }
             else { await vod.start(videoId: videoId) }
         }

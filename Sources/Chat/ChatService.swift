@@ -41,6 +41,8 @@ final class ChatService: NSObject, ObservableObject {
     /// Quand true (utilisateur remonté pour lire l'historique), on ne purge pas les
     /// plus anciens messages : ça éviterait de faire « descendre » la vue pendant la lecture.
     var pauseTrim = false
+    /// Messages just shown (for the translator).
+    var onInserted: ([ChatMessage]) -> Void = { _ in }
 
     /// Délai (s) appliqué à l'affichage des messages reçus, pour les recaler sur
     /// l'image (le chat arrive en temps réel, la vidéo a plusieurs secondes de retard).
@@ -196,7 +198,15 @@ final class ChatService: NSObject, ObservableObject {
         }
         let cap = pauseTrim ? maxMessagesPaused : maxMessages
         if list.count > cap { list = Array(list.prefix(cap)) }
+        let fresh = batch.filter { m in list.contains { $0.id == m.id } && !messages.contains { $0.id == m.id } }
         messages = list
+        if !fresh.isEmpty { onInserted(fresh) }
+    }
+
+    /// German translation of a shown message (ChatTranslator).
+    func setTranslation(_ text: String, for id: String) {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[i].translation = text
     }
 
     // Infos du compte connecté (GLOBALUSERSTATE / USERSTATE)

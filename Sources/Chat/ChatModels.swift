@@ -207,6 +207,8 @@ struct ChatMessage: Identifiable {
     /// Live chat: mentions the user or one of their highlight words. Same
     /// reason: computed at insert instead of lowercasing every token per render.
     var mentionsMe: Bool = false
+    /// German translation of a foreign message (ChatTranslator), shown under it.
+    var translation: String? = nil
 }
 
 extension ChatMessage {

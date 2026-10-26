@@ -39,6 +39,9 @@ struct ChatSettingsSheet: View {
                             Text("\(Int(store.chatFontSize)) pt").foregroundColor(.secondary).monospacedDigit()
                         }
                     }
+                    if ChatTranslator.isAvailable {
+                        toggle("translate", "chat_auto_translate", $store.chatAutoTranslate)
+                    }
                     toggle("clock", "cfg_timestamps", $store.chatTimestamps)
                     toggle("strikethrough", "cfg_deleted", $store.chatShowDeleted)
                     // One switch for both: they hide the same kind of noise.

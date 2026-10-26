@@ -138,6 +138,15 @@ English, short, explaining *why*.
   (`syncEvents`, pubsub/drops onChange); before, they only took effect on the next chat opening.
   Watch streak lives in the points capsule ("👑 20 · 🔥 5"); the info line shows it only when
   there is no capsule (landscape, logged out). User rejected it as a lone line twice.
+- Chat auto-translation (2026-10-26, `ChatTranslation.swift`): live and VOD chat, iOS 18+, free and
+  on-device. NaturalLanguage detects the language (≥ 0.8, ≥ 12 letters or 3 words, no `!cmd`,
+  text tokens only); non-German goes to `ChatTranslator` queues; `ChatTranslatorHost` (hidden
+  view) runs one `.translationTask` worker per source language (≤ 4), batches of 10 every 0.5 s,
+  queue capped at 30 (fast chats drop the oldest), text cache. Result on
+  `ChatMessage.translation` (ChatService/VodChatService `setTranslation`), shown as a grey
+  "translate" line under the message. Switch „Automatisch übersetzen" in the chat gear
+  (`chatAutoTranslate`, default on). The Simulator reports every pair as `.unsupported` (no
+  translation models), so only the layout was checked there — real translations need a device.
 - Rewards auto-claim (2026-10-23): chest = `ChannelPointsService` (runs inside ChatView, which
   stays mounted in every live layout; needs the web session `twitchWebToken` + an integrity
   token minted in an ephemeral WebView). A failed claim used to blacklist the chest for good →

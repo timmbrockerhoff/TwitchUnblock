@@ -231,6 +231,7 @@ let kGermanStrings: [String: String] = [
     "chat_settings": "Chat-Einstellungen",
     "chat_notices": "Hinweise im Chat",
     "chat_hide_noise": "Bots und !Befehle ausblenden",
+    "chat_auto_translate": "Automatisch übersetzen",
     "chat_reload": "Chat neu laden",
     "chat_replay": "Chat-Wiedergabe",
     "tap_to_open": "Zum Öffnen tippen",
