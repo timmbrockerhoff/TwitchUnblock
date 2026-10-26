@@ -8,6 +8,7 @@ import { PlayerHost } from './player';
 import { Icon } from './ui';
 import { checkDrops } from './rewards';
 import { helix } from './account';
+import { TV_CLIENT_ID } from './twitch';
 import { state, setAccount } from './store';
 import { clipSlugFromInput, extractVodId, isVodInput, loginFromInput, isValidLogin, vodStartFromInput } from './logic';
 
@@ -47,6 +48,15 @@ function openFromURL() {
 applyAccent();
 loadDB();
 render(<App />, document.getElementById('app')!);
+// Logins from before the one-login version used another client: their token can't follow,
+// earn points or claim drops. Sign them out once so the user logs in again (TV client).
+if (state.account) fetch('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: `OAuth ${state.account.token}` } })
+  .then(r => r.json()).then(v => {
+    if (v?.client_id && v.client_id !== TV_CLIENT_ID) {
+      setAccount(null);
+      alert('Die App nutzt jetzt einen Login für alles (Chat, Folgen, Kanalpunkte, Drops). Bitte melde dich in den Einstellungen einmal neu an.');
+    }
+  }).catch(() => {});
 // An account taken over from the earlier second login has no name/avatar yet.
 if (state.account && !state.account.avatar) helix(`users?id=${state.account.userId}`).then(j => {
   const u = j?.data?.[0]; if (u && state.account) setAccount({ ...state.account, name: u.display_name, avatar: u.profile_image_url });

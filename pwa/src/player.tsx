@@ -448,6 +448,7 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
   const [notice, setNotice] = useState('');
   const [text, setText] = useState('');
   const [picker, setPicker] = useState(false);
+  const [card, setCard] = useState<{ login: string } | { emote: string; url: string }>();
   const client = useRef<ChatClient>();
   const cid = channelId ?? vod?.channelId;
   const add = (batch: ChatMsg[]) => {
@@ -490,8 +491,8 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
         {m.system && <div class="sys">{m.system}</div>}
         {s.settings.chatTimestamps && <span class="ts">{m.offset != null ? formatClock(m.offset) : new Date(m.ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} </span>}
         {m.badges.map(b => <img class="badge-img" src={b.url} alt={b.title} title={b.title} />)}
-        {(m.parts.length > 0 || !m.system) && <b style={{ color: m.color }}>{m.name}</b>}{m.parts.length > 0 && (m.action ? ' ' : ': ')}
-        <span style={m.action ? { color: m.color, fontStyle: 'italic' } : undefined}>{m.parts.map(p => p.t === 'emote' ? <img class="emote" src={p.url} alt={p.v} title={p.v} />
+        {(m.parts.length > 0 || !m.system) && <b style={{ color: m.color }} onClick={() => setCard({ login: m.login })}>{m.name}</b>}{m.parts.length > 0 && (m.action ? ' ' : ': ')}
+        <span style={m.action ? { color: m.color, fontStyle: 'italic' } : undefined}>{m.parts.map(p => p.t === 'emote' ? <img class="emote" src={p.url} alt={p.v} title={p.v} onClick={() => setCard({ emote: p.v, url: p.url })} />
           : p.t === 'link' ? <a href={p.v.startsWith('http') ? p.v : 'https://' + p.v} target="_blank" rel="noopener noreferrer">{p.v}</a>
           : p.t === 'mention' ? <b>{p.v}</b> : p.v)}</span>
         {m.translation && <div class="tr">🌐 {m.translation}</div>}
@@ -504,6 +505,11 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
       <input value={text} onInput={e => setText((e.target as HTMLInputElement).value)} placeholder="Chatten …" maxLength={500} enterkeyhint="send" />
       {text && <button class="nav-btn accent" aria-label="Senden"><Icon n="send" /></button>}
     </form> : <div class="info-line">Zum Chatten in den Einstellungen mit Twitch anmelden.</div>)}
+    {card && ('login' in card
+      ? <UserCard login={card.login} msgs={msgs.current.filter(m => m.login === card.login)} onClose={() => setCard(undefined)} />
+      : <Sheet title={card.emote} onClose={() => setCard(undefined)}><div class="emote-info">
+          <img src={card.url.replace(/\/2x(\.webp)?$/, '/4x$1').replace('/2.0', '/3.0')} alt={card.emote} />
+          <p class="row-sub">{emoteSource(card.url)}</p></div></Sheet>)}
     {picker && <div class="emote-picker">{emoteList(cid).slice(0, 400).map(e => <button onClick={() => setText(t => (t ? t + ' ' : '') + e.name + ' ')}><img src={e.url} alt={e.name} title={e.name} loading="lazy" /></button>)}</div>}
   </div>;
 }
@@ -609,4 +615,26 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       </div>)}
     </div>
   </div>;
+}
+
+const emoteSource = (url: string) => url.includes('7tv') ? '7TV' : url.includes('betterttv') ? 'BetterTTV' : url.includes('frankerfacez') ? 'FrankerFaceZ' : 'Twitch';
+
+/** User card (MessageSheet.swift): profile from public GQL plus this person's lines in the chat. */
+function UserCard({ login, msgs, onClose }: { login: string; msgs: ChatMsg[]; onClose: () => void }) {
+  const [u, setU] = useState<any>();
+  useEffect(() => { tw.gql('query($l: String!) { user(login: $l) { displayName profileImageURL(width: 150) createdAt followers { totalCount } description stream { id } } }', { l: login }).then(d => setU(d?.user ?? null)); }, [login]);
+  return <Sheet title={u?.displayName ?? login} onClose={onClose}>
+    <div class="user-card">
+      {u === undefined ? <Spinner /> : u === null ? <p class="hint pad">Konto nicht gefunden.</p> : <div class="ch-head">
+        <img class={'avatar xl' + (u.stream ? ' live-ring' : '')} src={u.profileImageURL} alt="" />
+        <div><div class="card-title">{u.displayName}</div>
+          <div class="row-sub">@{login}{u.followers ? ` · ${formatViewers(u.followers.totalCount)} Follower` : ''}</div>
+          <div class="row-sub">Konto seit {new Date(u.createdAt).toLocaleDateString('de-DE')}</div></div></div>}
+      {u?.description && <p class="hint pad">{u.description}</p>}
+      <div class="pad"><button class="btn bordered small" onClick={() => { onClose(); openChannel(login); }}>Kanalseite öffnen</button></div>
+      <h3 class="section-title">Nachrichten in diesem Chat</h3>
+      <div class="chat-list pad">{msgs.length ? msgs.slice(-30).map(m => <div class="msg">{m.parts.map(p => p.t === 'emote' ? <img class="emote" src={p.url} alt={p.v} /> : p.v)}</div>)
+        : <p class="hint">Keine.</p>}</div>
+    </div>
+  </Sheet>;
 }

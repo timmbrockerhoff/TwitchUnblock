@@ -290,3 +290,7 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 
 /* Pinch to fill (landscape only, like the app's "Bildschirm füllen") */
 @media (orientation: landscape) { .stage.fill video { object-fit: cover; } }
+
+.msg b[style] { cursor: pointer; }
+.emote-info { text-align: center; padding: 10px 16px; } .emote-info img { height: 112px; margin: 0 auto 8px; }
+.user-card .chat-list { max-height: 40vh; }

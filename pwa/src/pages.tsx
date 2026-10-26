@@ -246,7 +246,12 @@ export function ChannelPage({ login }: { login: string }) {
   const followedOnTwitch = s.accountFollows.includes(login);
   // With the TV login the button follows on Twitch itself; without it, locally.
   const [twf, setTwf] = useState<{ id: string; following: boolean; busy?: boolean; err?: string }>();
-  useEffect(() => { setTwf(undefined); if (rewards.account) twitchFollowState(login).then(setTwf); }, [login, rewards.account?.userId]);
+  // Logged in but the Twitch state can't be read: say so instead of silently following locally.
+  const [twfFailed, setTwfFailed] = useState(false);
+  useEffect(() => {
+    setTwf(undefined); setTwfFailed(false);
+    if (rewards.account) twitchFollowState(login).then(st => st ? setTwf(st) : setTwfFailed(true));
+  }, [login, rewards.account?.userId]);
   const toggleTwitch = async () => {
     if (!twf || twf.busy) return;
     setTwf({ ...twf, busy: true });
@@ -284,6 +289,7 @@ export function ChannelPage({ login }: { login: string }) {
       <button class="btn bordered" onClick={() => hideChannel(login, !s.hiddenChannels.includes(login))}>{s.hiddenChannels.includes(login) ? 'Einblenden' : 'Ausblenden'}</button>
     </div>
     {twf?.err && <p class="hint pad error">Twitch hat abgelehnt: {twf.err}</p>}
+    {twfFailed && <p class="hint pad error">Twitch-Folgestatus nicht lesbar, der Knopf folgt deshalb nur in dieser App. Bitte in den Einstellungen ab- und wieder anmelden.</p>}
     {!rewards.account && <p class="hint pad">Ohne Login folgst du nur in dieser App. Mit Login (Einstellungen → Mit Twitch anmelden) folgst du auf Twitch.</p>}
     <div class="tabs">{([['overview', 'Übersicht'], ['vods', 'VODs'], ['clips', 'Clips'], ['highlights', 'Highlights'], ['playlists', 'Playlists']] as [ChannelTab, string][])
       .map(([k, l]) => <button class={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>

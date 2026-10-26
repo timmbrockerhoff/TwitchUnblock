@@ -104,7 +104,8 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Schriftgröße, Zeitstempel | `ChatSettingsSheet` | A | umgesetzt | Sim: 20 px und Zeitstempel bei allen Nachrichten |
 | Emote-Auswahl | `EmotePickerView.swift` | C | nur Kanal- und Drittanbieter-Emotes; eigene Abo-Emotes bräuchten den Scope `user:read:emotes` | Sim: 400 Emotes, Antippen fügt „caedJAMMER“ ins Feld ein |
 | Namensfarbe | `setChatColor` | A | Helix `PUT chat/color`, braucht den Scope `user:manage:chat_color`; die App fragt ihn beim Login an | Scope fehlte beim getesteten Login; ob Twitch ihn dem TV-Login gibt, ist **nicht getestet** |
-| Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info | `ChatMenuSheet.swift`, `BotCommands.swift`, `MessageSheet.swift`, `EmoteInfoService.swift` | B | nicht umgesetzt | – |
+| Nutzerkarte, Emote-Info | `MessageSheet.swift`, `EmoteInfoService.swift` | A | umgesetzt: Name antippen → Profil, Follower, Kontoalter, Nachrichten der Person, Kanalseite; Emote antippen → groß mit Quelle | Chromium: Karte für einen Chatter mit seiner Nachricht, Emote in 112 px |
+| Chatter-Liste, Bot-Befehle | `ChatMenuSheet.swift`, `BotCommands.swift` | B | nicht umgesetzt | – |
 | Angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids, Watch Streak | `LiveEventsService.swift`, `ChatPubSub.swift`, `RaidService.swift`, `HypeTrainCard.swift`, `ChatNotices.swift` | C | nicht umgesetzt; ob `wss://hermes.twitch.tv` von fremden Seiten aus antwortet, ist nicht geprüft | – |
 
 ## Konto, Kanalpunkte, Drops
