@@ -6,6 +6,7 @@ import { nav, current, setTab, play, openChannel, type Tab } from './nav';
 import { Home, Browse, Library, RoutePage } from './pages';
 import { PlayerHost } from './player';
 import { Icon } from './ui';
+import { checkDrops } from './rewards';
 import { clipSlugFromInput, extractVodId, isVodInput, loginFromInput, isValidLogin, vodStartFromInput } from './logic';
 
 function App() {
@@ -44,5 +45,8 @@ function openFromURL() {
 applyAccent();
 loadDB();
 render(<App />, document.getElementById('app')!);
+// Finished drops are claimed on start and every return to the app (ForegroundRefresh in iOS).
+checkDrops();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkDrops(); });
 if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js');
 navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.login) play({ kind: 'live', login: e.data.login }); });

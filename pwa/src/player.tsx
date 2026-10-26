@@ -9,6 +9,7 @@ import { ChatClient, VodChat, loadGlobalEmotes, loadChannelEmotes, translate, wa
 import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
 import { Icon, Sheet, Spinner } from './ui';
+import { rewards, watchChannel, channelHasDrops, accountStreamURL, checkDrops, log as rewardsLog } from './rewards';
 
 const SOURCE_LABEL: Record<string, string> = { as: 'Luminous Asien', al: 'Proxy Albanien', eu: 'Luminous Europa', twitch: 'Twitch offiziell' };
 type V = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitShowPlaybackTargetPicker?: () => void;
@@ -162,6 +163,24 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   }, []);
   useEffect(() => { if (s.settings.adSwitch && isLive && video.current) video.current.muted = ad; }, [ad]);
 
+  // Channel points + drops for the account of the rewards login (rewards.ts). Only once the
+  // stream really plays, so an offline or failing channel reports nothing.
+  const [dropsURL, setDropsURL] = useState<string>();
+  useEffect(() => {
+    if (target.kind !== 'live' || !source || !rewards.account) return;
+    const login = target.login.toLowerCase();
+    const stop = watchChannel(login);
+    let alive = true, timer: ReturnType<typeof setInterval> | undefined;
+    channelHasDrops(login).then(async has => {
+      if (!alive || !has) return;
+      rewardsLog(`Drops auf ${login}: Fortschritt läuft`);
+      if (s.settings.dropsStream) setDropsURL(await accountStreamURL(login));
+      checkDrops();
+      timer = setInterval(() => checkDrops(), 300000);
+    });
+    return () => { alive = false; stop(); clearInterval(timer); setDropsURL(undefined); };
+  }, [source, rewards.account?.userId]);
+
   const v = video.current;
   const changeQuality = (k: string) => {
     setQuality(k);
@@ -191,6 +210,7 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   return <>
     <div class="stage">
       <video ref={video} playsInline preload="auto" {...{ 'x-webkit-airplay': 'allow' }} poster={info.thumb?.replace('{width}', '640').replace('{height}', '360')} />
+      {dropsURL && <video class="drops-stream" src={dropsURL} autoPlay muted playsInline aria-hidden="true" />}
       <Controls video={video} kind={target.kind} info={info} inArchive={inArchive} archive={!!archiveId} liveTotal={liveTotal}
         onSeekLive={seekLive} onGoLive={goLive} onSettings={() => setSettingsOpen(true)} chapters={chapters} />
       {status && !error && <div class="stage-msg"><Spinner text={status} /></div>}
@@ -212,6 +232,7 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
           <div class="card-title">{info.title}</div>
           <div class="card-sub">{[info.name, info.sub, info.viewers != null ? formatViewers(info.viewers) + ' Zuschauer' : '', source ? SOURCE_LABEL[source] : ''].filter(Boolean).join(' · ')}</div>
         </div>
+        {info.login && rewards.balance[info.login] != null && <span class="points" title="Kanalpunkte">◆ {formatViewers(rewards.balance[info.login])}</span>}
         {info.login && <button class={'nav-btn' + (isFollowed(info.login) ? ' accent' : ' muted')} onClick={() => toggleFollow(info.login!)} aria-label="Folgen"><Icon n="heart" /></button>}
       </div>
       {target.kind === 'clip' && (window as any).__clipVod && <button class="btn bordered small pad-x" onClick={() => play({ kind: 'vod', id: (window as any).__clipVod.id, start: (window as any).__clipVod.at })}>Zur VOD</button>}

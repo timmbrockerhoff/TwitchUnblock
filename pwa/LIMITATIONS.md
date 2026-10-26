@@ -22,9 +22,10 @@ Die iOS-App meldet sich zusätzlich im eingebetteten twitch.tv an und liest das 
 
 - Folgen und Entfolgen auf dem Twitch-Konto (gefolgte Kanäle werden nur gelesen; lokales Folgen geht)
 - gefolgte Kategorien des Kontos
-- Kanalpunkte: Truhen automatisch einlösen, Kontostand, Watch Streak
-- Drops: automatisch einlösen, Drops-Seite, Konto-Verknüpfungen
+- Watch Streak und das Einlösen von Kanalpunkte-Belohnungen
 - werbefreie Wiedergabe über das eigene Abo oder Turbo
+
+Kanalpunkte und Drops laufen deshalb über einen eigenen, zweiten Login mit Twitchs TV-Zugang (Einstellungen → Kanalpunkte & Drops). Ob Twitch das Einlösen damit annimmt, ist **nicht getestet**; das Protokoll in den Einstellungen zeigt jeden Versuch mit Ergebnis. Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
 
 ## Durch iOS und WebKit
 
@@ -48,4 +49,4 @@ Diese Funktionen gehen im Browser, fehlen aber noch: Werbepausen-Statistik je Qu
 
 ## Nicht getestet
 
-Nichts davon lief auf einem echten iPhone. Im Simulator geprüft sind Startseite, Live mit Proxy-Quelle, Chat mit Emotes, Badges, Verlauf und Übersetzung, Steuerung, Zurückspulen (Zeitanzeige, Bild im Simulator schwarz), VOD mit Chat-Replay, Kanalseite, Clip-Feed, Multi-Live, Mini-Player, Querformat und Meine VODs. Die vollständige Anmeldung, Chatten, AirPlay, Bild in Bild, Hintergrundwiedergabe, Mitteilungen, die Installation auf dem Home-Bildschirm und das Verhalten bei einer echten Werbepause sind **nicht getestet**.
+Nichts davon lief auf einem echten iPhone. Im Simulator geprüft sind Startseite, Live mit Proxy-Quelle, Chat mit Emotes, Badges, Verlauf und Übersetzung, Steuerung, Zurückspulen (Zeitanzeige, Bild im Simulator schwarz), VOD mit Chat-Replay, Kanalseite, Clip-Feed, Multi-Live, Mini-Player, Querformat und Meine VODs. Chatten, das Einlösen von Kanalpunkten und Drops, AirPlay, Bild in Bild, Hintergrundwiedergabe, Mitteilungen, die Installation auf dem Home-Bildschirm und das Verhalten bei einer echten Werbepause sind **nicht getestet**.

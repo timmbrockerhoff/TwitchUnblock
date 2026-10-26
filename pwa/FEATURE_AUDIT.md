@@ -111,14 +111,14 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
-| Anmeldung | `TwitchAuthManager.swift`, `TwitchWebAuthManager.swift`, `TwitchWebLoginSheet` | B | Gerätecode-Verfahren (`id.twitch.tv/oauth2/device`) mit der App-Client-ID, ohne Secret, mit Refresh-Token | Code-Anzeige: Chromium; vollständige Anmeldung **nicht getestet** (Zugangsdaten werden nie eingegeben); Token-Endpunkt antwortet `authorization_pending` |
+| Anmeldung (Hauptkonto) | `TwitchAuthManager.swift`, `TwitchWebAuthManager.swift`, `TwitchWebLoginSheet` | B | Gerätecode-Verfahren (`id.twitch.tv/oauth2/device`) mit der App-Client-ID, ohne Secret, mit Refresh-Token | Code-Anzeige: Chromium; vollständige Anmeldung vom Nutzer auf dem iPhone bestätigt (26.10.2026); Token-Endpunkt antwortet `authorization_pending` |
 | Web-Sitzung (Cookie `auth-token`) | `TwitchWebAuthManager.swift` | D | eine fremde Seite kann twitch.tv-Cookies nicht lesen | – |
 | Gefolgte Kanäle des Kontos | `getFollowedLogins` | A | umgesetzt (Helix, nur lesen) | nicht getestet |
 | Auf Twitch folgen/entfolgen | `FollowService` | D | GQL-Mutation braucht Web-Sitzung und Integritäts-Token; Helix hat keinen Endpunkt mehr | – |
 | Lokales Folgen ohne Konto | `isLocallyFollowed` | A | umgesetzt | Sim |
 | Gefolgte Kategorien | `getFollowedCategoriesGQL` | D | braucht die Web-Sitzung | – |
-| Kanalpunkte: Truhe automatisch, Kontostand, Watch Streak | `ChannelPointsService.swift`, `PointsTracker.swift`, `ChannelPointsView.swift` | D | Web-Sitzung und Integritäts-Token nötig | – |
-| Drops: automatisch einlösen, Seite, Konto-Verknüpfungen | `Drops.swift`, `DropsView.swift` | D | Web-Sitzung und Integritäts-Token nötig; Verknüpfungen öffnen Seiten der Publisher mit twitch.tv-Cookies | – |
+| Kanalpunkte: Truhe automatisch, Kontostand | `ChannelPointsService.swift`, `PointsTracker.swift`, `ChannelPointsView.swift` | C | umgesetzt über einen zweiten Gerätecode-Login mit Twitchs TV-Client-ID (`src/rewards.ts`): Kontostand und Truhe alle 30 s, „minute-watched“ an `spade.twitch.tv` jede Minute, solange ein Live-Stream läuft. Belohnungen einlösen (`ChannelPointsView`) und Watch Streak fehlen | Login-Code: Chromium; Einlösen **nicht getestet** (braucht echten Login) |
+| Drops: automatisch einlösen, Fortschritt, Konto-Verknüpfungen | `Drops.swift`, `DropsView.swift` | C | umgesetzt mit demselben TV-Login: Inventar beim Start, bei Rückkehr in die App und alle 5 min, fertige Drops werden eingelöst. Fortschritt über einen unsichtbaren zweiten Stream mit Konto-Token (die App liest dafür die Playlist, das geht im Browser nicht). Verknüpfen nur als Link zur Publisher-Seite | **nicht getestet** |
 
 ## Entdecken und Kanalseite
 

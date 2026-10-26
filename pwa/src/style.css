@@ -276,3 +276,8 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .feed-video.on { opacity: 1; }
 .clipfeed .feed-info, .clipfeed-top, .clipfeed .unmute { z-index: 2; }
 .clipfeed .unmute { position: absolute; top: calc(var(--safe-t) + 60px); }
+/* Hidden account stream for drop minutes: must stay "visible" to iOS or it stops loading. */
+.drops-stream { position: absolute; width: 2px; height: 2px; opacity: .01; pointer-events: none; left: 0; top: 0; }
+.points { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.log-row { font-size: 13px; }
+.log-row.ok { color: #30d158; } .log-row.fail { color: var(--danger); }

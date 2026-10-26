@@ -19,11 +19,14 @@ export type Settings = {
   topLang: string;                    // "" = world
   notifyLive: boolean;
   speed: number;
+  autoPoints: boolean;                // claim channel point chests (rewards.ts)
+  autoDrops: boolean;                 // claim finished drops
+  dropsStream: boolean;               // hidden account stream so drop minutes count
 };
 const defaults: Settings = {
   accent: '#9146ff', sourceOrder: ['as', 'al', 'eu', 'twitch'], quality: 'source', lowLatency: true, adSwitch: true,
   chatFont: 15, chatTimestamps: false, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false,
-  topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1,
+  topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true,
 };
 export type Account = { token: string; refresh?: string; login: string; userId: string; name: string; avatar: string; scopes: string[] };
 export type HistoryEntry = { kind: 'vod' | 'live' | 'clip'; id: string; title: string; login: string; name: string; thumb: string; length?: number; at: number };
