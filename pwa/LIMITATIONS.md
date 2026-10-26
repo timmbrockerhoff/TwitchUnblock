@@ -45,7 +45,7 @@ Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). D
 
 ## Noch nicht umgesetzt, aber möglich
 
-Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids (Hermes-WebSocket, nicht geprüft), Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
+Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, Abstimmen bei Umfragen, Wetten bei Vorhersagen, Watch Streak, Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
 
 ## Nicht getestet
 

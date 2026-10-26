@@ -9,6 +9,7 @@ import { ChatClient, VodChat, loadGlobalEmotes, loadChannelEmotes, translate, wa
 import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow, recordAdStats, rankByAds } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
 import { Icon, Sheet, Spinner } from './ui';
+import { LiveEvents } from './events';
 import { rewards, watchChannel, channelHasDrops, accountStreamURL, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 
 const SOURCE_LABEL: Record<string, string> = { as: 'Luminous Asien', al: 'Proxy Albanien', eu: 'Luminous Europa', twitch: 'Twitch offiziell' };
@@ -486,6 +487,7 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
     room.emoteOnly ? 'Nur Emotes' : '', login && !conn ? 'Verbinde …' : ''].filter(Boolean).join(' · ');
   const send = (e: Event) => { e.preventDefault(); if (text.trim() && client.current?.send(text.trim())) setText(''); };
   return <div class="chat" style={{ fontSize: s.settings.chatFont + 'px' }}>
+    {login && <LiveEvents login={login} channelId={cid} onRaid={r => play({ kind: 'live', login: r.login })} />}
     <div class="chat-list" ref={list} onScroll={e => { const el = e.target as HTMLDivElement; setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40); }}>
       {shown.map(m => <div class={'msg' + (m.mention ? ' mention' : '') + (m.deleted ? ' deleted' : '') + (m.system ? ' system' : '') + (m.history ? ' old' : '')}>
         {m.system && <div class="sys">{m.system}</div>}

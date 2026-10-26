@@ -106,7 +106,8 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Namensfarbe | `setChatColor` | A | Helix `PUT chat/color`, braucht den Scope `user:manage:chat_color`; die App fragt ihn beim Login an | Scope fehlte beim getesteten Login; ob Twitch ihn dem TV-Login gibt, ist **nicht getestet** |
 | Nutzerkarte, Emote-Info | `MessageSheet.swift`, `EmoteInfoService.swift` | A | umgesetzt: Name antippen → Profil, Follower, Kontoalter, Nachrichten der Person, Kanalseite; Emote antippen → groß mit Quelle | Chromium: Karte für einen Chatter mit seiner Nachricht, Emote in 112 px |
 | Chatter-Liste, Bot-Befehle | `ChatMenuSheet.swift`, `BotCommands.swift` | B | nicht umgesetzt | – |
-| Angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids, Watch Streak | `LiveEventsService.swift`, `ChatPubSub.swift`, `RaidService.swift`, `HypeTrainCard.swift`, `ChatNotices.swift` | C | nicht umgesetzt; ob `wss://hermes.twitch.tv` von fremden Seiten aus antwortet, ist nicht geprüft | – |
+| Angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids | `LiveEventsService.swift`, `ChatPubSub.swift`, `RaidService.swift`, `HypeTrainCard.swift` | A | umgesetzt über dem Chat (`src/events.tsx`): Pin, Umfrage, Vorhersage, Hype Train per öffentlichem GQL alle 20 s, Raids über `wss://hermes.twitch.tv` (von fremden Seiten erreichbar, gemessen) mit „Mitgehen“. Nur Anzeige: Abstimmen und Wetten sind nicht übernommen | Chromium: echte Vorhersage (caedrel, 60/40 %, Punkte, Teilnehmer) und Pin angezeigt; Hermes-Abo `ok`; Umfrage, Hype Train und Raid nicht live erlebt, **nicht getestet** |
+| Watch Streak, Abstimmen, Wetten | `LiveEventsService.swift` | B | nicht umgesetzt | – |
 
 ## Konto, Kanalpunkte, Drops
 
