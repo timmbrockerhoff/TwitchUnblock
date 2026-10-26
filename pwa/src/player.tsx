@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
 import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive } from './logic';
-import { ChatClient, VodChat, loadGlobalEmotes, loadChannelEmotes, translate, wantsTranslation, isBotLine, emoteList, type ChatMsg, type RoomState } from './chat';
+import { ChatClient, VodChat, botCommands, type BotCommandSet, loadGlobalEmotes, loadChannelEmotes, translate, wantsTranslation, isBotLine, emoteList, type ChatMsg, type RoomState } from './chat';
 import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow, recordAdStats, rankByAds } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
 import { Icon, Sheet, Spinner } from './ui';
@@ -126,9 +126,11 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         setSrc(url);
         addHistory({ kind: 'live', id: login, title: sInfo?.title ?? '', login, name: sInfo?.name ?? login, thumb: sInfo?.thumb ?? '' });
       } else if (target.kind === 'vod') {
-        const [meta, url] = await Promise.all([tw.vodMeta(target.id), tw.vodURL(target.id)]);
+        const [meta, vod] = await Promise.all([tw.vodMeta(target.id), tw.vodURL(target.id)]);
         if (!alive) return;
-        if (!url || meta === null) { setError({ text: 'VOD nicht gefunden oder nur für Abonnenten.' }); return; }
+        const url = vod.url;
+        if (vod.subOnly) { setError({ text: state.account ? 'Dieses VOD ist nur für Abonnenten des Kanals.' : 'Dieses VOD ist nur für Abonnenten. Mit Login laufen VODs von Kanälen, die du abonniert hast.' }); return; }
+        if (!url || meta === null) { setError({ text: 'VOD nicht gefunden.' }); return; }
         if (meta) {
           setInfo({ title: meta.title, sub: meta.createdAt ? new Date(meta.createdAt).toLocaleDateString('de-DE') : '', login: meta.login, name: meta.name, avatar: meta.avatar, userId: meta.ownerId, thumb: meta.thumb });
           setChapters(meta.chapters);
@@ -272,7 +274,7 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     if (!archiveId) { if (v && v.seekable.length) v.currentTime = Math.max(v.seekable.start(0), Math.min(v.seekable.end(0), v.currentTime + (t - liveTotal()))); return; }
     if (t >= liveTotal() - 5) return goLive();
     if (inArchive && v) { v.currentTime = t; return; }
-    const url = await tw.vodURL(archiveId);
+    const url = (await tw.vodURL(archiveId)).url;
     if (!url) return;
     setInArchive(true); setSrc(url, t);
   };
@@ -449,6 +451,7 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
   const [notice, setNotice] = useState('');
   const [text, setText] = useState('');
   const [picker, setPicker] = useState(false);
+  const [sheet, setSheet] = useState<'chatters' | 'commands'>();
   const [card, setCard] = useState<{ login: string } | { emote: string; url: string }>();
   const client = useRef<ChatClient>();
   const cid = channelId ?? vod?.channelId;
@@ -501,7 +504,11 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
       </div>)}
     </div>
     {!follow && <button class="pill-btn jump" onClick={() => { setFollow(true); if (list.current) list.current.scrollTop = list.current.scrollHeight; }}>Zu neuen Nachrichten</button>}
-    {(modes || notice) && <div class="info-line">{[modes, notice].filter(Boolean).join(' · ')}</div>}
+    {(modes || notice || login) && <div class="info-line">{[modes, notice].filter(Boolean).join(' · ')}
+      {login && <span class="info-actions"><button class="link" onClick={() => setSheet('chatters')}>Chatter</button>
+        <button class="link" onClick={() => setSheet('commands')}>Befehle</button></span>}</div>}
+    {sheet === 'chatters' && client.current && <ChattersSheet logins={[...client.current.present]} onPick={l => { setSheet(undefined); setCard({ login: l }); }} onClose={() => setSheet(undefined)} />}
+    {sheet === 'commands' && login && <CommandsSheet login={login} onUse={c => { setSheet(undefined); setText(c + ' '); }} onClose={() => setSheet(undefined)} />}
     {login && (client.current?.canSend || s.account ? <form class="chat-input" onSubmit={send}>
       <button type="button" class="nav-btn" onClick={() => setPicker(!picker)} aria-label="Emotes"><Icon n="smile" /></button>
       <input value={text} onInput={e => setText((e.target as HTMLInputElement).value)} placeholder="Chatten …" maxLength={500} enterkeyhint="send" />
@@ -638,5 +645,24 @@ function UserCard({ login, msgs, onClose }: { login: string; msgs: ChatMsg[]; on
       <div class="chat-list pad">{msgs.length ? msgs.slice(-30).map(m => <div class="msg">{m.parts.map(p => p.t === 'emote' ? <img class="emote" src={p.url} alt={p.v} /> : p.v)}</div>)
         : <p class="hint">Keine.</p>}</div>
     </div>
+  </Sheet>;
+}
+
+function ChattersSheet({ logins, onPick, onClose }: { logins: string[]; onPick: (l: string) => void; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const list = logins.filter(l => l.includes(q.toLowerCase())).sort();
+  return <Sheet title={`Chatter · ${logins.length}`} onClose={onClose}>
+    <form class="search" onSubmit={e => e.preventDefault()}><input type="search" placeholder="Suchen" value={q} onInput={e => setQ((e.target as HTMLInputElement).value)} autocapitalize="off" /></form>
+    <p class="hint pad">Wer seit dem Öffnen im Chat war oder geschrieben hat. Twitch bietet keine vollständige öffentliche Liste mehr.</p>
+    <div class="list">{list.slice(0, 500).map(l => <button class="list-row" onClick={() => onPick(l)}>{l}</button>)}</div>
+  </Sheet>;
+}
+function CommandsSheet({ login, onUse, onClose }: { login: string; onUse: (cmd: string) => void; onClose: () => void }) {
+  const [sets, setSets] = useState<BotCommandSet[]>();
+  useEffect(() => { botCommands(login).then(setSets); }, [login]);
+  return <Sheet title="Bot-Befehle" onClose={onClose}>
+    {!sets ? <Spinner /> : !sets.length ? <p class="hint pad">Keine Befehle von Nightbot, StreamElements oder Fossabot gefunden.</p>
+      : sets.map(set => <><h3 class="section-title">{set.bot}</h3><div class="list">{set.commands.map(c =>
+        <button class="list-row cmd" onClick={() => onUse(c.name)}><div><b>{c.name}</b><div class="row-sub">{c.response}</div></div></button>)}</div></>)}
   </Sheet>;
 }

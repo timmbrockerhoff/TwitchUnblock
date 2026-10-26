@@ -62,19 +62,38 @@ export async function helix(path: string, token = state.account?.token, init: Re
   return r.status === 204 ? {} : r.json();
 }
 
-/** Channels the account follows on Twitch (Helix; needs the user:read:follows scope, which
- *  Twitch may not grant the TV client: then the list stays empty and per-channel state is used). */
+// Twitch web's persisted "ChannelFollows" query. Helix channels/followed needs the
+// user:read:follows scope, which Twitch never grants the TV client (the device endpoint accepts
+// the scope, the token comes back without scopes), and raw GQL `follows` answers "service error"
+// for every client id. The persisted query works with the TV token (measured 2026-10-26).
+const CHANNEL_FOLLOWS_HASH = 'eecf815273d3d949e5cf0085cc5084cd8a1b5b7b6f7990cf43cb0beadf546907';
+/** Why the account's follows couldn't be read (German, shown on Home), or undefined. */
+export let accountFollowsError: string | undefined;
+
+async function channelFollowsPage(cursor: string, retried = false): Promise<any> {
+  const a = state.account; if (!a) return undefined;
+  const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: AbortSignal.timeout(15000),
+    headers: { 'Client-ID': CLIENT_ID, Authorization: `OAuth ${a.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify([{ operationName: 'ChannelFollows', variables: { limit: 100, order: 'DESC', ...(cursor ? { cursor } : {}) },
+      extensions: { persistedQuery: { version: 1, sha256Hash: CHANNEL_FOLLOWS_HASH } } }]) }).catch(() => undefined);
+  if (r?.status === 401 && !retried && await refreshToken()) return channelFollowsPage(cursor, true);
+  return (await r?.json().catch(() => undefined))?.[0];
+}
+
+/** Channels the account follows on Twitch (logins, newest first, at most 1000). */
 export async function loadAccountFollows() {
-  const a = state.account; if (!a || !a.scopes.includes('user:read:follows')) return;
+  if (!state.account) return;
   const out: string[] = [];
-  let cursor = '';
+  let cursor = '', err: string | undefined;
   do {
-    const j = await helix(`channels/followed?user_id=${a.userId}&first=100${cursor ? '&after=' + cursor : ''}`);
-    if (!j?.data) break;
-    out.push(...j.data.map((f: any) => f.broadcaster_login));
-    cursor = j.pagination?.cursor ?? '';
+    const j = await channelFollowsPage(cursor);
+    const f = j?.data?.user?.follows;
+    if (!f) { err = j?.errors?.map((e: any) => e.message).join(' · ') || 'keine Antwort'; break; }
+    out.push(...f.edges.map((e: any) => e.node?.login).filter(Boolean));
+    cursor = f.pageInfo?.hasNextPage ? f.edges[f.edges.length - 1]?.cursor ?? '' : '';
   } while (cursor && out.length < 1000);
-  state.accountFollows = out;
+  accountFollowsError = err && `Deine Twitch-Follows konnten nicht geladen werden (${err}).`;
+  if (!err) state.accountFollows = out; // a failed refresh keeps the last good list
   changed();
 }
 

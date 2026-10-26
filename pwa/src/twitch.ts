@@ -2,6 +2,7 @@
 // Not ported on purpose (project rule): the sub-only VOD / CDN rebuild / muted-audio code
 // (workerVariants … getM3U8, VodRecoveryService, VodUnmute). VODs here use Twitch's normal token only.
 import { parseMaster, type Master } from './logic';
+import { state } from './store';
 
 export const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 /** Twitch's Android client id: only for page 2+ of lists, where the web id needs an integrity token. */
@@ -213,15 +214,24 @@ export function usherLiveURL(login: string, t: Token, lowLatency: boolean) {
     playlist_include_framerate: 'true', segment_preference: '4', p: String(Math.floor(Math.random() * 1e6)), sig: t.signature, token: t.value });
   return `https://usher.ttvnw.net/api/channel/hls/${login}.m3u8?${q}`;
 }
-/** A VOD through Twitch's normal token; sub-only VODs are refused by Twitch (403), as on twitch.tv. */
-export async function vodURL(id: string): Promise<string | undefined> {
-  const d = await gql(`query($id: ID!) { videoPlaybackAccessToken(id: $id, params: {platform: "web", playerBackend: "mediaplayer", playerType: "site"}) { value signature } }`, { id });
-  const t = d?.videoPlaybackAccessToken; if (!t) return undefined;
-  const auth = JSON.parse(t.value)?.authorization;
-  if (auth?.forbidden) return undefined;
-  const q = new URLSearchParams({ allow_source: 'true', allow_audio_only: 'true', player_backend: 'mediaplayer',
+/** A VOD through Twitch's normal token, with the user's login when there is one: a subscriber
+ *  then gets their sub-only VODs like on twitch.tv; without a subscription Twitch refuses them. */
+export async function vodURL(id: string): Promise<{ url?: string; subOnly?: boolean }> {
+  const acc = state.account;
+  const q = `query($id: ID!) { videoPlaybackAccessToken(id: $id, params: {platform: "web", playerBackend: "mediaplayer", playerType: "site"}) { value signature } }`;
+  const d = acc
+    ? await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: timeout(15000),
+        headers: { 'Client-ID': TV_CLIENT_ID, Authorization: `OAuth ${acc.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, variables: { id } }) }).then(r => r.json()).then(j => j.data).catch(() => undefined)
+    : await gql(q, { id });
+  const t = d?.videoPlaybackAccessToken; if (!t) return {};
+  const v = JSON.parse(t.value);
+  // Sub-only VODs: every quality listed in chansub.restricted_bitrates (usher then answers 403).
+  const restricted: string[] = v?.chansub?.restricted_bitrates ?? [];
+  if (v?.authorization?.forbidden || (restricted.includes('chunked') && restricted.length > 1)) return { subOnly: true };
+  const q2 = new URLSearchParams({ allow_source: 'true', allow_audio_only: 'true', player_backend: 'mediaplayer',
     playlist_include_framerate: 'true', p: String(Math.floor(Math.random() * 1e6)), sig: t.signature, token: t.value });
-  return `https://usher.ttvnw.net/vod/${id}.m3u8?${q}`;
+  return { url: `https://usher.ttvnw.net/vod/${id}.m3u8?${q2}` };
 }
 
 async function fetchMaster(url: string, ms: number, init: RequestInit = {}): Promise<(Master & { url: string }) | undefined> {

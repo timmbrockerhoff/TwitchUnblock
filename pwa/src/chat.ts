@@ -14,6 +14,8 @@ export type ChatMsg = {
 // Emotes ---------------------------------------------------------------------------------------
 const globalEmotes = new Map<string, string>();
 const channelEmotes = new Map<string, Map<string, string>>();
+/** Channel id → its 7TV emote set id (the live socket subscribes to that set). */
+const stvSets = new Map<string, Promise<string | undefined>>();
 let globalsLoaded: Promise<void> | undefined;
 const json = (u: string) => fetch(u, { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : undefined).catch(() => undefined);
 const stv = (e: any) => { const h = e.data?.host; return h ? `https:${h.url}/2x.webp` : undefined; };
@@ -32,14 +34,65 @@ export async function loadChannelEmotes(channelId: string, login: string) {
   if (channelEmotes.has(channelId)) return;
   const map = new Map<string, string>();
   channelEmotes.set(channelId, map);
+  let stvSet!: (id?: string) => void;
+  stvSets.set(channelId, new Promise(r => stvSet = r));
   await Promise.all([
     json(`https://api.betterttv.net/3/cached/users/twitch/${channelId}`).then(j => [...(j?.channelEmotes ?? []), ...(j?.sharedEmotes ?? [])]
       .forEach((e: any) => map.set(e.code, `https://cdn.betterttv.net/emote/${e.id}/2x`))),
     json(`https://api.frankerfacez.com/v1/room/${login}`).then(j => j && Object.values<any>(j.sets ?? {}).forEach(s => s.emoticons.forEach((e: any) => { const u = ffzURL(e); if (u) map.set(e.name, u); }))),
-    json(`https://7tv.io/v3/users/twitch/${channelId}`).then(j => j?.emote_set?.emotes?.forEach((e: any) => { const u = stv(e); if (u) map.set(e.name, u); })),
+    json(`https://7tv.io/v3/users/twitch/${channelId}`).then(j => { stvSet(j?.emote_set_id); j?.emote_set?.emotes?.forEach((e: any) => { const u = stv(e); if (u) map.set(e.name, u); }); }),
     loadChannelBadges(channelId),
   ]);
 }
+
+// Live emote changes (BTTVLive.swift + 7TV EventAPI): emotes added, renamed or removed while the
+// chat is open, so new messages use them without reopening the chat.
+/** One WebSocket kept open with the IRC backoff; returns a stop function. */
+function keepOpen(url: string, onOpen: (ws: WebSocket) => void, onMsg: (m: any, ws: WebSocket) => void) {
+  let ws: WebSocket | undefined, retry = 0, stopped = false, timer: ReturnType<typeof setTimeout> | undefined;
+  const open = () => {
+    if (stopped) return;
+    ws = new WebSocket(url);
+    const w = ws;
+    w.onopen = () => { retry = 0; onOpen(w); };
+    w.onmessage = e => { try { onMsg(JSON.parse(String(e.data)), w); } catch { /* not JSON */ } };
+    w.onclose = () => { if (!stopped) timer = setTimeout(open, Math.min(60000, 1000 * 2 ** retry++)); };
+  };
+  open();
+  return () => { stopped = true; clearTimeout(timer); ws?.close(); };
+}
+// Emote URLs carry the provider's id (cdn…/emote/<id>/…): the map is name → url, so that's the lookup.
+const dropEmote = (m: Map<string, string> | undefined, id: string) => { m?.forEach((u, k) => { if (u.includes(`/${id}/`)) m.delete(k); }); };
+export function liveEmotes(channelId: string, login: string): () => void {
+  const map = () => channelEmotes.get(channelId);
+  const bttv = keepOpen('wss://sockets.betterttv.net/ws',
+    ws => ws.send(JSON.stringify({ name: 'join_channel', data: { name: `twitch:${channelId}` } })),
+    ({ name, data: d }) => {
+      if (d?.channel !== `twitch:${channelId}`) return;
+      if ((name === 'emote_create' || name === 'emote_update') && d.emote?.id && d.emote.code) {
+        dropEmote(map(), d.emote.id);   // rename: the old code goes away
+        map()?.set(d.emote.code, `https://cdn.betterttv.net/emote/${d.emote.id}/2x`);
+      } else if (name === 'emote_delete' && d.emoteId) dropEmote(map(), d.emoteId);
+    });
+  let stop7tv: (() => void) | undefined, stopped = false;
+  loadChannelEmotes(channelId, login).then(() => stvSets.get(channelId)).then(set => {
+    if (!set || stopped) return;
+    // 7TV EventAPI v3: op 35 = subscribe, op 0 = dispatch, op 4 = reconnect.
+    stop7tv = keepOpen('wss://events.7tv.io/v3',
+      ws => ws.send(JSON.stringify({ op: 35, d: { type: 'emote_set.update', condition: { object_id: set } } })),
+      (m, ws) => {
+        if (m.op === 4) ws.close();   // server asks us to move to another instance
+        else if (m.op === 0 && m.d?.type === 'emote_set.update' && m.d.body?.id === set) {
+          const b = m.d.body;
+          for (const c of [...(b.pulled ?? []), ...(b.updated ?? [])]) if (c.key === 'emotes' && c.old_value?.id) dropEmote(map(), c.old_value.id);
+          for (const c of [...(b.pushed ?? []), ...(b.updated ?? [])]) if (c.key === 'emotes' && c.value?.id && c.value.name)
+            map()?.set(c.value.name, stv(c.value) ?? `https://cdn.7tv.app/emote/${c.value.id}/2x.webp`);
+        }
+      });
+  });
+  return () => { stopped = true; bttv(); stop7tv?.(); };
+}
+
 /** Emote list for the picker: channel first, then global third-party. */
 export function emoteList(channelId?: string): { name: string; url: string }[] {
   const ch = channelId ? [...(channelEmotes.get(channelId) ?? [])] : [];
@@ -125,13 +178,18 @@ export class ChatClient {
   private flushTimer?: ReturnType<typeof setTimeout>;
   private closed = false;
   private retry = 0;
+  private stopEmotes?: () => void;
   private userState: Record<string, string> = {};
   room: RoomState = {};
+  /** Logins present in the room (ChatService.presentUsers): NAMES list, JOIN/PART and anyone who
+   *  wrote. No public API lists chatters any more (GQL needs integrity, Helix needs mod rights). */
+  present = new Set<string>();
   connected = false;
   constructor(private login: string, private channelId: string | undefined,
               private onBatch: (msgs: ChatMsg[]) => void,
               private onEvent: (e: { type: 'clear'; login?: string; id?: string } | { type: 'notice'; text: string } | { type: 'state' }) => void) {
     this.connect(true);
+    if (channelId) this.stopEmotes = liveEmotes(channelId, login);
   }
   private connect(withHistory: boolean) {
     if (this.closed) return;
@@ -139,7 +197,7 @@ export class ChatClient {
     this.ws = ws;
     const acc = state.account;
     ws.onopen = () => {
-      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership');
       if (acc) { ws.send(`PASS oauth:${acc.token}`); ws.send(`NICK ${acc.login}`); }
       else { ws.send('PASS SCHMOOPIIE'); ws.send(`NICK justinfan${10000 + Math.floor(Math.random() * 80000)}`); }
       ws.send(`JOIN #${this.login}`);
@@ -164,9 +222,12 @@ export class ChatClient {
       case 'RECONNECT': this.ws?.close(); break;
       case 'PRIVMSG': case 'USERNOTICE': {
         const msg = fromIRC(m, this.channelId, state.account?.login);
-        if (msg) this.push(msg);
+        if (msg) { this.present.add(msg.login); this.push(msg); }
         break;
       }
+      case '353': (m.params[m.params.length - 1] ?? '').split(' ').forEach(n => n && this.present.add(n.toLowerCase())); break;
+      case 'JOIN': { const who = m.prefix?.split('!')[0]; if (who) this.present.add(who); break; }
+      case 'PART': { const who = m.prefix?.split('!')[0]; if (who) this.present.delete(who); break; }
       case 'CLEARCHAT': this.onEvent({ type: 'clear', login: m.params[1] }); break;
       case 'CLEARMSG': this.onEvent({ type: 'clear', id: m.tags['target-msg-id'] }); break;
       case 'NOTICE': this.onEvent({ type: 'notice', text: m.params[1] ?? '' }); break;
@@ -198,7 +259,7 @@ export class ChatClient {
       badges: badgesFor((t.badges || '').split(',').filter(Boolean), this.channelId), parts: buildParts(text, '', this.channelId), text, ts: Date.now() });
     return true;
   }
-  close() { this.closed = true; clearTimeout(this.flushTimer); this.ws?.close(); }
+  close() { this.closed = true; clearTimeout(this.flushTimer); this.ws?.close(); this.stopEmotes?.(); }
 }
 
 // Auto-translation ------------------------------------------------------------------------------
@@ -228,21 +289,33 @@ export function translate(text: string): Promise<string | null> {
     pump();
   });
 }
+// Google answers 429 (without a CORS header, so fetch just fails) once a busy chat sends too
+// much (measured in xQc's chat): on a failure pause 30 s, doubling up to 10 min; and at most
+// 2 requests per second, 2 in parallel.
+let tPausedUntil = 0, tBackoff = 30000, tLastStart = 0;
 function pump() {
-  while (tRunning < 3 && tQueue.length) {
-    const job = tQueue.shift()!;
-    tRunning++;
-    fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=de&dt=t&q=' + encodeURIComponent(job.text), { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json()).then(j => {
-        const lang = j?.[2] as string | undefined;
-        const confidence = Number(j?.[6] ?? 0);
-        const out = (j?.[0] ?? []).map((s: any) => s?.[0] ?? '').join('').trim();
-        // Same thresholds as the Swift detector (≥ 0.5), and no "translation" that only changes
-        // case or laughter ("hahaha" → "Haha", "pow pow" → "Pow Pow").
-        const res = !lang || lang === 'de' || confidence < 0.5 || !out || sameWords(out, job.text) ? null : out;
-        tCache.set(job.text, res); job.done(res);
-      }).catch(() => job.done(null)).finally(() => { tRunning--; pump(); });
-  }
+  const now = Date.now();
+  if (now < tPausedUntil) { while (tQueue.length) tQueue.shift()!.done(null); return; }
+  if (tRunning >= 2 || !tQueue.length) return;
+  if (now - tLastStart < 500) { setTimeout(pump, 500 - (now - tLastStart)); return; }
+  tLastStart = now;
+  const job = tQueue.shift()!;
+  tRunning++;
+  fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=de&dt=t&q=' + encodeURIComponent(job.text), { signal: AbortSignal.timeout(8000) })
+    .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then(j => {
+      tBackoff = 30000;
+      const lang = j?.[2] as string | undefined;
+      const confidence = Number(j?.[6] ?? 0);
+      const out = (j?.[0] ?? []).map((s: any) => s?.[0] ?? '').join('').trim();
+      // Same thresholds as the Swift detector (≥ 0.5), and no "translation" that only changes
+      // case or laughter ("hahaha" → "Haha", "pow pow" → "Pow Pow").
+      const res = !lang || lang === 'de' || confidence < 0.5 || !out || sameWords(out, job.text) ? null : out;
+      tCache.set(job.text, res); job.done(res);
+    }).catch(() => {
+      job.done(null);
+      tPausedUntil = Date.now() + tBackoff; tBackoff = Math.min(tBackoff * 2, 600000);
+    }).finally(() => { tRunning--; pump(); });
+  pump();
 }
 
 // VOD chat replay ---------------------------------------------------------------------------------
@@ -292,4 +365,29 @@ export class VodChat {
     this.buffer.sort((a, b) => a.offset! - b.offset!);
     this.fetchedUntil = newest > this.fetchedUntil ? newest : offset + 5;
   }
+}
+
+// Bot commands (BotCommands.swift). Moobot is left out: its API only allows https://moo.bot.
+export type BotCommandSet = { bot: string; commands: { name: string; response: string }[] };
+const bang = (n: string) => n.startsWith('!') ? n : '!' + n;
+export async function botCommands(channel: string): Promise<BotCommandSet[]> {
+  const ch = encodeURIComponent(channel.toLowerCase());
+  const nightbot = async () => {
+    const c = await json(`https://api.nightbot.tv/1/channels/t/${ch}`); const id = c?.channel?._id; if (!id) return;
+    const r = await fetch('https://api.nightbot.tv/1/commands', { headers: { 'Nightbot-Channel': id } }).then(x => x.ok ? x.json() : undefined).catch(() => undefined);
+    return { bot: 'Nightbot', commands: (r?.commands ?? []).map((d: any) => ({ name: d.name, response: d.message ?? '' })) };
+  };
+  const se = async () => {
+    const c = await json(`https://api.streamelements.com/kappa/v2/channels/${ch}`); if (!c?._id) return;
+    const l = await json(`https://api.streamelements.com/kappa/v2/bot/commands/${c._id}/public`);
+    return { bot: 'StreamElements', commands: (l ?? []).filter((d: any) => d.enabled !== false && d.hidden !== true).map((d: any) => ({ name: bang(d.command), response: d.reply ?? '' })) };
+  };
+  const fossa = async () => {
+    const c = await json(`https://api.fossabot.com/v2/cached/channels/by-slug/${ch}`); const id = c?.channel?.id; if (!id) return;
+    const r = await json(`https://api.fossabot.com/v2/cached/channels/${id}/commands`);
+    return { bot: 'Fossabot', commands: (r?.commands ?? []).filter((d: any) => d.enabled_online !== false).map((d: any) => ({ name: bang(d.name), response: d.response ?? '' })) };
+  };
+  const sets = await Promise.all([nightbot(), se(), fossa()].map(p => p.catch(() => undefined)));
+  return sets.filter((x): x is BotCommandSet => !!x && x.commands.length > 0)
+    .map(x => ({ ...x, commands: [...x.commands].sort((a, b) => a.name.localeCompare(b.name, 'de')) }));
 }

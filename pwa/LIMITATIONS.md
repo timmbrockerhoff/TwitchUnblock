@@ -24,7 +24,7 @@ Die iOS-App meldet sich zusätzlich im eingebetteten twitch.tv an und liest das 
 - Watch Streak und das Einlösen von Kanalpunkte-Belohnungen
 - werbefreie Wiedergabe über das eigene Abo oder Turbo
 
-Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). Damit gehen Chatten, Folgen auf Twitch, Kanalpunkte und Drops, im Simulator mit echtem Konto geprüft. Drops werden nur gutgeschrieben, wenn das Spielkonto beim Hersteller mit Twitch verknüpft ist. Die Liste der gefolgten Kanäle und die Namensfarbe brauchen Berechtigungen, die Twitch dem TV-Zugang vielleicht nicht gibt (nicht getestet). Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
+Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). Damit gehen Chatten, Folgen auf Twitch, Kanalpunkte und Drops, im Simulator mit echtem Konto geprüft. Drops werden nur gutgeschrieben, wenn das Spielkonto beim Hersteller mit Twitch verknüpft ist. Die Namensfarbe braucht einen Helix-Scope, den Twitch dem TV-Zugang nicht gibt; sie lässt sich in der Web-App nicht ändern. Die Liste der gefolgten Kanäle kommt über eine twitch.tv-Abfrage. Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
 
 ## Durch iOS und WebKit
 
@@ -45,7 +45,7 @@ Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). D
 
 ## Noch nicht umgesetzt, aber möglich
 
-Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, Abstimmen bei Umfragen, Wetten bei Vorhersagen, Watch Streak, Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
+Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
 
 ## Nicht getestet
 

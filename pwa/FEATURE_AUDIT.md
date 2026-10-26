@@ -74,7 +74,7 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
-| VOD abspielen (normales Token) | `getM3U8` (nur dessen Twitch-Teil) | B | neu geschrieben, nicht portiert; nur „Automatisch“ als Qualität | Sim: Zeit lief, Ton an, Bild schwarz (Simulator) |
+| VOD abspielen (normales Token) | `getM3U8` (nur dessen Twitch-Teil) | B | neu geschrieben, nicht portiert; mit Login wird das Token des Kontos benutzt, Abo-VODs laufen also für Abonnenten; ohne Abo erkennt die App `chansub.restricted_bitrates` und meldet „nur für Abonnenten“ | Sim: öffentliche VODs; konygebony-VODs (Abo) liefern ohne Abo 403, Meldung geprüft per curl |
 | Fortsetzen an der letzten Stelle, Fortschritt speichern | `AppStore`, `VodMetaStore.swift` | A | umgesetzt (localStorage, alle 5 s und beim Verlassen) | Sim: bei 1:00:25 verlassen, fortgesetzt bei 1:00:33; Fehler gefunden und behoben: IndexedDB hing nach einem Safari-Neustart, Speichern ging still verloren |
 | Kapitel (Spielwechsel) | `getVodMarkers` | A | umgesetzt (Marken auf der Leiste, Liste in den Einstellungen) | Sim: xQc-VOD mit drei Kapiteln, Marken auf der Leiste, Sprung auf 56:59 |
 | VOD-Chat-Replay | `VodChatService.swift`, `VodChatView.swift` | A | umgesetzt (Persisted Query `VideoCommentsByOffsetOrCursor`) | Sim |
@@ -93,10 +93,10 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Live-Chat lesen (IRC über WebSocket, anonym) | `ChatService.swift`, `IRCParser.swift` | A | umgesetzt, gebündelt alle 200 ms | Sim |
 | Chatverlauf beim Betreten | robotty `recent-messages` | A | umgesetzt (blasser dargestellt) | Sim |
 | Twitch-, BTTV-, FFZ-, 7TV-Emotes | `EmoteService.swift` | A | umgesetzt | Sim |
-| BTTV/7TV-Änderungen live | `BTTVLive.swift` | B | nicht umgesetzt | – |
+| BTTV/7TV-Änderungen live | `BTTVLive.swift` | B | BTTV-WebSocket und 7TV-EventAPI (`emote_set.update`), Reconnect mit Backoff | Verbindungen und 7TV-Abo gemessen (25 von 25 bestätigt); eine echte Emote-Änderung lässt sich nicht erzwingen, Formate daher **nicht getestet** |
 | Badges | `BadgeService.swift` | A | umgesetzt (öffentliches GQL) | Sim |
 | Schreiben | `ChatService.send` | B | umgesetzt (IRC mit dem Login-Token), eigene Nachricht lokal angezeigt | Sim mit echtem Konto: „test“ im eigenen Kanal gesendet (mit Erlaubnis des Nutzers), von einem unabhängigen anonymen Chat-Client empfangen |
-| Automatisch übersetzen | `ChatTranslation.swift` | B | nur Googles Web-Endpunkt (`gtx`); Apples Übersetzung auf dem Gerät gibt es im Browser nicht. Abweichung: mindestens zwei Wörter, Erkennungs-Konfidenz ≥ 0,5, keine Übersetzung, die nur Groß-/Kleinschreibung oder Lacher ändert | Sim |
+| Automatisch übersetzen | `ChatTranslation.swift` | B | nur Googles Web-Endpunkt (`gtx`), höchstens 2 Anfragen pro Sekunde; bei Fehler (Google antwortet in vollen Chats mit 429) Pause ab 30 s, verdoppelt bis 10 min. Abweichung: mindestens zwei Wörter, Konfidenz ≥ 0,5, keine Übersetzung, die nur Groß-/Kleinschreibung oder Lacher ändert | Sim; Fehler gefunden und behoben: bei xQc drosselte Google mit 429, die App fragte trotzdem weiter |
 | Raummodi (Slow, Follower, Abo, Emote) als Infozeile | `ChatView` `infoLine` | A | umgesetzt | Sim |
 | Gelöschte Nachrichten, Bans | `CLEARCHAT`, `CLEARMSG` | A | umgesetzt (ausblenden oder durchgestrichen) | Sim: echte Moderator-Löschung nach 32 s durchgestrichen, mit Option aus ausgeblendet |
 | Erwähnungen hervorheben | `ChatModels.swift` | A | umgesetzt | mit Login nicht beobachtet (niemand hat das Konto erwähnt), **nicht getestet** |
@@ -105,9 +105,9 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Emote-Auswahl | `EmotePickerView.swift` | C | nur Kanal- und Drittanbieter-Emotes; eigene Abo-Emotes bräuchten den Scope `user:read:emotes` | Sim: 400 Emotes, Antippen fügt „caedJAMMER“ ins Feld ein |
 | Namensfarbe | `setChatColor` | A | Helix `PUT chat/color`, braucht den Scope `user:manage:chat_color`; die App fragt ihn beim Login an | Scope fehlte beim getesteten Login; ob Twitch ihn dem TV-Login gibt, ist **nicht getestet** |
 | Nutzerkarte, Emote-Info | `MessageSheet.swift`, `EmoteInfoService.swift` | A | umgesetzt: Name antippen → Profil, Follower, Kontoalter, Nachrichten der Person, Kanalseite; Emote antippen → groß mit Quelle | Chromium: Karte für einen Chatter mit seiner Nachricht, Emote in 112 px |
-| Chatter-Liste, Bot-Befehle | `ChatMenuSheet.swift`, `BotCommands.swift` | B | nicht umgesetzt | – |
+| Chatter-Liste, Bot-Befehle | `ChatMenuSheet.swift`, `BotCommands.swift` | C | Chatter aus IRC (NAMES, JOIN/PART, wer schreibt); eine vollständige öffentliche Liste gibt es nicht mehr. Bot-Befehle von Nightbot, StreamElements, Fossabot; Moobot erlaubt nur `https://moo.bot` (CORS) und fehlt | Chromium: 15 Chatter bei caedrel, Fossabot-Befehl `!permit` |
 | Angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids | `LiveEventsService.swift`, `ChatPubSub.swift`, `RaidService.swift`, `HypeTrainCard.swift` | A | umgesetzt über dem Chat (`src/events.tsx`): Pin, Umfrage, Vorhersage, Hype Train per öffentlichem GQL alle 20 s, Raids über `wss://hermes.twitch.tv` (von fremden Seiten erreichbar, gemessen) mit „Mitgehen“. Nur Anzeige: Abstimmen und Wetten sind nicht übernommen | Chromium: echte Vorhersage (caedrel, 60/40 %, Punkte, Teilnehmer) und Pin angezeigt; Hermes-Abo `ok`; Umfrage, Hype Train und Raid nicht live erlebt, **nicht getestet** |
-| Watch Streak, Abstimmen, Wetten | `LiveEventsService.swift` | B | nicht umgesetzt | – |
+| Watch Streak, Abstimmen, Wetten | `LiveEventsService.swift` | C | Abstimmen (gratis) und Wetten mit Kanalpunkten über dem Chat, Watch Streak als Zeile. Gemessen mit ungültigen IDs: `VoteInPoll` und `MakePrediction` ohne Integritäts-Token angenommen; Wetten verlangt einmalig die Vorhersage-Bedingungen auf twitch.tv (`MUST_ACCEPT_TOS`) | echte Abstimmung/Wette **nicht getestet** (keine offene Umfrage/Vorhersage, Bedingungen nicht akzeptiert) |
 
 ## Konto, Kanalpunkte, Drops
 
@@ -115,7 +115,7 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 |---|---|---|---|---|
 | Anmeldung (Hauptkonto) | `TwitchAuthManager.swift`, `TwitchWebAuthManager.swift`, `TwitchWebLoginSheet` | B | ein einziger Login per Gerätecode mit Twitchs TV-Client-ID (`TV_CLIENT_ID` in `src/twitch.ts`), ohne Secret; Token läuft laut Twitch nicht ab (`expires_in 0`), Refresh-Token vorhanden. Ein früherer Zweit-Login wird übernommen | Sim (installierte App): Login mit dem Konto des Nutzers, Code vom Nutzer bestätigt; Übernahme des Zweit-Logins mit Name und Bild |
 | Web-Sitzung (Cookie `auth-token`) | `TwitchWebAuthManager.swift` | D | eine fremde Seite kann twitch.tv-Cookies nicht lesen | – |
-| Gefolgte Kanäle des Kontos | `getFollowedLogins` | C | Helix `channels/followed`, braucht den Scope `user:read:follows`; die App fragt ihn beim Login an. Die GQL-Abfragen `follows` und `followedLiveUsers` antworten dem TV-Token mit „service error“ | Sim: ohne Scope abgelehnt („Missing scope“); ob Twitch den Scope dem TV-Login gibt, ist **nicht getestet** |
+| Gefolgte Kanäle des Kontos | `getFollowedLogins` | A | persisted query `ChannelFollows` von twitch.tv mit dem TV-Token (Helix verweigert dem TV-Client den Scope `user:read:follows`, rohes GQL antwortet „service error“); bis 1000 Kanäle, bei Fehler bleibt die letzte Liste mit Hinweis | Sim mit echtem Konto: alle 12 Follows, 1 live, 11 offline auf der Startseite |
 | Auf Twitch folgen/entfolgen | `FollowService` | C | umgesetzt mit dem Login (Kanalseite und Herz im Player). `followUser` beantwortet Twitch für die Web-Client-ID mit „failed integrity check“, für die TV-Client-ID ohne Integritäts-Token | Sim mit echtem Konto: gefolgt (bei Twitch `followedAt` gesetzt) und entfolgt (wieder `null`) |
 | Lokales Folgen ohne Konto | `isLocallyFollowed` | A | umgesetzt | Sim |
 | Gefolgte Kategorien | `getFollowedCategoriesGQL` | D | braucht die Web-Sitzung | – |

@@ -28,7 +28,7 @@ export function log(text: string, ok?: boolean) {
 }
 
 /** GQL as the TV client with the rewards token; one token refresh on 401. */
-async function gql(body: unknown, retried = false): Promise<any> {
+export async function gql(body: unknown, retried = false): Promise<any> {
   const a = rewards.account; if (!a) return undefined;
   const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: AbortSignal.timeout(15000),
     headers: { 'Client-ID': TV_CLIENT_ID, Authorization: `OAuth ${a.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined);
@@ -40,7 +40,7 @@ async function gql(body: unknown, retried = false): Promise<any> {
   }
   return r?.json().catch(() => undefined);
 }
-const errors = (j: any) => (Array.isArray(j) ? j[0] : j)?.errors?.map((e: any) => e.message).join(' · ');
+export const errors = (j: any) => (Array.isArray(j) ? j[0] : j)?.errors?.map((e: any) => e.message).join(' · ');
 
 // Channel points while a live channel plays -----------------------------------------------------
 /** Runs while the player shows `login` live: minute-watched every 60 s (what earns passive points

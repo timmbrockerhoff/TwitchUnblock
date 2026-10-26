@@ -5,7 +5,7 @@ import type { ChannelBrief, Stream, Category, Vod, Clip, ChannelInfo } from './t
 import { formatViewers, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
 import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, addSearch, clearSearchHistory, toggleFavCategory, adStatsFor,
   setAccount, removeHistory, clearHistory, exportBackup, importBackup, type HistoryEntry } from './store';
-import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, setChatColor, type DeviceCode } from './account';
+import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, accountFollowsError, setChatColor, type DeviceCode } from './account';
 import { play, push, openChannel, type Route } from './nav';
 import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 import { Page, AccountButton, Shelf, Empty, Spinner, StreamCard, VodCard, ClipCard, CategoryTile, Icon, Sheet, Segmented, Toggle, Select, relDate } from './ui';
@@ -77,6 +77,7 @@ export function Home() {
       <p>Folge Kanälen über das Herz auf ihrer Seite oder melde dich mit Twitch an, um deine Kanäle hier zu sehen.</p>
       <button class="btn prominent" onClick={() => push({ name: 'settings' })}>Mit Twitch anmelden</button></div>}
     {follows === undefined && (s.follows.length > 0 || s.account) && <Spinner />}
+    {s.account && accountFollowsError && <p class="hint pad">{accountFollowsError}</p>}
     {live.length > 0 && <Shelf title="Jetzt live · Du folgst" onAll={() => push({ name: 'list', kind: 'live' })}>
       {live.map(c => <StreamCard s={{ ...c.stream!, avatar: c.avatar }} />)}</Shelf>}
     {follows && live.length === 0 && (s.follows.length > 0 || s.accountFollows.length > 0) && <p class="hint pad">Gerade ist keiner deiner Kanäle live.</p>}
@@ -350,7 +351,7 @@ export function Settings() {
     <h2 class="section-title">Konto</h2>
     <div class="group">
       {s.account ? <>
-        <div class="row"><div class="acc"><img class="avatar sm" src={s.account.avatar} alt="" /><div><div>{s.account.name}</div><div class="row-sub">Verbunden{s.account.scopes.includes('user:read:follows') ? ` · ${s.accountFollows.length} Twitch-Follows` : ''}</div></div></div></div>
+        <div class="row"><div class="acc"><img class="avatar sm" src={s.account.avatar} alt="" /><div><div>{s.account.name}</div><div class="row-sub">Verbunden · {s.accountFollows.length} Twitch-Follows</div></div></div></div>
         <button class="row danger" onClick={() => confirm('Möchtest du dich wirklich abmelden?') && setAccount(null)}>Abmelden</button>
       </> : <button class="row accent" onClick={() => setLogin(true)}>Mit Twitch anmelden</button>}
     </div>
