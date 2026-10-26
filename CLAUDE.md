@@ -138,8 +138,11 @@ English, short, explaining *why*.
   (`syncEvents`, pubsub/drops onChange); before, they only took effect on the next chat opening.
   Watch streak lives in the points capsule ("👑 20 · 🔥 5"); the info line shows it only when
   there is no capsule (landscape, logged out). User rejected it as a lone line twice.
-- Chat auto-translation (2026-10-26, `ChatTranslation.swift`): live and VOD chat, iOS 18+, free and
-  on-device. NaturalLanguage detects the language (constrained to ~30 chat languages, ≥ 0.5,
+- Chat auto-translation (2026-10-26, `ChatTranslation.swift`): live and VOD chat. Apple's on-device
+  Translation (iOS 18+) when its model is ready, else (until then, declined, Simulator, iOS < 18)
+  Google's free web endpoint `translate.googleapis.com/translate_a/single?client=gtx` (no key,
+  3 parallel, `webTranslate`). Verified end to end in the Simulator via the web path (caedrel en,
+  ibai es incl. history replay, gorgc VOD replay); the history replay is submitted too. NaturalLanguage detects the language (constrained to ~30 chat languages, ≥ 0.5,
   ≥ 4 letters, no `!cmd`, text tokens only; once a language was seen 3× at ≥ 0.9 it becomes the
   hint — a partial `languageHints` list zeroes unlisted languages, Spanish came out as English).
   Tested on real chats (es/fr/pt/ru/en/de, 2026-10-26). Non-German goes to `ChatTranslator`

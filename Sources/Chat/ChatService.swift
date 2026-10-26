@@ -1043,5 +1043,7 @@ final class ChatService: NSObject, ObservableObject {
         if list.count > cap { list = Array(list.prefix(cap)) }
         messages = list
         logger.success("CHAT", "Historique chargé", "\(older.count) messages")
+        // The replayed lines are translated too (oldest first: the translator keeps the newest).
+        onInserted(older.sorted { $0.timestamp < $1.timestamp })
     }
 }
