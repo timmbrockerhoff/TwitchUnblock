@@ -128,7 +128,9 @@ struct MainTabView: View {
     /// minuteries du direct sans lecteur.
     @State private var loadGeneration = 0
     /// Page d'une chaîne ouverte en feuille (sans passer par l'onglet Recherche).
-    @State private var channelSheet: ChannelSheetItem? = nil
+    /// The live channel is offline: the player shows its offline picture and, under it, the
+    /// channel's VODs and clips (there is no separate channel page).
+    @State private var liveOffline = false
     /// Clip en cours : VOD d'origine et position, pour en rejouer le chat.
     @State private var clipVodId: String? = nil
     @State private var clipOffset: Double = 0
@@ -440,48 +442,15 @@ struct MainTabView: View {
                 .inAppNoticeHost()
         }
         // Notification « en live » touchée : on ouvre le direct.
-        // Page d'une chaîne demandée (pseudo dans le lecteur, accueil…) :
-        // ouverte dans une feuille par-dessus l'onglet en cours, sans passer
-        // par Recherche ; le lecteur se réduit en mini-barre.
+        // A channel asked for (name in the chat, Home, search): its player — live, or its offline
+        // view — with the channel's VODs and clips under it, chat closed so they show.
         .onChange(of: store.pendingChannel) { login in
             guard let login else { return }
             store.pendingChannel = nil
-            withAnimation(.easeInOut(duration: 0.2)) { playerVisible = false }
-            channelSheet = ChannelSheetItem(login: login)
-        }
-        .sheet(item: $channelSheet) { item in
-            NavigationStack {
-            SearchView(onPlayVod: { id, t, th, s in channelSheet = nil; playVod(id, t, th, s) },
-                       onPlayLive: { l in channelSheet = nil; playLive(l) },
-                       onPlayClip: { slug, t in channelSheet = nil; playClip(slug, t) },
-                       onPlayClipList: { list, i in
-                           // The feed is a full-screen cover: it can only
-                           // open once the sheet is gone.
-                           channelSheet = nil
-                           DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { playClipQueue(list, i) }
-                       },
-                       onPlayQueue: { list, s in channelSheet = nil; playQueue(list, s) },
-                       onRecovered: { rec in channelSheet = nil; playRecovered(rec) },
-                       initialChannel: item.login,
-                       onClose: { channelSheet = nil })
+            afterClosingPresentations {
+                playLive(login)
+                withAnimation { chatHidden = true }
             }
-                .inAppNoticeHost()
-                .environmentObject(store)
-                .presentationDragIndicator(.visible)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
-            playNextInQueue()
-            // A clip from a channel's list: the next one follows (VODs above).
-            if case .clip(_, _)? = playerMode { playAdjacentClip(1, keepVisibility: true) }
-        }
-        // Playlist réécrite par VodUnmuteLoader : passages encore muets (pour
-        // la barre de lecture) et nombre de segments rétablis.
-        .onReceive(NotificationCenter.default.publisher(for: VodUnmuteLoader.resultNotification)) { note in
-            guard let url = note.userInfo?["url"] as? String,
-                  let links = qualityLinks,
-                  links.values.contains(where: { VodUnmuteLoader.unwrap($0) == url }) else { return }
-            if let remaining = note.userInfo?["remaining"] as? [MutedRange] { vodMuted = remaining }
-            vodUnmuted = note.userInfo?["restored"] as? Int ?? 0
         }
         // Notification touchée (direct) : ce qui est
         // ouvert ici se ferme d'abord (voir afterClosingPresentations).
@@ -497,7 +466,7 @@ struct MainTabView: View {
                     t.disablesAnimations = true
                     withTransaction(t) { clipFeed = nil }
                 }, onOpenChannel: { login in
-                    // The feed is closing: the channel sheet waits for it to be gone.
+                    // The feed is closing: the channel's player waits for it to be gone.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { store.openChannelPage(login) }
                 }, onOpenVod: { pb in
                     guard let vod = pb.vodId, let offset = pb.vodOffset else { return }
@@ -557,7 +526,7 @@ struct MainTabView: View {
     private func afterClosingPresentations(_ action: @escaping () -> Void) {
         let open = showSettings || showPlayerMenu || showPlayerSettings || showChatSettings || showLiveChatSettings
             || clipFeed != nil
-            || showDownloadSheet || showSleepSheet || channelSheet != nil || showMultiLive
+            || showDownloadSheet || showSleepSheet || showMultiLive
         guard open else { action(); return }
         showSettings = false
         showPlayerMenu = false
@@ -567,7 +536,6 @@ struct MainTabView: View {
         clipFeed = nil
         showDownloadSheet = false
         showSleepSheet = false
-        channelSheet = nil
         showMultiLive = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { action() }
     }
@@ -629,6 +597,11 @@ struct MainTabView: View {
 
                 } else if let links = qualityLinks {
                     playerBody(links: links, size: geo.size, landscape: landscape)
+                } else if liveOffline {
+                    VStack(spacing: 0) {
+                        offlinePoster.frame(height: geo.size.width * 9 / 16)
+                        streamInfo
+                    }
                 }
             }
             // Bascule direct ↔ enregistrement : une pastille discrète en haut,
@@ -887,7 +860,7 @@ struct MainTabView: View {
                 savedTime: currentVodId.map { store.getVodProgress($0) } ?? 0,
                 contentID: linksContentID,
                 info: overlayInfo,
-                onChannel: playerChannelLogin.map { l in { store.openChannelPage(l) } },
+                onChannel: playerChannelLogin.map { _ in { showChannelContent() } },
                 sleepLabel: sleepTimer.isActive ? sleepTimer.label : nil,
                 chatMode: store.landscapeChat,
                 isLandscape: landscape,
@@ -994,7 +967,7 @@ struct MainTabView: View {
                 Text(currentChannelName ?? statusTitle)
                     .font(.tCardTitle).foregroundColor(.tText).lineLimit(1)
                     // Toucher le pseudo : page de la chaîne.
-                    .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
+                    .onTapGesture { showChannelContent() }
 
                 HStack(spacing: TSpace.sm) {
                     if isLivePlaying {
@@ -1147,7 +1120,7 @@ struct MainTabView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(currentChannelName ?? statusTitle)
                     .font(.tCardTitle).foregroundColor(.white).lineLimit(1)
-                    .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
+                    .onTapGesture { showChannelContent() }
                 HStack(spacing: TSpace.sm) {
                     if isLivePlaying {
                         if let start = liveStartedAt {
@@ -1195,13 +1168,16 @@ struct MainTabView: View {
     private var streamInfo: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: TSpace.md) {
-                Text(statusTitle)
-                    .font(.title3.weight(.bold)).foregroundColor(.tText)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if isLivePlaying || !liveGame.isEmpty {
-                    detailsLine(font: .footnote)
+                // Offline: the picture above already says who; no title or details to show.
+                if !liveOffline {
+                    Text(statusTitle)
+                        .font(.title3.weight(.bold)).foregroundColor(.tText)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if isLivePlaying || !liveGame.isEmpty {
+                        detailsLine(font: .footnote)
+                    }
                 }
                 HStack(spacing: TSpace.md) {
                     // Avatar and name open the channel; the button is the follow status, as on
@@ -1209,7 +1185,6 @@ struct MainTabView: View {
                     playerAvatar(40)
                     Text(currentChannelName ?? playerChannelLogin ?? "")
                         .font(.headline).foregroundColor(.tText).lineLimit(1)
-                        .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
                     Spacer(minLength: 0)
                     if let login = playerChannelLogin {
                         PlayerFollowButton(login: login, channelId: isLivePlaying ? currentChannelId : nil)
@@ -1221,7 +1196,19 @@ struct MainTabView: View {
                         .padding(.horizontal, TSpace.lg)
                 }
                 .padding(.horizontal, -TSpace.lg)
-                chatCard.padding(.top, TSpace.xs)
+                if !liveOffline { chatCard.padding(.top, TSpace.xs) }
+                // The channel's VODs, highlights, playlists, clips and info (formerly its own page).
+                if let login = playerChannelLogin {
+                    SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
+                               onPlayLive: { playLive($0) },
+                               onPlayClip: { playClip($0, $1) },
+                               onPlayClipList: { playClipQueue($0, $1) },
+                               onPlayQueue: { playQueue($0, $1) },
+                               onRecovered: { playRecovered($0) },
+                               initialChannel: login)
+                        .padding(.horizontal, -TSpace.lg)
+                        .padding(.top, TSpace.sm)
+                }
             }
             .padding(TSpace.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1312,7 +1299,43 @@ struct MainTabView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
+        .onTapGesture { showChannelContent() }
+    }
+
+    /// Offline channel: where the video would be, its avatar and "offline", with the chevron
+    /// to reduce as on the video.
+    private var offlinePoster: some View {
+        ZStack {
+            Color.black
+            VStack(spacing: TSpace.sm) {
+                playerAvatar(72)
+                Text(currentChannelName ?? statusTitle)
+                    .font(.headline).foregroundColor(.white)
+                Text(store.t("offline_msg"))
+                    .font(.subheadline).foregroundColor(.white.opacity(0.7))
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            Button { reducePlayer() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(store.t("reduce"))
+            .padding(.leading, 4).padding(.top, 4)
+        }
+        .gesture(topBarPull)
+    }
+
+    /// Name or avatar tapped in the player: its channel content is under the video (portrait,
+    /// chat closed), so get there.
+    private func showChannelContent() {
+        chatOnly = false
+        if playerIsLandscape { rotatePlayer(toLandscape: false) }
+        withAnimation { chatHidden = true }
     }
 
     /// "6.3k Zuschauer · ● 3:15:11 · Dark Souls" (live) or the category (VOD), in grey.
@@ -1338,7 +1361,8 @@ struct MainTabView: View {
             actionChip(store.t("drops_chip"), "link") { showDropsLinks = true }
                 .tint(.tWarning)
         }
-        if let multiLive = multiLiveAction {
+        // Offline: nothing to add to the multi-live.
+        if !liveOffline, let multiLive = multiLiveAction {
             // Short label; a filled icon and checkmark say it is in the multi-live.
             actionChip(store.t("multi_title"),
                        menuMultiLiveOn ? "checkmark.rectangle.stack.fill" : "rectangle.split.2x2", action: multiLive)
@@ -1882,6 +1906,7 @@ struct MainTabView: View {
             if pendingDvrChannel == nil { liveStartedAt = nil }
         }
         playerMode    = mode
+        liveOffline   = false
         if !keepVisibility { playerVisible = true }
         // Une fermeture en plein fondu est remplacée par cette lecture (voir
         // stopPlayer).
@@ -2108,11 +2133,15 @@ struct MainTabView: View {
                         await MainActor.run { if gen == loadGeneration { liveAvatar = fallback } }
                     }
                 } else {
+                    // Offline: the player stays, with the channel's offline view and its VODs.
                     await MainActor.run {
                         guard gen == loadGeneration else { return }
-                        errorMsg = store.t("offline_msg")
+                        liveOffline = true
+                        statusTitle = channel
                         loading = false; switchingSource = false
                     }
+                    let avatar = await channelAvatar(login: channel.lowercased(), token: store.twitchToken)
+                    await MainActor.run { if gen == loadGeneration { liveAvatar = avatar } }
                 }
             }
         }
@@ -2222,12 +2251,6 @@ struct MainTabView: View {
         refreshTimer?.invalidate(); refreshTimer = nil
         DropsHeartbeat.shared.stop()
     }
-}
-
-/// Chaîne affichée dans la feuille « page de chaîne ».
-struct ChannelSheetItem: Identifiable {
-    let login: String
-    var id: String { login }
 }
 
 /// Mise en veille de l'écran suspendue tant qu'un lecteur le demande :

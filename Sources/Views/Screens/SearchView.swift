@@ -22,16 +22,13 @@ struct SearchView: View {
     var onPlayQueue: ([VodData], String?) -> Void = { _, _ in }
     /// VOD supprimée reconstruite : liens prêts à lire.
     var onRecovered: (RecoveredVod) -> Void = { _ in }
-    /// Ouverte en feuille sur une chaîne précise (pseudo du lecteur, chaîne
-    /// hors ligne de l'accueil) : pas de barre de recherche, un bouton fermer.
+    /// Embedded under the player: this channel's VODs, highlights, playlists, clips and info,
+    /// without search field or header (the player shows name, avatar and follow). There is no
+    /// separate channel page any more.
     var initialChannel: String? = nil
-    var onClose: (() -> Void)? = nil
+    var embedded: Bool { initialChannel != nil }
 
     @EnvironmentObject private var store: AppStore
-    /// Suivre pour de vrai (session web) depuis la page de la chaîne.
-    @StateObject private var follow = FollowService()
-    /// « Ne plus suivre » touché : on demande d'abord confirmation.
-    @State private var confirmUnfollow = false
 
     @State private var query        = ""
     @State private var filterText   = ""
@@ -210,6 +207,32 @@ struct SearchView: View {
     }
 
     var body: some View {
+        if embedded { embeddedBody } else { searchBody }
+    }
+
+    /// Under the player: lives in the player's scroll view, reloads when the channel changes.
+    private var embeddedBody: some View {
+        LazyVStack(alignment: .leading, spacing: TSpace.lg) {
+            if loading {
+                TLoader()
+            } else if let err = errorMsg {
+                TEmptyState(icon: "exclamationmark.triangle", title: err,
+                            actionTitle: retryLogin == nil ? nil : store.t("retry"),
+                            action: retryAction)
+            } else if !searchedName.isEmpty {
+                results
+            }
+        }
+        .task(id: initialChannel) {
+            if let login = initialChannel { await searchChannel(login) }
+        }
+        .onDisappear {
+            recoverTask?.cancel()
+            recoverTask = nil
+        }
+    }
+
+    private var searchBody: some View {
         VStack(spacing: 0) {
 
             if browsing {
@@ -220,7 +243,7 @@ struct SearchView: View {
                 LazyVStack(alignment: .leading, spacing: TSpace.lg) {
 
                     // Indique ce qui va se passer : l'utilisateur n'a pas à deviner.
-                    if initialChannel == nil, searchedName.isEmpty, !loading,
+                    if searchedName.isEmpty, !loading,
                        !query.trimmingCharacters(in: .whitespaces).isEmpty {
                         Label(store.t(queryIsClip ? "hint_is_clip" : queryIsVod ? "hint_is_vod" : "hint_is_channel"),
                               systemImage: queryIsClip ? "scissors" : queryIsVod ? "play.rectangle.fill" : "person.fill")
@@ -270,7 +293,7 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.tDark)
-        .modifier(SearchBar(enabled: initialChannel == nil, text: $query, active: $searchActive,
+        .modifier(SearchBar(enabled: true, text: $query, active: $searchActive,
                             prompt: store.t("ph_search")))
         .onSubmit(of: .search) { Task { await submit() } }
         .onChange(of: query) { text in
@@ -289,16 +312,6 @@ struct SearchView: View {
                                     onPlayStream: onPlayLive)
             }
         }
-        // Channel sheet: its name in the navigation bar, a close button.
-        .modifier(SheetBar(title: initialChannel.map { searchedName.isEmpty ? $0 : searchedName },
-                           onClose: { onClose?() }))
-        // Chaîne demandée ailleurs (pseudo dans le lecteur, chaîne hors ligne
-        // dans l'accueil) : on l'ouvre directement.
-        .onAppear {
-            if let login = initialChannel, searchedName.isEmpty, !loading {
-                Task { await searchChannel(login) }
-            }
-        }
         // Page quittée (autre onglet, feuille fermée) : une reconstruction en
         // cours n'ouvre plus le lecteur après coup.
         .onDisappear {
@@ -309,7 +322,7 @@ struct SearchView: View {
 
     /// Nothing searched and the field not in use: the tab browses categories.
     private var browsing: Bool {
-        initialChannel == nil && !queryFocused && query.isEmpty
+        !queryFocused && query.isEmpty
             && searchedName.isEmpty && !loading && errorMsg == nil
     }
 
@@ -321,7 +334,7 @@ struct SearchView: View {
                     query = s.login
                     dismissKeyboard()
                     suggestions = []
-                    Task { await searchChannel(s.login) }
+                    openChannel(s.login)
                 } label: {
                     HStack(spacing: TSpace.md) {
                         AsyncImage(url: URL(string: s.avatar ?? "")) { img in
@@ -418,7 +431,7 @@ struct SearchView: View {
                             .contentShape(Capsule())
                             .onTapGesture {
                                 query = item.term
-                                Task { await searchChannel(item.term) }
+                                openChannel(item.term)
                             }
                         }
                     }
@@ -430,92 +443,11 @@ struct SearchView: View {
 
     // MARK: – Résultats d'une chaîne
     @ViewBuilder private var results: some View {
-        if let live = liveData {
-            ChannelHeroView(
-                login: channelName,
-                isOnline: live.error == nil,
-                title: live.error != nil ? store.t("offline_msg") : live.title,
-                game: live.game,
-                avatarURL: avatarURL,
-                thumbnailURL: live.thumbnail,
-                viewerCount: live.viewerCount,
-                offlineSince: offlineSinceText,
-                onWatchLive: live.error == nil ? { leaveRecovery(); onPlayLive(channelName) } : nil
-            )
-            .padding(.horizontal, TSpace.lg)
-
-            // Suivre sans compte Twitch : la chaîne apparaît dans l'accueil
-            // (« Chaînes suivies ») dès qu'elle est en live.
-            // Avec une session web, c'est un vrai suivi Twitch ; sans, il reste
-            // sur cet appareil.
-            if !channelName.isEmpty, let on = follow.isFollowing {
-                let local = store.twitchWebToken == nil
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    // Ne plus suivre se confirme (sur Twitch avec la session web).
-                    if follow.isFollowing == true {
-                        confirmUnfollow = true
-                        return
-                    }
-                    let login = channelName
-                    Task { @MainActor in
-                        await follow.toggle(token: store.twitchWebToken)
-                        // Suivie (aussi sur Twitch, sans passer par AppStore) :
-                        // elle n'a plus à être masquée.
-                        if follow.isFollowing == true { store.unhideChannel(login) }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: on ? "heart.fill" : "heart")
-                        Text(store.t(on ? "following" : "follow")).font(.subheadline.weight(.bold))
-                        if local {
-                            Text("· " + store.t("on_this_device")).font(.caption).opacity(0.8)
-                        }
-                    }
-                }
-                .tBorderedStyle()
-                .tCapsuleShape()
-                .tint(on ? .tDanger : .tPrimary)
-                .disabled(follow.busy)
-                .opacity(follow.busy ? 0.5 : 1)
-                .confirmationDialog(
-                    store.t("unfollow_confirm").replacingOccurrences(of: "{c}", with: channelName),
-                    isPresented: $confirmUnfollow, titleVisibility: .visible
-                ) {
-                    Button(store.t("unfollow"), role: .destructive) {
-                        Task { @MainActor in await follow.unfollow(token: store.twitchWebToken) }
-                    }
-                    Button(store.t("cancel"), role: .cancel) {}
-                }
+        // Name, avatar, follow and "watch live" are the player's; offline it says since when.
+        if let since = offlineSinceText {
+            Label(store.t("offline_since") + since, systemImage: "moon.zzz")
+                .font(.tMeta).foregroundColor(.tMuted)
                 .padding(.horizontal, TSpace.lg)
-
-                // Twitch a refusé (limite de suivis, chaîne qui bloque…) : le
-                // cœur garde son état, et on le dit au lieu de ne rien faire.
-                if let code = follow.lastError {
-                    Text(store.t("follow_failed") + (code.isEmpty ? "" : " (\(code))"))
-                        .font(.tMeta).foregroundColor(.tDanger)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, TSpace.lg)
-                }
-            }
-
-            // Chaîne masquée des listes de découverte : la réafficher d'ici.
-            if !channelName.isEmpty, store.hidden.hides(channel: channelName) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { store.unhideChannel(channelName) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "eye")
-                        Text("\(store.t("hidden_badge")) · \(store.t("unhide"))")
-                            .font(.footnote.weight(.bold))
-                    }
-                }
-                .tBorderedStyle()
-                .tCapsuleShape()
-                .controlSize(.small)
-                .tint(.secondary)
-                .padding(.horizontal, TSpace.lg)
-            }
         }
 
         if liveData != nil {
@@ -918,7 +850,20 @@ struct SearchView: View {
             onPlayClip(slug, nil)
             return
         }
-        if queryIsVod { await openVod(raw) } else { await searchChannel(raw) }
+        if queryIsVod { await openVod(raw) } else { openChannel(raw) }
+    }
+
+    /// A channel picked in the search tab plays in the player (live, or its offline view with
+    /// VODs and clips): there is no separate channel page.
+    private func openChannel(_ raw: String) {
+        let login = loginFromInput(raw)
+        guard isValidLogin(login) else { errorMsg = store.t("not_found"); retryLogin = nil; return }
+        suggestions = []
+        dismissKeyboard()
+        store.saveToHistory(HistoryItem(term: login, type: .channel, display: login,
+                                        thumb: nil, streamer: nil,
+                                        addedAt: Date().timeIntervalSince1970 * 1000))
+        store.openChannelPage(login)
     }
 
     @MainActor private func openVod(_ raw: String) async {
@@ -951,8 +896,6 @@ struct SearchView: View {
         guard !login.isEmpty else { return }
 
         loading = true; errorMsg = nil; retryLogin = nil; liveData = nil; lastBroadcastAt = nil; vods = []
-        // Le suivi de la chaîne précédente ne doit ni s'afficher ni se modifier ici.
-        follow.reset(); confirmUnfollow = false
         filterText = ""; searchedName = login; suggestions = []
         channelTab = 0; clips = []; clipsFor = ""; loadingClips = false
         clipsLocked = false; clipsCursor = nil; loadingMoreClips = false
@@ -1004,7 +947,6 @@ struct SearchView: View {
                 avatar: avatarURL.isEmpty ? nil : avatarURL))
             liveData    = live
             lastBroadcastAt = info.lastStart
-            Task { await loadFollowState(login: login, channelId: live.userId) }
             vods        = ch.videos
             vodCursor   = ch.cursor
             hasMoreVods = ch.cursor != nil
@@ -1012,15 +954,6 @@ struct SearchView: View {
             Task { await recovery.load(channel: login) }
         }
         loading = false
-    }
-
-    /// Session web : statut de suivi Twitch réel. Sinon, suivi sur l'appareil.
-    @MainActor private func loadFollowState(login: String, channelId: String?) async {
-        guard let web = store.twitchWebToken else { follow.loadLocal(login: login, store: store); return }
-        var cid = channelId ?? ""
-        if cid.isEmpty { cid = await getUserIdGQL(login: login) ?? "" }
-        guard !cid.isEmpty, login == channelName.lowercased() else { return }
-        await follow.load(login: login, channelId: cid, token: web)
     }
 
     /// Suite des VODs (défilement infini) : au-delà des 100 premières, Twitch
@@ -1112,23 +1045,6 @@ private struct SearchBar: ViewModifier {
                                placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
         } else {
             content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
-        }
-    }
-}
-
-/// Navigation bar of the channel sheet; nothing in the Browse tab, whose title is the tab's.
-private struct SheetBar: ViewModifier {
-    let title: String?
-    let onClose: () -> Void
-
-    func body(content: Content) -> some View {
-        if let title {
-            content
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { TCloseButton(action: onClose) } }
-        } else {
-            content
         }
     }
 }

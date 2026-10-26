@@ -169,6 +169,14 @@ English, short, explaining *why*.
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
   (opacity 0, IRC keeps running); `streamInfo` shows in its place.
+- No channel page any more (2026-10-26): `store.openChannelPage(login)` (Home avatars, chat
+  emote card, search tab) opens the player (`playLive`, chat closed). Under the player's info
+  (`streamInfo`, portrait with chat closed) `SearchView(initialChannel:)` is embedded: offline
+  line + tabs VODs/Highlights/Playlists/Clips/Info (no header, no own scroll view; reloads per
+  channel). Offline live → `liveOffline` + `offlinePoster` (avatar, "offline", ⌄) instead of an
+  error. Search tab: picking a channel goes through `openChannel` → player. Name/avatar taps in
+  the player → `showChannelContent()` (chat closed, portrait). `ChannelHeroView`, `SheetBar`,
+  `channelSheet` deleted.
 - Landscape = portrait (2026-10-23): same `PlayerControlsOverlay` (⌄ reduce + `landscapeTitle`
   channel/uptime/viewers top left, AirPlay + gear top right, 💬 when the chat is closed), no
   separate header over the video (`landscapeOverlay` deleted, no ✕: close from the mini player).
