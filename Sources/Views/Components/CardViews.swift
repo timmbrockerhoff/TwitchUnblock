@@ -691,15 +691,11 @@ struct ResumeVodCard: View {
         // Long press: out of "Ansehen fortsetzen" (Home and Meine VODs); it stays in the history
         // with its progress.
         .contextMenu {
+            // One choice only: deleting from the history is done in the history itself.
             Button(role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
             } label: {
                 Label(store.t("resume_remove"), systemImage: "xmark.circle")
-            }
-            Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) { store.removeFromHistory(term: item.term) }
-            } label: {
-                Label(store.t("delete_vod"), systemImage: "trash")
             }
         }
         .task { await metaStore.load(item.term) }
