@@ -1,0 +1,46 @@
+# Web app (pwa/) → GitHub Pages. Static files only: no secrets, no server.
+# Pages must be switched on once in the repo settings (Settings → Pages → Source: GitHub Actions).
+name: PWA → GitHub Pages
+
+on:
+  push:
+    branches: [pwa]
+    paths: ['pwa/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: pwa
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version number counts the web app's commits
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pwa/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pwa/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

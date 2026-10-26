@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TwitchUnblock PoC</title>
+<style>
+  body { font: 14px -apple-system, system-ui, sans-serif; background: #000; color: #eee; margin: 16px; }
+  video { width: 48%; background: #111; }
+  pre { white-space: pre-wrap; font-size: 12px; }
+  .ok { color: #3c3 } .fail { color: #f55 } .info { color: #aaa }
+  button { font-size: 16px; padding: 8px 14px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<h3>TwitchUnblock – Machbarkeitstests</h3>
+<p class="info">Prüft im echten Browser: GQL, usher, Proxys, natives HLS, MSE, IRC, Übersetzung, Geräte-Login, Multistream.
+Kanal: <input id="ch" placeholder="automatisch (Top-Stream)"> <button id="go">Tests starten</button>
+<button id="unmute">Ton an (Multistream)</button></p>
+<div><video id="v1" playsinline muted controls></video> <video id="v2" playsinline muted controls></video></div>
+<pre id="log"></pre>
+<script>
+// Proof-of-concept only: every test reports what really happened; nothing is mocked.
+const GQL_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+const APP_ID = '1e68ku2ehgzy5cy0di3xvfy82sxpf6';
+const results = [];
+const logEl = document.getElementById('log');
+function rep(name, ok, detail = '') {
+  results.push({ name, ok, detail: String(detail).slice(0, 300) });
+  const cls = ok === true ? 'ok' : ok === false ? 'fail' : 'info';
+  logEl.insertAdjacentHTML('beforeend', `<span class="${cls}">${ok === true ? '✔' : ok === false ? '✘' : '•'} ${name}</span> ${String(detail).replace(/</g, '&lt;').slice(0, 300)}\n`);
+}
+async function gql(query, variables) {
+  const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST',
+    headers: { 'Client-ID': GQL_ID, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }) });
+  return r.json();
+}
+async function token(login, playerType = 'site') {
+  const j = await gql(`query($l:String!,$p:String!){streamPlaybackAccessToken(channelName:$l,params:{platform:"web",playerBackend:"mediaplayer",playerType:$p}){value signature}}`, { l: login, p: playerType });
+  return j.data.streamPlaybackAccessToken;
+}
+function usherURL(login, t) {
+  const q = new URLSearchParams({ allow_source: 'true', allow_audio_only: 'true', fast_bread: 'true',
+    player_backend: 'mediaplayer', playlist_include_framerate: 'true', sig: t.signature, token: t.value });
+  return `https://usher.ttvnw.net/api/channel/hls/${login}.m3u8?${q}`;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function tryFetch(name, url, init, expectText) {
+  try {
+    const r = await fetch(url, init);
+    const body = await r.text();
+    rep(name, r.ok && (!expectText || body.includes(expectText)), `HTTP ${r.status}, ${body.length} B`);
+    return r.ok ? body : null;
+  } catch (e) { rep(name, false, 'fetch-Fehler (CORS/Netz): ' + e.message); return null; }
+}
+async function watch(video, name, src, seconds = 10) {
+  video.src = src;
+  const t0 = Date.now();
+  let err = null;
+  video.onerror = () => { err = video.error && (video.error.code + ' ' + video.error.message); };
+  try { await video.play(); } catch (e) { err = 'play(): ' + e.message; }
+  await sleep(seconds * 1000);
+  const moved = video.currentTime;
+  rep(name, !err && moved > 1, `currentTime=${moved.toFixed(1)} s nach ${seconds} s, ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}${err ? ', Fehler ' + err : ''}`);
+  const tracks = [...video.textTracks].map(t => t.kind + ':' + t.label + ':' + (t.cues ? t.cues.length : '-'));
+  rep(name + ' – TextTracks (DATERANGE)', null, tracks.join(' | ') || 'keine');
+  return !err && moved > 1;
+}
+function irc(login) {
+  return new Promise(resolve => {
+    let done = false;
+    const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+    const finish = (ok, d) => { if (done) return; done = true; rep('IRC-Chat anonym (WebSocket)', ok, d); try { ws.close(); } catch {} resolve(); };
+    ws.onopen = () => { ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands'); ws.send('PASS SCHMOOPIIE'); ws.send('NICK justinfan' + (10000 + Math.floor(Math.random() * 80000))); ws.send('JOIN #' + login); };
+    ws.onmessage = e => { const m = String(e.data).split('\r\n').find(l => l.includes(' PRIVMSG #')); if (m) finish(true, 'erste Nachricht: ' + m.replace(/^@[^ ]+ /, '').slice(0, 120)); };
+    ws.onerror = () => finish(false, 'WebSocket-Fehler');
+    setTimeout(() => finish(false, 'keine Nachricht in 20 s'), 20000);
+  });
+}
+async function run() {
+  results.length = 0; logEl.textContent = '';
+  rep('Umgebung', null, navigator.userAgent + ' | standalone=' + (navigator.standalone || matchMedia('(display-mode: standalone)').matches));
+  rep('MSE / ManagedMediaSource', null, `MediaSource=${'MediaSource' in window}, ManagedMediaSource=${'ManagedMediaSource' in window}`);
+  const v = document.createElement('video');
+  rep('Natives HLS', v.canPlayType('application/vnd.apple.mpegurl') !== '', 'canPlayType=' + v.canPlayType('application/vnd.apple.mpegurl'));
+  rep('Bild-in-Bild', null, `pictureInPictureEnabled=${document.pictureInPictureEnabled}, webkitSupportsPresentationMode=${typeof v.webkitSupportsPresentationMode}`);
+  rep('Notification / Push', null, `Notification=${'Notification' in window}, PushManager=${'PushManager' in window}, serviceWorker=${'serviceWorker' in navigator}`);
+
+  // 1. GQL
+  let logins = [];
+  try {
+    const j = await gql('query{streams(first:5){edges{node{broadcaster{login}}}}}');
+    logins = j.data.streams.edges.map(e => e.node.broadcaster.login);
+    rep('GQL gql.twitch.tv (CORS)', true, 'Top-Streams: ' + logins.join(', '));
+  } catch (e) { rep('GQL gql.twitch.tv (CORS)', false, e.message); }
+  const ch = document.getElementById('ch').value.trim().toLowerCase() || logins[0];
+  const ch2 = logins.find(l => l !== ch);
+  let t = null;
+  try { t = await token(ch); rep('Playback-Token (GQL)', !!t.signature, 'Kanal ' + ch); } catch (e) { rep('Playback-Token (GQL)', false, e.message); }
+
+  // 2. usher / proxies / media playlists
+  const usher = t && usherURL(ch, t);
+  if (usher) await tryFetch('usher.ttvnw.net per fetch (CORS)', usher, {}, '#EXTM3U');
+  const lum = await tryFetch('Luminous-Proxy per fetch (CORS)', `https://eu.luminous.dev/live/${ch}?allow_source=true&allow_audio_only=true&fast_bread=true`, {}, '#EXTM3U');
+  await tryFetch('TTV.LOL-Proxy nadeko per fetch (CORS)', `https://twitch-al.nadeko.net/playlist/${ch}.m3u8%3Fallow_source%3Dtrue%26allow_audio_only%3Dtrue%26fast_bread%3Dtrue`, {}, '#EXTM3U');
+  const variant = lum && lum.split('\n').find(l => l.startsWith('http'));
+  if (variant) await tryFetch('Media-Playlist playlist.ttvnw.net per fetch (Origin-Prüfung)', variant.trim(), {}, '#EXTINF');
+
+  // 3. playback
+  const v1 = document.getElementById('v1'), v2 = document.getElementById('v2');
+  if (usher) await watch(v1, 'Natives HLS: usher-Master direkt als src', usher);
+  if (variant) await watch(v1, 'Natives HLS: einzelne Qualität (Media-Playlist) als src', variant.trim());
+  if (ch2) {
+    try {
+      const t2 = await token(ch2);
+      const p1 = watch(v1, 'Multistream: Video 1 (' + ch + ')', usherURL(ch, t), 12);
+      const p2 = watch(v2, 'Multistream: Video 2 (' + ch2 + ')', usherURL(ch2, t2), 12);
+      await Promise.all([p1, p2]);
+      rep('Multistream: beide laufen gleichzeitig', !v1.paused && !v2.paused, `v1.paused=${v1.paused}, v2.paused=${v2.paused}`);
+    } catch (e) { rep('Multistream', false, e.message); }
+  }
+
+  // 3b. EXT-X-DATERANGE as metadata cues (ad-break detection without reading the playlist)
+  if (usher) {
+    const cues = [];
+    v1.textTracks.onaddtrack = e => { const tr = e.track; if (tr.kind === 'metadata') { tr.mode = 'hidden'; tr.oncuechange = () => { for (const c of tr.activeCues || []) cues.push((c.type || '') + ' ' + JSON.stringify(c.value || c.data || c.text || '').slice(0, 80)); }; } };
+    await watch(v1, 'Natives HLS mit Metadaten-Spur', usher, 14);
+    const all = [...v1.textTracks].filter(t => t.kind === 'metadata').flatMap(t => [...(t.cues || [])]);
+    rep('DATERANGE als Cues (Werbepausen-Erkennung)', all.length > 0, `${all.length} Cues; Beispiele: ${[...new Set(all.map(c => (c.type || '') + ':' + JSON.stringify(c.value || '').slice(0, 90)))].slice(0, 4).join(' || ')}`);
+  }
+  // 3c. Rewind: the running broadcast's recording played natively
+  try {
+    const j = await gql('query($l:String!){user(login:$l){stream{archiveVideo{id}}}}', { l: ch });
+    const vid = j.data.user.stream && j.data.user.stream.archiveVideo && j.data.user.stream.archiveVideo.id;
+    if (vid) {
+      const tj = await gql('query($id:ID!){videoPlaybackAccessToken(id:$id,params:{platform:"web",playerBackend:"mediaplayer",playerType:"site"}){value signature}}', { id: vid });
+      const t3 = tj.data.videoPlaybackAccessToken;
+      const q = new URLSearchParams({ allow_source: 'true', player_backend: 'mediaplayer', sig: t3.signature, token: t3.value });
+      await watch(v1, 'Zurückspulen: laufende Aufnahme (VOD ' + vid + ') nativ', `https://usher.ttvnw.net/vod/${vid}.m3u8?${q}`, 10);
+      const s = v1.seekable;
+      rep('Zurückspulen: Bereich', s.length > 0 && s.end(0) - s.start(0) > 600, `duration=${v1.duration}, seekable ${s.length ? s.start(0).toFixed(0) + '–' + s.end(0).toFixed(0) + ' s' : 'leer'}`);
+    } else rep('Zurückspulen', null, 'Kanal ohne laufende Aufnahme');
+  } catch (e) { rep('Zurückspulen', false, e.message); }
+
+  // 4. chat, translation, login
+  await irc(ch);
+  try {
+    const r = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=de&dt=t&q=' + encodeURIComponent('good morning chat'));
+    const j = await r.json();
+    rep('Übersetzung gtx (CORS)', !!j[0][0][0], j[0][0][0]);
+  } catch (e) { rep('Übersetzung gtx (CORS)', false, e.message); }
+  try {
+    const r = await fetch('https://id.twitch.tv/oauth2/device', { method: 'POST', body: new URLSearchParams({ client_id: APP_ID, scopes: 'user:read:follows' }) });
+    const j = await r.json();
+    rep('OAuth Device-Code-Flow (CORS, ohne Secret)', !!j.user_code, j.user_code ? 'user_code erhalten, verification_uri ' + j.verification_uri : JSON.stringify(j));
+  } catch (e) { rep('OAuth Device-Code-Flow', false, e.message); }
+  for (const [n, u] of [['7TV', 'https://7tv.io/v3/emote-sets/global'], ['BTTV', 'https://api.betterttv.net/3/cached/emotes/global'], ['FFZ', 'https://api.frankerfacez.com/v1/set/global'], ['Chat-Verlauf robotty', `https://recent-messages.robotty.de/api/v2/recent-messages/${ch}?limit=5`]])
+    await tryFetch(n + ' (CORS)', u);
+
+  rep('FERTIG', null, results.filter(r => r.ok === true).length + ' ok, ' + results.filter(r => r.ok === false).length + ' fehlgeschlagen');
+  // Local runs: report back to the dev server (ignored on GitHub Pages).
+  fetch('/report', { method: 'POST', body: JSON.stringify({ ua: navigator.userAgent, results }) }).catch(() => {});
+}
+document.getElementById('go').onclick = run;
+document.getElementById('unmute').onclick = () => { for (const v of document.querySelectorAll('video')) { v.muted = false; v.play().catch(e => rep('Ton an', false, e.message)); } setTimeout(() => rep('Nach Ton an', null, [...document.querySelectorAll('video')].map(v => `paused=${v.paused} muted=${v.muted}`).join(' | ')), 2000); };
+if (location.hash === '#auto') run();
+</script>
+</body>
+</html>
