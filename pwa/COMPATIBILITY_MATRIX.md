@@ -45,6 +45,15 @@ Auf einem echten iPhone ist nichts davon gelaufen. Die Testseite liegt nach dem 
 | `Notification`, `PushManager` im Safari-Tab | nicht vorhanden (gibt es nur in Home-Bildschirm-Apps ab iOS 16.4) |
 | `serviceWorker` | vorhanden |
 | Doppeltippen auf das Video | zoomte die Seite, bis `touch-action: manipulation` gesetzt war |
+| Echte Werbung (Pre-Roll) | Cues `X-TV-TWITCH-AD-…` und `X-TV-TWITCH-STREAM-SOURCE=Amazon…`; Cues ohne Ende bleiben aktiv, nach der Werbung kommt `…=live` dazu |
+| Video im Hintergrund (Home-Taste) | pausiert, bei Rückkehr fortgesetzt; „Nur Audio“ läuft weiter |
+| iOS-Vollbild schließen | Video pausiert ~0,3 s danach (die App setzt fort) |
+| Sprung bei `loadedmetadata`, danach `load()` | `load()` setzt die Position auf 0 zurück |
+| `play()` ohne Tippen nach Quellenwechsel | Element blieb bei `networkState 3` (keine Quelle), bis `load()` |
+| IndexedDB nach Beenden von Safari | `indexedDB.open` kam nicht mehr zurück, bis Safari erneut beendet wurde |
+| Installierte App, `status-bar-style` `black-translucent` | Seite startet bei `scrollY = -62`, Abstand doppelt; mit `default` korrekt |
+| Installierte App: `registration.showNotification` | `undefined`; `new Notification` ohne Fehler, aber keine Mitteilung sichtbar |
+| Installierte App: Download-Link `<a download>` | ohne Wirkung; `navigator.share({ files })` öffnet „In Dateien sichern“ |
 
 ## iOS-Versionen
 

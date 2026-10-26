@@ -34,12 +34,13 @@ Kanalpunkte und Drops laufen deshalb über einen eigenen, zweiten Login mit Twit
 - Vollbild ist der native Player von iOS; eigene Steuerung und Chat fehlen dort.
 - Querformat lässt sich nicht per Knopf erzwingen, nur durch Drehen des Geräts.
 - Live Activity, Dynamic Island, Widgets, Raumklang, App-Symbol-Wahl und die Apple-TV-App gibt es für Web-Apps nicht.
-- Wiedergabe im Hintergrund und Bild in Bild hängen von iOS ab und sind nicht getestet.
+- Im Hintergrund (Home-Bildschirm, andere App) pausiert iOS das Video und setzt es bei Rückkehr fort. Wer weiterhören will, wählt die Qualität „Nur Audio“, die lief im Test im Hintergrund weiter (nur bei Proxy-Quellen wählbar).
+- Bild in Bild meldet die Simulator-Safari als nicht verfügbar; auf dem iPhone ist es nicht getestet. Der Knopf erscheint nur, wenn das Gerät es anbietet.
 - Apples Übersetzung auf dem Gerät hat keine Web-Schnittstelle. Die App nutzt nur Googles freien Endpunkt; die Chat-Texte gehen dabei an Google.
 
 ## Durch die Vorgabe „kein Server“
 
-- Mitteilungen bei Live-Start gibt es nur, solange die App geöffnet ist, und nur als Home-Bildschirm-App. Web Push braucht einen Push-Server.
+- Mitteilungen bei Live-Start: Im Test in der installierten App erschien die Erlaubnis-Abfrage, aber keine Mitteilung kam an. iOS zeigt Mitteilungen von Web-Apps offenbar nur über Web Push, und das braucht einen Push-Server.
 - Die Sicherung ist eine lokale JSON-Datei statt einer Synchronisierung über den Worker.
 - Der Cloudflare-Worker des Upstream-Projekts ist als Live-Notfallquelle nicht eingebaut.
 
@@ -49,4 +50,4 @@ Diese Funktionen gehen im Browser, fehlen aber noch: Werbepausen-Statistik je Qu
 
 ## Nicht getestet
 
-Nichts davon lief auf einem echten iPhone. Im Simulator geprüft sind Startseite, Live mit Proxy-Quelle, Chat mit Emotes, Badges, Verlauf und Übersetzung, Steuerung, Zurückspulen (Zeitanzeige, Bild im Simulator schwarz), VOD mit Chat-Replay, Kanalseite, Clip-Feed, Multi-Live, Mini-Player, Querformat und Meine VODs. Chatten, das Einlösen von Kanalpunkten und Drops, AirPlay, Bild in Bild, Hintergrundwiedergabe, Mitteilungen, die Installation auf dem Home-Bildschirm und das Verhalten bei einer echten Werbepause sind **nicht getestet**.
+Fast alles ist inzwischen im iOS-Simulator geprüft (Safari und installierte Home-Bildschirm-App), siehe `FEATURE_AUDIT.md`. Auf einem echten iPhone ist nur die Anmeldung bestätigt. **Nicht getestet** sind: Chatten, Erwähnungen, Emote-Auswahl, Namensfarbe, Twitch-Follows des Kontos, Kanalpunkte und Drops (alle brauchen einen echten Login), AirPlay und Bild in Bild (im Simulator nicht verfügbar).

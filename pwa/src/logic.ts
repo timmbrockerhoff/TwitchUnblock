@@ -186,6 +186,18 @@ export function readableColor(hex: string): string {
   if (lum < 0.45) { const f = Math.min(1, (0.45 - lum) / 0.45 + 0.15); r += (1 - r) * f; g += (1 - g) * f; b += (1 - b) * f; }
   return '#' + [r, g, b].map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
 }
+/** An ad break is running when the latest-starting ad marker started after the latest
+ *  "live" stream-source marker. Safari keeps DATERANGE cues without END-DATE active forever
+ *  (endTime null), so the pre-roll's "Amazon" cue stays active next to the later "live" one. */
+export function adActive(cues: { id: string; start: number; value: unknown }[]): boolean {
+  let lastAd = -1, lastLive = -1;
+  for (const c of cues) {
+    const v = c.value as { key?: string; data?: unknown } | undefined;
+    if (v?.key === 'X-TV-TWITCH-STREAM-SOURCE' && v.data === 'live') lastLive = Math.max(lastLive, c.start);
+    else if (isAdCue(c.id, c.value)) lastAd = Math.max(lastAd, c.start);
+  }
+  return lastAd >= 0 && lastAd > lastLive;
+}
 /** A stitched-ad marker in a metadata cue (EXT-X-DATERANGE as exposed by Safari's native HLS). */
 export function isAdCue(id: string, value: unknown): boolean {
   const s = (id + ' ' + JSON.stringify(value ?? '')).toLowerCase();

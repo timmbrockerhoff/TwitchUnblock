@@ -16,7 +16,7 @@ Grundlage ist der Quellcode auf dem Branch `optimize` (`Sources/`, `Shared/`, `W
 - **Chromium**: nur im eingebauten Chromium-Browser geprüft (Bedienlogik, kein Video).
 - **nicht getestet**: weder auf einem echten iPhone noch im Simulator ausgeführt.
 
-Kein einziger Test lief auf einem echten iPhone. Alles, was hier „Sim“ heißt, ist auf dem Gerät **nicht getestet**. Bekannte Eigenheit des Simulators (siehe `CLAUDE.md`): Manche Streams bleiben schwarz, obwohl Ton und Zeit laufen. Das trat auch hier auf.
+Kein Test lief auf einem echten iPhone (außer der Anmeldung, die der Nutzer selbst bestätigt hat). Alles, was hier „Sim“ heißt, ist auf dem Gerät **nicht getestet**. Getestet wurde in Safari und in der installierten Home-Bildschirm-App des Simulators; ein eingeschleustes Testskript des lokalen Testservers las dabei den Zustand aus. Bekannte Eigenheit des Simulators (siehe `CLAUDE.md`): Manche Streams bleiben schwarz, obwohl Ton und Zeit laufen. Das trat auch hier auf.
 
 ## Ausgeschlossen durch Projektregel (X)
 
@@ -36,15 +36,15 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
 | Live über Quellen-Rennen (Luminous Asien/Europa, TTV.LOL-Proxy, Twitch offiziell), zeitversetzt parallel, Twitch zuletzt | `TwitchAPI.swift` `getLive`, `raceLiveSources` | B | umgesetzt (`raceLive`) | Sim: Luminous Asien gewann, Bild und Ton liefen |
-| Reihenfolge der Quellen einstellbar | `liveSourceSteps` | A | umgesetzt (Einstellungen) | nicht getestet |
-| Quelle im Player wechseln | `PlayerSettingsSheet.swift` | A | umgesetzt | nicht getestet |
-| Qualitätswahl | `parseMaster`, `preferredQualityKey` | C | bei Proxys ja; bei „Twitch offiziell“ nur „Automatisch“, weil usher fremden Seiten keinen CORS-Header schickt | Logik: `npm test`; Sim: Proxy-Master gelesen |
-| Niedrige Latenz | `fast_bread`, `low_latency` | A | umgesetzt | nicht einzeln geprüft |
+| Reihenfolge der Quellen einstellbar | `liveSourceSteps` | A | umgesetzt (Einstellungen) | Sim: Umstellen per ↑/↓ gespeichert, Player nahm danach „Luminous Europa“ |
+| Quelle im Player wechseln | `PlayerSettingsSheet.swift` | A | umgesetzt; die gewählte Quelle bekommt ihre volle Zeit, erst danach die anderen (vorher gewann oft eine schnellere andere Quelle) | Sim: Albanien, Asien, Europa, Twitch offiziell, jeweils Wiedergabe; zwei Fehler dabei gefunden und behoben (Quelle ignoriert, Video blieb nach Wechsel ohne Quelle) |
+| Qualitätswahl | `parseMaster`, `preferredQualityKey` | C | bei Proxys ja; bei „Twitch offiziell“ nur „Automatisch“, weil usher fremden Seiten keinen CORS-Header schickt | Sim: 480p gewählt → Bild 852×480, Wahl gespeichert; Proxy bietet Source, 720p60, 480p, 360p, 160p, Nur Audio |
+| Niedrige Latenz | `fast_bread`, `low_latency` | A | umgesetzt | Sim: aus → usher-Adresse mit `fast_bread=false&low_latency=false`, an → `true`, beide spielen |
 | Live-Sekundärquelle Cloudflare-Worker | `workerLiveLinks` | D | nicht übernommen: fremder Server des Upstream-Entwicklers, die Vorgabe lautet „kein Backend“ | – |
 | Zuschauer ohne Werbung über den eigenen Account (Abo/Turbo) | `accountPlaybackToken` | D | fehlt: braucht die Web-Sitzung (Cookie `auth-token` von twitch.tv), die eine fremde Seite nicht lesen kann | – |
-| Zurückspulen im Live (LiveDVRPlaylist: Aufnahme + Live-Segmente in einer Playlist) | `LiveDVRPlaylist.swift`, `LivePlaylistLoader.swift` | C | ersetzt: beim Zurückspulen wechselt der Player auf die laufende Aufnahme (Archiv-VOD), nativ abgespielt; „● Live“ springt zurück. Keine verschmolzene Zeitleiste, Kanäle ohne Aufnahme nur im kleinen nativen Puffer | Sim: Wechsel und Zeitanzeige (4:12:52 / 4:13:46) ja, Bild schwarz (Simulator); PoC: Aufnahme hat `seekable 0–14101 s` |
+| Zurückspulen im Live (LiveDVRPlaylist: Aufnahme + Live-Segmente in einer Playlist) | `LiveDVRPlaylist.swift`, `LivePlaylistLoader.swift` | C | ersetzt: beim Zurückspulen wechselt der Player auf die laufende Aufnahme (Archiv-VOD), nativ abgespielt; „● Live“ springt zurück. Keine verschmolzene Zeitleiste, Kanäle ohne Aufnahme nur im kleinen nativen Puffer | Sim: eine Stunde zurück (5:00:31 von 6:00:20), „● Live“ zurück zum Live-Stream; Fehler gefunden und behoben: der Sprung beim Laden wurde verworfen. Bild im Simulator teils schwarz |
 | Werbepausen mit Ersatz-Stream füllen | `adFreeBackupPlaylist`, `LiveDVRPlaylist` | D | nicht möglich: verlangt das Umschreiben der Media-Playlist, und `playlist.ttvnw.net` antwortet fremden Seiten mit 403 | – |
-| Werbepausen erkennen, Ton aus, Hinweis | `AdBreakMonitor.swift`, `liveAdGap` | C | umgesetzt über die `EXT-X-DATERANGE`-Metadaten, die Safari als Cues meldet; Button „Ersatz-Stream“ lädt ein Token mit Player-Typ embed/popout/autoplay | Cues kommen an (PoC: 55 Cues); Verhalten bei einer echten Werbepause **nicht getestet** |
+| Werbepausen erkennen, Ton aus, Hinweis | `AdBreakMonitor.swift`, `liveAdGap` | C | umgesetzt über die `EXT-X-DATERANGE`-Metadaten, die Safari als Cues meldet (maßgeblich ist der zuletzt begonnene Eintrag); Ton aus, Hinweis, danach Ton wie vorher; Knopf „Ersatz-Stream“ lädt ein Token mit Player-Typ embed/popout/autoplay | Sim mit echter Werbung (Pre-Roll bei 6 von 12 Top-Streams): Hinweis und Ton aus für ~32 s, danach weiter; zwei Fehler gefunden und behoben (Video blieb nach der Werbung stehen; Hinweis blieb nach der Werbung stehen). Ersatz-Stream: bei otplol_ sofort ohne Werbung |
 | Werbepausen je Quelle zählen, Reihenfolge danach | `LiveAdStats` | B | nicht umgesetzt | – |
 | Chat-Verzögerung an die Latenz anpassen, Chat-Replay bei großem Abstand | `liveLatency`, `LiveLatency.swift` | B | nicht umgesetzt | – |
 | Zuschauerzahl und Laufzeit regelmäßig aktualisieren | `getStreamStats` | A | nur beim Öffnen geladen; Laufzeit läuft mit | Sim |
@@ -54,37 +54,37 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
 | Eigene Steuerung im YouTube-Stil (Leiste, ±10 s, Doppeltipp, Ausblenden nach 3 s, „● Live“) | `PlayerControls.swift` | B | umgesetzt (`Controls` in `src/player.tsx`) | Sim |
-| Vollbild | `rotatePlayer` | C | nativer Vollbild-Player von iOS (`webkitEnterFullscreen`); dort fehlen eigene Steuerung und Chat. Das iPhone kennt die Fullscreen-API nur für `<video>` | nicht getestet |
+| Vollbild | `rotatePlayer` | C | nativer Vollbild-Player von iOS (`webkitEnterFullscreen`); dort fehlen eigene Steuerung und Chat. Das iPhone kennt die Fullscreen-API nur für `<video>` | Sim: öffnet den iOS-Vollbild-Player; Fehler gefunden und behoben: nach dem Schließen stand das Video auf Pause |
 | Querformat: Video neben dem Chat | Landscape-Layout | B | umgesetzt per CSS, sobald das Gerät gedreht wird | Sim |
 | Querformat per Knopf erzwingen | `requestGeometryUpdate` | D | iOS-Safari hat kein `screen.orientation.lock` | – |
 | Bild füllen per Pinch | `fillScreen` | B | nicht umgesetzt | – |
 | Wischen nach unten minimiert | `PlayerPull.swift` | B | nicht umgesetzt (Knopf ⌄ vorhanden) | – |
 | Mini-Player über der Tab-Leiste | `TabAccessory` | B | umgesetzt | Sim |
-| AirPlay | AVKit | B | `webkitShowPlaybackTargetPicker` | nicht getestet (kein AirPlay im Simulator) |
-| Bild in Bild | AVKit | C | `webkitSetPresentationMode`; in der Simulator-Safari meldet `pictureInPictureEnabled` false | nicht getestet |
-| Wiedergabe im Hintergrund, Sperrbildschirm | `PlaybackAudio.swift` | C | Media-Session-Metadaten gesetzt; ob iOS ein Video einer Web-App im Hintergrund weiterspielt, ist offen | nicht getestet |
-| Schlaf-Timer | `SleepTimerService.swift` | A | umgesetzt | Ablauf nicht getestet |
-| Geschwindigkeit (VOD/Clip) | `PlayerSettingsSheet` | A | umgesetzt | nicht getestet |
+| AirPlay | AVKit | B | `webkitShowPlaybackTargetPicker` | Sim: Knopf ruft die iOS-Auswahl auf; ohne AirPlay-Geräte im Simulator nicht weiter prüfbar, auf dem iPhone **nicht getestet** |
+| Bild in Bild | AVKit | C | `webkitSetPresentationMode`; der Knopf erscheint nur, wenn das Gerät Bild in Bild meldet | Sim: Safari im Simulator meldet kein Bild in Bild, Knopf ausgeblendet; auf dem iPhone **nicht getestet** |
+| Wiedergabe im Hintergrund, Sperrbildschirm | `PlaybackAudio.swift` | C | mit Bild pausiert iOS beim Wechsel auf den Home-Bildschirm und setzt bei Rückkehr fort; mit Qualität „Nur Audio“ läuft der Ton im Hintergrund weiter (nur bei Proxy-Quellen wählbar). Media-Session-Titel gesetzt | Sim: Video 20 s im Hintergrund → pausiert; „Nur Audio“ 26 s im Hintergrund → lief durch. Sperrbildschirm-Anzeige nicht gesehen |
+| Schlaf-Timer | `SleepTimerService.swift` | A | umgesetzt | Sim: 15 min gesetzt, siehe unten |
+| Geschwindigkeit (VOD/Clip) | `PlayerSettingsSheet` | A | umgesetzt | Sim: 1,5× → 6 s Video in 4 s, gespeichert |
 | Immersiver Player (Chat über dem Video, drei Modi) | `ImmersivePlayer.swift` | C | nicht übernommen; nur Hoch- und Querformat | – |
 | Live Activity, Dynamic Island | `PlayerActivity.swift`, `Widgets/`, `Shared/` | D | gibt es für Web-Apps nicht | – |
 | Raumklang | `SpatialAudio.swift` | D | keine Web-API | – |
-| Multi-Live (bis 4 Streams) | `MultiLive.swift`, `MultiLiveView.swift` | B | umgesetzt; Raster mit 480p, Ton nur beim angetippten Stream | Sim: 3 Streams geladen; PoC: zwei stumme Videos laufen gleichzeitig, beim Einschalten des Tons pausiert iOS das andere |
+| Multi-Live (bis 4 Streams) | `MultiLive.swift`, `MultiLiveView.swift` | B | umgesetzt; Raster mit 480p, Ton nur beim angetippten Stream | Sim: zwei Streams, Ton per Tippen hin und her; zwei Fehler gefunden und behoben (Tippen kam bei einer Zelle nicht an; abgebende Zelle blieb pausiert) |
 
 ## VODs, Clips, Verlauf
 
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
 | VOD abspielen (normales Token) | `getM3U8` (nur dessen Twitch-Teil) | B | neu geschrieben, nicht portiert; nur „Automatisch“ als Qualität | Sim: Zeit lief, Ton an, Bild schwarz (Simulator) |
-| Fortsetzen an der letzten Stelle, Fortschritt speichern | `AppStore`, `VodMetaStore.swift` | A | umgesetzt (IndexedDB, alle 5 s) | Sim: Fortschrittsbalken im Verlauf |
-| Kapitel (Spielwechsel) | `getVodMarkers` | A | umgesetzt (Marken auf der Leiste, Liste in den Einstellungen) | nicht getestet |
+| Fortsetzen an der letzten Stelle, Fortschritt speichern | `AppStore`, `VodMetaStore.swift` | A | umgesetzt (localStorage, alle 5 s und beim Verlassen) | Sim: bei 1:00:25 verlassen, fortgesetzt bei 1:00:33; Fehler gefunden und behoben: IndexedDB hing nach einem Safari-Neustart, Speichern ging still verloren |
+| Kapitel (Spielwechsel) | `getVodMarkers` | A | umgesetzt (Marken auf der Leiste, Liste in den Einstellungen) | Sim: xQc-VOD mit drei Kapiteln, Marken auf der Leiste, Sprung auf 56:59 |
 | VOD-Chat-Replay | `VodChatService.swift`, `VodChatView.swift` | A | umgesetzt (Persisted Query `VideoCommentsByOffsetOrCursor`) | Sim |
 | VOD-Downloads, Offline-Wiedergabe, Chat-Archiv | `VodDownloads.swift`, `OfflineServer.swift`, `VodChatArchive.swift` | D | Hinweis in „Meine VODs“; VOD-Playlists auf CloudFront erlauben nur `https://www.twitch.tv` | – |
 | Verlauf nach Tagen (Heute/Gestern/Diese Woche/Früher), Entfernen | `LibraryView.swift` | A | umgesetzt, Entfernen über „Bearbeiten“ | Sim |
-| „Ansehen fortsetzen“ (Start und Meine VODs) | `ResumeVodCard` | A | umgesetzt | nicht getestet (kein VOD > 60 s geschaut) |
+| „Ansehen fortsetzen“ (Start und Meine VODs) | `ResumeVodCard` | A | umgesetzt | Sim: Regal auf Start und in Meine VODs, Antippen setzt an der Stelle fort |
 | Clip abspielen, „Zur VOD“ | `getClip` | A | umgesetzt (MP4) | Sim |
 | Clip-Feed vertikal, ein Player | `ClipFeedView.swift` | B | umgesetzt; ein `<video>` für den ganzen Feed, damit der Ton beim Wischen an bleibt | Sim |
 | „Clips deiner Kanäle“ (24 h, 8 Kanäle) | `HomeView.swift` | A | umgesetzt | Sim |
-| Highlights, Playlists eines Kanals | `getHighlights`, `getCollections` | A | umgesetzt | nicht getestet |
+| Highlights, Playlists eines Kanals | `getHighlights`, `getCollections` | A | umgesetzt | Sim: riotgames 50 Highlights, Playlists „First Stand 2025“, „Worlds 24“ … |
 
 ## Chat
 
@@ -98,10 +98,10 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Schreiben | `ChatService.send` | B | umgesetzt (IRC mit `chat:edit`), eigene Nachricht lokal angezeigt | nicht getestet (kein Login) |
 | Automatisch übersetzen | `ChatTranslation.swift` | B | nur Googles Web-Endpunkt (`gtx`); Apples Übersetzung auf dem Gerät gibt es im Browser nicht. Abweichung: mindestens zwei Wörter, Erkennungs-Konfidenz ≥ 0,5, keine Übersetzung, die nur Groß-/Kleinschreibung oder Lacher ändert | Sim |
 | Raummodi (Slow, Follower, Abo, Emote) als Infozeile | `ChatView` `infoLine` | A | umgesetzt | Sim |
-| Gelöschte Nachrichten, Bans | `CLEARCHAT`, `CLEARMSG` | A | umgesetzt (ausblenden oder durchgestrichen) | nicht getestet |
+| Gelöschte Nachrichten, Bans | `CLEARCHAT`, `CLEARMSG` | A | umgesetzt (ausblenden oder durchgestrichen) | Sim: echte Moderator-Löschung nach 32 s durchgestrichen, mit Option aus ausgeblendet |
 | Erwähnungen hervorheben | `ChatModels.swift` | A | umgesetzt | nicht getestet |
-| Bots und !Befehle ausblenden | `ChatSettingsSheet` | A | umgesetzt | nicht getestet |
-| Schriftgröße, Zeitstempel | `ChatSettingsSheet` | A | umgesetzt | nicht getestet |
+| Bots und !Befehle ausblenden | `ChatSettingsSheet` | A | umgesetzt | Sim: an → keine Bot-Zeilen und !Befehle mehr |
+| Schriftgröße, Zeitstempel | `ChatSettingsSheet` | A | umgesetzt | Sim: 20 px und Zeitstempel bei allen Nachrichten |
 | Emote-Auswahl | `EmotePickerView.swift` | C | nur Kanal- und Drittanbieter-Emotes; eigene Abo-Emotes bräuchten den Scope `user:read:emotes` | nicht getestet |
 | Namensfarbe | `setChatColor` | A | umgesetzt (Helix `PUT chat/color`, CORS geprüft) | nicht getestet |
 | Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info | `ChatMenuSheet.swift`, `BotCommands.swift`, `MessageSheet.swift`, `EmoteInfoService.swift` | B | nicht umgesetzt | – |
@@ -125,25 +125,26 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
 | Startseite mit Regalen (Jetzt live · Du folgst, Ansehen fortsetzen, Clips, Top-Streams mit Sprache, Offline) und „Alle“-Listen | `HomeView.swift` | A | umgesetzt | Sim |
-| Durchsuchen: Kanäle, Kategorien, Links (VOD, Clip, Kanal), Suchverlauf | `SearchView.swift` | A | umgesetzt | Chromium |
+| Durchsuchen: Kanäle, Kategorien, Links (VOD, Clip, Kanal), Suchverlauf | `SearchView.swift` | A | umgesetzt | Chromium (Tippen ins Suchfeld scheitert im Simulator an der Einfüge-Abfrage von iOS) |
 | Top-Kategorien als Raster, Kategorie mit Sprachfilter | `CategoriesView.swift` | A | umgesetzt | Sim (Raster), Chromium (Kategorie) |
 | „Deine Kategorien“ | `CategoriesView.swift` | D/B | Twitch-Kategorien brauchen die Web-Sitzung; lokale Kategorie-Favoriten wären möglich, sind aber nicht umgesetzt | – |
 | Kanalseite (Banner, Avatar mit Live-Ring, Partner, Follower, Beschreibung, Links, Panels, Tabs Übersicht/VODs/Clips/Highlights/Playlists, VOD-Filter) | `ChannelView.swift`, `ChannelAboutView.swift` | A | umgesetzt | Sim (Übersicht, VODs, Clips) |
-| Kanäle und Kategorien ausblenden | `HiddenContent.swift`, `HiddenContentSheet.swift` | A | umgesetzt, Liste in den Einstellungen | nicht getestet |
-| Seiten nach Seite 1 (Android-Client-ID) | `gqlNextRequest` | A | übernommen | nicht getestet |
+| Kanäle und Kategorien ausblenden | `HiddenContent.swift`, `HiddenContentSheet.swift` | A | umgesetzt, Liste in den Einstellungen | Sim: Kategorie aus Raster und Top-Streams verschwunden, Kanal ausgeblendet, über Einstellungen wieder eingeblendet |
+| Seiten nach Seite 1 (Android-Client-ID) | `gqlNextRequest` | A | übernommen | Sim: Top-Kategorien 100 → 200, Top-Streams 29 → 56 |
 
 ## Mitteilungen, Einstellungen, Sonstiges
 
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
-| Live-Mitteilung für gefolgte Kanäle | `LiveNotifier.swift` | C | nur solange die App offen ist (Abfrage alle 2 min, `showNotification`), nur als Home-Bildschirm-App | nicht getestet |
+| Live-Mitteilung für gefolgte Kanäle | `LiveNotifier.swift` | C | nur solange die App offen ist (Abfrage alle 2 min); Service-Worker-Mitteilung, sonst `new Notification` | Sim (installierte App): Erlaubnis-Dialog erscheint und wird gespeichert; `registration.showNotification` ist dort undefined, `new Notification` wirft keinen Fehler, aber in der Mitteilungszentrale kam nichts an. Funktioniert auf iOS ohne Push-Server also vermutlich nicht |
 | Mitteilungen im Hintergrund (ntfy über den Worker) | `NtfyNotifier.swift` | D | Web Push braucht einen eigenen Push-Server | – |
 | Akzentfarbe, System-Hell/Dunkel | `Theme.swift`, `DesignSystem.swift` | A | umgesetzt | Sim (hell), Chromium (dunkel) |
-| Sicherung | `Backup.swift` (lief über den Worker) | B | lokal als JSON-Datei exportieren/importieren | nicht getestet |
+| Sicherung | `Backup.swift` (lief über den Worker) | B | lokal als JSON-Datei: Export über das iOS-Teilen-Menü („In Dateien sichern“), Import über die Dateiauswahl | Sim (installierte App): exportiert (573 Byte), geändert, importiert → Akzentfarbe und Follows zurück; Fehler gefunden und behoben: der Export per Download-Link tat in der installierten App nichts |
 | Systemprotokolle | `Logger.swift`, `LogsView.swift` | B | nicht umgesetzt | – |
 | Eigener Worker | `Constants.swift` `APIConfig` | D/X | nicht übernommen (Backend; der VOD-Teil fällt unter X) | – |
 | App-Symbol wählen | `AppIcons.swift` | D | Web-Apps haben ein festes Symbol aus dem Manifest | – |
-| Links von außen öffnen | URL-Schema `twitchunblock://` | B | Hash-Links `#/live/…`, `#/vod/…`, `#/clip/…`, `#/channel/…`, `#/multi/a,b` | Sim |
+| Links von außen öffnen | URL-Schema `twitchunblock://` | B | Hash-Links `#/live/…`, `#/vod/…`, `#/clip/…`, `#/channel/…`, `#/multi/a,b` (beim Laden der Seite) | Sim |
+| Installation „Zum Home-Bildschirm“ | – | A | Manifest, Symbol, eigenständiger Modus; Statusleisten-Stil `default` | Sim: Dialog mit Symbol und Name, App startet ohne Safari-Leisten mit eigenem Speicher; Fehler gefunden und behoben: mit `black-translucent` gab es den Abstand zur Statusleiste doppelt (iOS verschob die Seite um 62 px) |
 | Hinweise in der App | `InAppNotices.swift` | B | nicht umgesetzt | – |
 | Apple-TV-App | `TV/` | D | tvOS hat keinen Browser | – |
 | Signatur-Info | `SigningInfo.swift` | – | entfällt (kein Sideloading) | – |

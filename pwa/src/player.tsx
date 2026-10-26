@@ -4,7 +4,7 @@
 // loads them without an Origin header.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
-import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, isAdCue } from './logic';
+import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive } from './logic';
 import { ChatClient, VodChat, loadGlobalEmotes, loadChannelEmotes, translate, wantsTranslation, isBotLine, emoteList, type ChatMsg, type RoomState } from './chat';
 import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
@@ -18,8 +18,29 @@ type V = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitShowPlay
 /** Starts playback; without a user gesture iOS refuses sound, so it falls back to muted. */
 async function start(v: HTMLVideoElement, onMuted: () => void) {
   try { await v.play(); } catch (e) {
-    if ((e as Error).name === 'NotAllowedError') { v.muted = true; onMuted(); v.play().catch(() => {}); }
+    // After a refused play() WebKit can leave the element without a source (networkState
+    // NO_SOURCE, seen after a source switch): load() restarts resource selection.
+    // Only then: an unconditional load() also reset a pending resume position to 0.
+    if ((e as Error).name === 'NotAllowedError') {
+      v.muted = true; onMuted();
+      if (v.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) v.load();
+      v.play().catch(() => {});
+    }
   }
+}
+/** Seek once the position is really seekable: Safari's HLS ignores a seek at loadedmetadata
+ *  (measured: a VOD resumed at 0:07 instead of 1:00:05). */
+function seekWhenReady(v: HTMLVideoElement, at: number) {
+  const events = ['loadedmetadata', 'canplay', 'progress', 'timeupdate'];
+  const done = () => events.forEach(e => v.removeEventListener(e, check));
+  const check = () => {
+    if (!v.seekable.length || v.seekable.end(v.seekable.length - 1) < Math.min(at, 1)) return;
+    const end = v.seekable.end(v.seekable.length - 1);
+    v.currentTime = Math.min(at, end - 2);
+    done();
+  };
+  events.forEach(e => v.addEventListener(e, check));
+  setTimeout(done, 20000);
 }
 let sleepAt = 0;
 export const sleepRemaining = () => sleepAt ? Math.max(0, sleepAt - Date.now()) : 0;
@@ -61,7 +82,7 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
 
   const setSrc = (url: string, at?: number) => {
     const v = video.current!; v.src = url;
-    if (at != null) v.addEventListener('loadedmetadata', () => { v.currentTime = at; }, { once: true });
+    if (at != null) seekWhenReady(v, at);
     start(v, () => setMutedHint(true));
   };
 
@@ -81,7 +102,7 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
           viewers: sInfo?.viewers, startedAt: sInfo?.startedAt, thumb: sInfo?.thumb });
         setArchiveId(st?.archiveId);
         const order = tryOrder ?? s.settings.sourceOrder;
-        const hit = await tw.raceLive(order, login, s.settings.lowLatency, src => alive && setStatus(`Quelle: ${SOURCE_LABEL[src]} …`));
+        const hit = await tw.raceLive(order, login, s.settings.lowLatency, src => alive && setStatus(`Quelle: ${SOURCE_LABEL[src]} …`), !!tryOrder);
         if (!alive) return;
         if (!hit) { setError({ text: st ? 'Keine Quelle hat für diesen Livestream geantwortet.' : 'Netzwerkfehler.' }); return; }
         setSource(hit.src);
@@ -147,21 +168,42 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     return () => { v.removeEventListener('timeupdate', tick); if (target.kind === 'vod') setProgress(target.id, v.currentTime); v.removeAttribute('src'); v.load(); };
   }, []);
 
-  // Ad breaks: Safari exposes EXT-X-DATERANGE as metadata cues; a stitched-ad marker = ad break.
+  // Closing iOS's fullscreen player pauses the video ~0.3 s later (measured in the Simulator);
+  // if it was playing, carry on.
+  useEffect(() => {
+    const v = video.current!;
+    const onEnd = () => {
+      if (v.paused) return;
+      const resume = () => { v.removeEventListener('pause', resume); v.play().catch(() => {}); };
+      v.addEventListener('pause', resume);
+      setTimeout(() => v.removeEventListener('pause', resume), 1500);
+    };
+    v.addEventListener('webkitendfullscreen', onEnd);
+    return () => v.removeEventListener('webkitendfullscreen', onEnd);
+  }, []);
+
+  // Ad breaks: Safari exposes EXT-X-DATERANGE as metadata cues (see adActive).
   useEffect(() => {
     if (!isLive) return;
     const v = video.current!;
-    let lastAdCue = 0;
-    const onCue = (e: Event) => {
-      const tr = e.target as TextTrack;
-      for (const c of Array.from(tr.activeCues ?? [])) if (isAdCue((c as any).id ?? '', (c as any).value)) lastAdCue = Date.now();
-    };
-    const add = (e: TrackEvent) => { const tr = e.track as TextTrack; if (tr?.kind === 'metadata') { tr.mode = 'hidden'; tr.addEventListener('cuechange', onCue); } };
+    const add = (e: TrackEvent) => { const tr = e.track as TextTrack; if (tr?.kind === 'metadata') tr.mode = 'hidden'; };
     v.textTracks.addEventListener('addtrack', add as any);
-    const t = setInterval(() => setAd(Date.now() - lastAdCue < 4000), 1000);
+    const t = setInterval(() => {
+      const cues = Array.from(v.textTracks).filter(tr => tr.kind === 'metadata')
+        .flatMap(tr => Array.from(tr.activeCues ?? [])).map(c => ({ id: c.id, start: c.startTime, value: (c as any).value }));
+      setAd(adActive(cues));
+    }, 1000);
     return () => { v.textTracks.removeEventListener('addtrack', add as any); clearInterval(t); };
   }, []);
-  useEffect(() => { if (s.settings.adSwitch && isLive && video.current) video.current.muted = ad; }, [ad]);
+  // Mute for the break, then restore what it was: unmuting a video that started muted without
+  // a tap makes iOS pause it (seen in the Simulator after a real pre-roll).
+  const mutedBeforeAd = useRef(false);
+  useEffect(() => {
+    const v = video.current;
+    if (!s.settings.adSwitch || !isLive || !v) return;
+    if (ad) { mutedBeforeAd.current = v.muted; v.muted = true; }
+    else if (!mutedBeforeAd.current) { v.muted = false; if (v.paused) v.play().catch(() => { v.muted = true; setMutedHint(true); v.play().catch(() => {}); }); }
+  }, [ad]);
 
   // Channel points + drops for the account of the rewards login (rewards.ts). Only once the
   // stream really plays, so an offline or failing channel reports nothing.
@@ -217,7 +259,13 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
       {error && <div class="stage-msg"><p>{error.text}</p>
         {error.offline && info.login && <button class="btn prominent" onClick={() => openChannel(info.login!)}>Kanalseite öffnen</button>}
         {!error.offline && target.kind === 'live' && <button class="btn bordered" onClick={() => setTryOrder([...(tryOrder ?? s.settings.sourceOrder)])}>Erneut versuchen</button>}</div>}
-      {mutedHint && <button class="pill-btn unmute" onClick={() => { if (v) { v.muted = false; setMutedHint(false); } }}>🔇 Ton an</button>}
+      {mutedHint && <button class="pill-btn unmute" onClick={() => {
+        if (!v) return;
+        setMutedHint(false);
+        // The tap unlocks sound for this element; during a break it comes back after the ad.
+        if (ad && s.settings.adSwitch) { mutedBeforeAd.current = false; v.muted = false; v.muted = true; }
+        else v.muted = false;
+      }}>🔇 Ton an</button>}
       {ad && <div class="ad-banner">Werbepause · Ton aus{source !== 'twitch' || <button class="link" onClick={backupSource}>Ersatz-Stream</button>}</div>}
     </div>
     <div class="mini-bar" onClick={() => minimizePlayer(false)}>
@@ -276,6 +324,8 @@ function Controls({ video, kind, info, inArchive, archive, liveTotal, onSeekLive
   const commit = (t: number) => { setDrag(null); if (live) onSeekLive(t); else if (v) v.currentTime = t; show(); };
   const pip = () => { if (!v) return; if (v.webkitSupportsPresentationMode?.('picture-in-picture')) v.webkitSetPresentationMode!('picture-in-picture'); else (v as any).requestPictureInPicture?.(); };
   const canSeek = !live || archive || (v?.seekable.length ?? 0) > 0;
+  // Hidden where iOS has no picture-in-picture (the Simulator's Safari reports none).
+  const canPip = !!v && (v.webkitSupportsPresentationMode?.('picture-in-picture') || document.pictureInPictureEnabled);
   return <div class={'controls' + (shown ? ' on' : '')}>
     <button class="tapzone l" aria-label="Steuerung" onClick={e => tap(e, -1)} /><button class="tapzone r" aria-label="Steuerung" onClick={e => tap(e, 1)} />
     {shown && <>
@@ -283,7 +333,7 @@ function Controls({ video, kind, info, inArchive, archive, liveTotal, onSeekLive
         <button class="glass" onClick={() => minimizePlayer()} aria-label="Minimieren"><Icon n="down" /></button>
         <div class="ctl-title">{info.name && <b>{info.name}</b>}{live && info.startedAt && <span> · {formatClock(liveTotal())}</span>}</div>
         <button class="glass" onClick={() => v?.webkitShowPlaybackTargetPicker?.()} aria-label="AirPlay"><Icon n="airplay" /></button>
-        <button class="glass" onClick={pip} aria-label="Bild in Bild"><Icon n="pip" /></button>
+        {canPip && <button class="glass" onClick={pip} aria-label="Bild in Bild"><Icon n="pip" /></button>}
         <button class="glass" onClick={onSettings} aria-label="Einstellungen"><Icon n="gear" /></button>
       </div>
       <div class="ctl-mid">
@@ -444,8 +494,15 @@ function MultiCell({ login, active, onTap, onRemove }: { login: string; active: 
     });
     return () => { alive = false; };
   }, [login]);
-  useEffect(() => { if (v.current) { v.current.muted = !active; if (active) v.current.play().catch(() => { v.current!.muted = true; v.current!.play(); }); } }, [active]);
-  return <div class={'cell' + (active ? ' active' : '')} onClick={onTap}>
+  // iOS pauses the audible video when another one gets sound (measured): the cell that loses the
+  // sound is muted and started again.
+  useEffect(() => {
+    const el = v.current; if (!el) return;
+    el.muted = !active;
+    el.play().catch(() => { el.muted = true; el.play().catch(() => {}); });
+    if (!active) setTimeout(() => { if (el.paused) el.play().catch(() => {}); }, 500);
+  }, [active]);
+  return <div class={'cell' + (active ? ' active' : '')} onClick={onTap} role="button" aria-label={`Ton von ${login}`}>
     <video ref={v} playsInline muted />
     <span class="cell-name">{login}{active ? ' 🔊' : ''}</span>
     {msg && <span class="cell-msg">{msg}</span>}

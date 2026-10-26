@@ -14,8 +14,7 @@ Die Swift-App bleibt unverändert. Die Web-App liegt komplett in `pwa/`, dazu ko
 | Build | Vite 6, `base: './'` | läuft unter jedem Pfad, also auch unter `/<repo>/` auf Pages |
 | Oberfläche | Preact 10 (JSX, Hooks) | 4 KB statt React; das gesamte JS ist 34 KB gzip |
 | Zustand | ein kleines Observable in `store.ts` | ersetzt `AppStore`; kein Framework nötig |
-| Einstellungen, Follows, Login | `localStorage` | klein, synchron |
-| Verlauf, VOD-Fortschritt | IndexedDB über `idb-keyval` | bis 500 Einträge, verzögert gespeichert wie in der Swift-App |
+| Einstellungen, Follows, Login, Verlauf, VOD-Fortschritt | `localStorage` | synchron; Verlauf höchstens 500 Einträge (~150 KB), verzögert gespeichert wie in der Swift-App. Zuerst lagen Verlauf und Fortschritt in IndexedDB; im Simulator hing IndexedDB nach einem Safari-Neustart, und jedes Speichern ging still verloren. `idb-keyval` liest nur noch einmalig alte Daten |
 | Offline-Start | eigener Service Worker `public/sw.js` | cached nur die App-Hülle; Twitch-Daten und Video nie |
 | Manifest | `public/manifest.webmanifest` | `display: standalone`, Symbol aus `assets/icon.png` (dem Standard-Symbol des Repos, nicht dem lokalen Twitch-Logo) |
 | Tests | `test/logic.test.ts` mit `node:assert` | ohne Test-Framework, `npm test` |
@@ -31,6 +30,7 @@ pwa/
     twitch.ts              GQL, Quellen-Rennen, Tokens, Kanal/VOD/Clip-Abfragen
     account.ts             Gerätecode-Login, Token-Erneuerung, Helix
     store.ts               Einstellungen, Follows, Verlauf, Sicherung
+    rewards.ts             Kanalpunkte und Drops (zweiter Login mit Twitchs TV-Client-ID)
     chat.ts                IRC-Client, Emotes, Badges, Übersetzung, VOD-Chat
     nav.ts                 Tab-Stapel, Player-Zustand, Browser-Verlauf
     ui.tsx                 Bausteine: Seite, Regal, Karten, Sheet, Schalter
@@ -55,9 +55,9 @@ Daraus ergibt sich der Ablauf beim Live-Stream (`raceLive` in `twitch.ts`):
 
 Zurückspulen: Liegt eine laufende Aufnahme vor, wechselt der Player beim Zurückspulen auf deren VOD-Playlist (normales Token, nativ). Safari behandelt sie als Event-Playlist ohne Ende (`duration = Infinity`), der ganze bisherige Stream ist spulbar. „● Live“ lädt wieder den Live-Stream.
 
-Werbepausen: Safari meldet `EXT-X-DATERANGE`-Einträge als Cues einer Metadaten-Spur. `isAdCue` (`logic.ts`) sucht nach `stitched-ad`, `X-TV-TWITCH-AD…` oder einer Stream-Quelle ungleich `live`. Während einer Pause ist der Ton aus und ein Hinweis zu sehen. Bei „Twitch offiziell“ gibt es dazu den Knopf „Ersatz-Stream“, der Tokens mit den Player-Typen embed, popout und autoplay probiert.
+Werbepausen: Safari meldet `EXT-X-DATERANGE`-Einträge als Cues einer Metadaten-Spur. Einträge ohne Ende bleiben dabei für immer aktiv, deshalb wertet `adActive` (`logic.ts`) den zuletzt begonnenen aus: Ein Werbe-Eintrag (`X-TV-TWITCH-AD…`, Stream-Quelle `Amazon…`) nach dem letzten `live`-Eintrag heißt Werbepause. Gemessen mit echter Pre-Roll-Werbung im Simulator. Während einer Pause ist der Ton aus und ein Hinweis zu sehen. Bei „Twitch offiziell“ gibt es dazu den Knopf „Ersatz-Stream“, der Tokens mit den Player-Typen embed, popout und autoplay probiert.
 
-Ton: iOS erlaubt Ton nur nach einem Tippen. Kommt die Wiedergabe ohne Tippen (Deep-Link, nächster Clip), startet sie stumm mit dem Knopf „Ton an“. Der Clip-Feed nutzt ein einziges `<video>`, weil iOS die Erlaubnis pro Element vergibt.
+Ton: iOS erlaubt Ton nur nach einem Tippen. Im Hintergrund pausiert iOS ein Video; nur die Qualität „Nur Audio“ läuft weiter (gemessen). Kommt die Wiedergabe ohne Tippen (Deep-Link, nächster Clip), startet sie stumm mit dem Knopf „Ton an“. Der Clip-Feed nutzt ein einziges `<video>`, weil iOS die Erlaubnis pro Element vergibt.
 
 ## Chat
 

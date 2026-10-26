@@ -24,11 +24,20 @@ async function refreshFollows(): Promise<ChannelBrief[] | undefined> {
   const live = list.filter(c => c.stream);
   if (followCache && state.settings.notifyLive && 'Notification' in window && Notification.permission === 'granted') {
     for (const c of live) if (!seenLive.has(c.login))
-      navigator.serviceWorker?.ready.then(r => r.showNotification(`${c.name} ist live`, { body: c.stream!.title, icon: c.avatar, tag: c.login, data: { login: c.login } }));
+      notify(`${c.name} ist live`, { body: c.stream!.title, icon: c.avatar, tag: c.login, data: { login: c.login } });
   }
   live.forEach(c => seenLive.add(c.login));
   followCache = list;
   return list;
+}
+
+/** Service-worker notification where it exists (iOS WebKit in the Simulator reported
+ *  registration.showNotification as undefined), else the plain constructor. */
+async function notify(title: string, opts: NotificationOptions & { data: { login: string } }) {
+  const reg = await navigator.serviceWorker?.ready.catch(() => undefined);
+  if (typeof reg?.showNotification === 'function') return reg.showNotification(title, opts);
+  const n = new Notification(title, opts);
+  n.onclick = () => { focus(); play({ kind: 'live', login: opts.data.login }); };
 }
 
 function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined, boolean, () => void] {
@@ -299,10 +308,14 @@ export function Settings() {
     const o = [...st.sourceOrder]; const j = i + d; if (j < 0 || j >= o.length) return;
     [o[i], o[j]] = [o[j], o[i]]; setSetting('sourceOrder', o);
   };
+  // The iOS share sheet ("In Dateien sichern"): an <a download> did nothing in the installed
+  // web app (Simulator). Other browsers fall back to the download.
   const download = () => {
+    const name = `TwitchUnblock-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const file = new File([exportBackup()], name, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) { navigator.share({ files: [file] }).catch(() => {}); return; }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([exportBackup()], { type: 'application/json' }));
-    a.download = `TwitchUnblock-Backup-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    a.href = URL.createObjectURL(file); a.download = name; a.click();
   };
   const notify = async (on: boolean) => {
     if (on && 'Notification' in window) { const p = await Notification.requestPermission(); if (p !== 'granted') return; }
@@ -368,7 +381,7 @@ export function Settings() {
       <button class={'swatch' + (st.accent === c ? ' on' : '')} style={{ background: c }} onClick={() => setSetting('accent', c)} aria-label={c} />)}</span></div></div>
 
     <h2 class="section-title">Mitteilungen</h2>
-    <div class="group"><Toggle label="Live-Mitteilungen" sub="Nur solange die App geöffnet ist und nur als Home-Bildschirm-App" value={st.notifyLive} onChange={notify} /></div>
+    <div class="group"><Toggle label="Live-Mitteilungen" sub="Nur solange die App offen ist. Auf dem iPhone kam im Test keine Mitteilung an: iOS zeigt Web-App-Mitteilungen wohl nur über Web Push, und das bräuchte einen Server." value={st.notifyLive} onChange={notify} /></div>
 
     {(s.hiddenChannels.length > 0 || s.hiddenCategories.length > 0) && <><h2 class="section-title">Ausgeblendet</h2>
       <div class="group">{s.hiddenChannels.map(l => <div class="row"><span>{l}</span><button class="link" onClick={() => hideChannel(l, false)}>Einblenden</button></div>)}

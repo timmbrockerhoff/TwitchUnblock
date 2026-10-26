@@ -261,7 +261,8 @@ async function attempt(src: LiveSource, login: string, lowLatency: boolean): Pro
 
 /** Staggered race over the sources (raceLiveSources): the next one starts when the previous failed
  *  or after 1.5 s; the first answer wins. Official Twitch (with ads) only after all before it failed. */
-export function raceLive(steps: LiveSource[], login: string, lowLatency: boolean, onSource?: (s: LiveSource) => void): Promise<LiveHit | undefined> {
+/** `firstAlone`: a source picked in the player gets its full time before the others start. */
+export function raceLive(steps: LiveSource[], login: string, lowLatency: boolean, onSource?: (s: LiveSource) => void, firstAlone = false): Promise<LiveHit | undefined> {
   return new Promise(resolve => {
     let next = 0, running = 0, done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -269,7 +270,7 @@ export function raceLive(steps: LiveSource[], login: string, lowLatency: boolean
       if (done || next >= steps.length) return;
       const src = steps[next++]; running++; onSource?.(src);
       clearTimeout(timer);
-      if (next < steps.length && steps[next] !== 'twitch') timer = setTimeout(start, 1500);
+      if (next < steps.length && steps[next] !== 'twitch' && !(firstAlone && next === 1)) timer = setTimeout(start, 1500);
       attempt(src, login, lowLatency).then(hit => {
         running--;
         if (done) return;

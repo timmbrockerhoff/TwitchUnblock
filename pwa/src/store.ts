@@ -1,6 +1,8 @@
-// App state: settings (localStorage), follows/hidden/account (localStorage), watch history and
-// VOD progress (IndexedDB). A tiny observable replaces the Swift AppStore's @Published fields.
-import { get, set } from 'idb-keyval';
+// App state, all in localStorage (history ≤ 500 entries is ~150 KB). History and progress were
+// in IndexedDB first, but in the Simulator IndexedDB hung after Safari was killed and every
+// later write was lost without an error; localStorage is synchronous and can't hang.
+// A tiny observable replaces the Swift AppStore's @Published fields.
+import { get } from 'idb-keyval';
 import { useEffect, useState } from 'preact/hooks';
 import type { LiveSource } from './twitch';
 
@@ -44,8 +46,8 @@ export const state = {
   searchHistory: loadArr<string>('searchHistory'),
   account: (() => { try { return JSON.parse(localStorage.getItem('account') || 'null') as Account | null; } catch { return null; } })(),
   accountFollows: [] as string[],
-  history: [] as HistoryEntry[],
-  progress: {} as Record<string, number>,             // vod id → seconds
+  history: loadArr<HistoryEntry>('history'),
+  progress: (() => { try { return JSON.parse(localStorage.getItem('progress') || '{}') as Record<string, number>; } catch { return {}; } })(), // vod id → seconds
 };
 
 const listeners = new Set<() => void>();
@@ -93,18 +95,23 @@ export function setAccount(a: Account | null) {
   changed();
 }
 
-// History and progress: IndexedDB, written at most every few seconds (the Swift app saves debounced too).
+// History and progress: written at most every 2 s (the Swift app saves debounced too).
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
-function saveSoon() {
+function saveNow() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { set('history', state.history).catch(() => {}); set('progress', state.progress).catch(() => {}); }, 2000);
+  try { localStorage.setItem('history', JSON.stringify(state.history)); localStorage.setItem('progress', JSON.stringify(state.progress)); } catch { /* full or blocked */ }
 }
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 2000); }
+/** One-time move of history/progress from the IndexedDB of the first web version (2 s limit). */
 export async function loadDB() {
+  if (localStorage.getItem('history') !== null) return;
+  const timeout = new Promise<undefined>(r => setTimeout(() => r(undefined), 2000));
   try {
-    state.history = (await get('history')) ?? [];
-    state.progress = (await get('progress')) ?? {};
-  } catch { /* private mode without IndexedDB: history stays in memory */ }
-  changed();
+    const [h, p] = await Promise.race([Promise.all([get('history'), get('progress')]), timeout.then(() => [undefined, undefined])]);
+    if (h?.length) state.history = h;
+    if (p) state.progress = p;
+  } catch { /* no IndexedDB */ }
+  saveNow(); changed();
 }
 export function addHistory(e: Omit<HistoryEntry, 'at'>) {
   state.history = [{ ...e, at: Date.now() }, ...state.history.filter(h => !(h.kind === e.kind && h.id === e.id))].slice(0, 500);
@@ -118,9 +125,8 @@ export function removeHistory(kind: string, id: string) {
 export function clearHistory() { state.history = []; state.progress = {}; saveSoon(); changed(); }
 /** Progress isn't app-wide reactive per tick (same fix as the Swift app): only saved. */
 export function setProgress(id: string, sec: number) { state.progress[id] = Math.floor(sec); saveSoon(); }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { clearTimeout(saveTimer); set('history', state.history).catch(() => {}); set('progress', state.progress).catch(() => {}); }
-});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveNow(); });
+addEventListener('pagehide', saveNow);
 
 /** Backup file (Settings → Daten): everything except the login. */
 export function exportBackup(): string {
@@ -135,7 +141,7 @@ export function importBackup(text: string): boolean {
     state.follows = b.follows ?? []; state.hiddenChannels = b.hiddenChannels ?? []; state.hiddenCategories = b.hiddenCategories ?? [];
     state.history = b.history ?? []; state.progress = b.progress ?? {};
     (['settings', 'follows', 'hiddenChannels', 'hiddenCategories'] as const).forEach(k => localStorage.setItem(k, JSON.stringify(state[k])));
-    saveSoon(); applyAccent(); changed();
+    saveNow(); applyAccent(); changed();
     return true;
   } catch { return false; }
 }

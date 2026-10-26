@@ -1,7 +1,7 @@
 // Self-check of the pure logic: `npm test` (Node 22+, no test framework).
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
-  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, formatClock } from '../src/logic.ts';
+  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, formatClock } from '../src/logic.ts';
 
 const master = `#EXTM3U
 #EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID="chunked",NAME="1080p60 (source)",AUTOSELECT=YES,DEFAULT=YES
@@ -49,4 +49,12 @@ assert.ok(isAdCue('stitched-ad-123', {}));
 assert.ok(isAdCue('', { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'Amazon' }));
 assert.ok(!isAdCue('', { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'live' }));
 assert.equal(formatViewers(3811600), '3,8 Mio.');
+// Measured in the Simulator: both cues stay active after a pre-roll.
+const amazon = { id: '', start: 3, value: { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'Amazon|2474283100494' } };
+const adKey = { id: '', start: 3, value: { key: 'X-TV-TWITCH-AD-AD-FORMAT', data: 'standard_video_ad' } };
+const live = { id: '', start: 34, value: { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'live' } };
+assert.ok(adActive([amazon, adKey]));
+assert.ok(!adActive([amazon, adKey, live]));
+assert.ok(adActive([live, { ...adKey, start: 90 }]));   // mid-roll after live
+assert.ok(!adActive([live]));
 console.log('logic: all checks passed');
