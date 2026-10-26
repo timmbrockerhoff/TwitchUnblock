@@ -688,11 +688,11 @@ struct ResumeVodCard: View {
             .frame(width: 220, alignment: .leading)
         }
         .buttonStyle(.plain)
-        // Long press: out of "Ansehen fortsetzen" (Home and Meine VODs). The progress goes, so
-        // the VOD starts from the beginning next time; it stays in the history.
+        // Long press: out of "Ansehen fortsetzen" (Home and Meine VODs); it stays in the history
+        // with its progress.
         .contextMenu {
             Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) { store.setVodProgress(item.term, time: 0) }
+                withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
             } label: {
                 Label(store.t("resume_remove"), systemImage: "xmark.circle")
             }

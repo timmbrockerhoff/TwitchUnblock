@@ -636,7 +636,7 @@ struct HomeView: View {
     /// the history drops them (hiding them needs every VOD's duration first).
     @ViewBuilder private var continueWatching: some View {
         let items = Array(store.history
-            .filter { $0.type == .vod && store.getVodProgress($0.term) > 60 }
+            .filter { $0.type == .vod && store.getVodProgress($0.term) > 60 && !store.resumeHidden.contains($0.term) }
             .prefix(10))
         if !items.isEmpty {
             TSectionHeader(store.t("continue_watching"), icon: "play.circle") { EmptyView() }
