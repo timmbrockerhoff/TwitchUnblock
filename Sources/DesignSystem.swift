@@ -310,7 +310,16 @@ struct TShelf<Accessory: View, Content: View>: View {
                 LazyHStack(alignment: .top, spacing: TSpace.md) { content }
                     .padding(.horizontal, TSpace.lg)
             }
+            // A card pressed for its context menu grows; clipped to the row, it slid under the
+            // shelf's title, then jumped above it once the menu opened.
+            .modifier(NoScrollClip())
         }
+    }
+}
+
+private struct NoScrollClip: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) { content.scrollClipDisabled() } else { content }
     }
 }
 

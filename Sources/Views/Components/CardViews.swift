@@ -173,6 +173,8 @@ struct StreamCardView: View {
             .cornerRadius(TRadius.card)
         }
         .buttonStyle(.plain)
+        // The lifted card keeps its rounded corners (not a square cut-out).
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: TRadius.card, style: .continuous))
         .contextMenu {
             MultiLiveMenuButton(login: stream.userLogin, name: stream.userName)
             if pinnable { PinStreamerMenuButton(login: stream.userLogin) }
