@@ -433,13 +433,6 @@ final class AppStore: ObservableObject {
     var accountFollowedCategoryIds: Set<String> = []
 
     /// Chaînes suivies sans compte Twitch (sur cet appareil), en minuscules.
-    /// VODs taken out of "Ansehen fortsetzen" by hand. Their progress stays: resetting it did
-    /// not hold, the cloud sync keeps the furthest progress and brought them back. Playing such
-    /// a VOD again puts it back in the shelf (`saveToHistory`).
-    @Published var resumeHidden: Set<String> = [] {
-        didSet { UserDefaults.standard.set(Array(resumeHidden.suffix(200)), forKey: "resume_hidden") }
-    }
-
     @Published var localFollows: [String] = [] {
         didSet { UserDefaults.standard.set(localFollows, forKey: "local_follows") }
     }
@@ -737,7 +730,6 @@ final class AppStore: ObservableObject {
             .flatMap { TopLanguage.codes.contains($0) ? $0 : nil }
         categoryLang       = ud.string(forKey: "cfg_category_lang").flatMap { TopLanguage.codes.contains($0) ? $0 : nil }
         localFollows       = ud.stringArray(forKey: "local_follows") ?? []
-        resumeHidden       = Set(ud.stringArray(forKey: "resume_hidden") ?? [])
         pinnedStreamers    = ud.stringArray(forKey: "pinned_streamers") ?? []
         followedCategories = (ud.array(forKey: "followed_categories") as? [[String: String]] ?? []).compactMap { d in
             guard let id = d["id"] else { return nil }
@@ -879,7 +871,6 @@ final class AppStore: ObservableObject {
 
     // MARK: – History management
     func saveToHistory(_ item: HistoryItem) {
-        if item.type == .vod, resumeHidden.contains(item.term) { resumeHidden.remove(item.term) }
         var filtered = history.filter { $0.term.lowercased() != item.term.lowercased() }
         filtered.insert(item, at: 0)
         // 50 : l'historique mélange chaînes et VODs, 20 faisait disparaître les

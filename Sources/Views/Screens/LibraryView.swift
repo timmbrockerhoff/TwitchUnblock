@@ -24,7 +24,7 @@ struct LibraryView: View {
     private var resumable: [HistoryItem] {
         Array(vods.filter { item in
             let watched = store.getVodProgress(item.term)
-            guard watched > 60, !store.resumeHidden.contains(item.term) else { return false }
+            guard watched > 60 else { return false }
             guard let total = metaStore.meta(item.term)?.lengthSeconds, total > 0 else { return true }
             return watched / Double(total) < 0.95
         }.prefix(15))

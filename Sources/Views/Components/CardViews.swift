@@ -676,50 +676,25 @@ struct ResumeVodCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TSpace.xs) {
-            Button(action: onTap) {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: TSpace.xs) {
                 picture(width: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            }
-            .buttonStyle(.plain)
 
-            HStack(alignment: .top, spacing: 0) {
-                Button(action: onTap) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.display)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.tText)
-                            .lineLimit(1)
-                        if let streamer = item.streamer {
-                            Text(streamer)
-                                .font(.footnote)
-                                .foregroundColor(.tMuted)
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // "⋯" as on YouTube: a small menu right here. A long-press context menu laid the
-                // system's blur over the whole screen.
-                Menu {
-                    Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
-                    } label: {
-                        Label(store.t("resume_remove"), systemImage: "xmark")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.subheadline.weight(.bold))
+                Text(item.display)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.tText)
+                    .lineLimit(1)
+                if let streamer = item.streamer {
+                    Text(streamer)
+                        .font(.footnote)
                         .foregroundColor(.tMuted)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+                        .lineLimit(1)
                 }
-                .accessibilityLabel(store.t("resume_remove"))
             }
+            .frame(width: 220, alignment: .leading)
         }
-        .frame(width: 220, alignment: .leading)
+        .buttonStyle(.plain)
         .task { await metaStore.load(item.term) }
     }
 }
