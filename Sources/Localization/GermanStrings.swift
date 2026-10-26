@@ -262,6 +262,7 @@ let kGermanStrings: [String: String] = [
     "share": "Teilen",
     "see_all": "Alle",
     "more": "…mehr",
+    "resume_remove": "Aus „Ansehen fortsetzen“ entfernen",
     "less": "Weniger anzeigen",
     "overview": "Übersicht",
     "links_more": "{a} und {n} weitere Links",
