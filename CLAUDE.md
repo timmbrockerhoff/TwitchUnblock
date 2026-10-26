@@ -139,9 +139,13 @@ English, short, explaining *why*.
   Watch streak lives in the points capsule ("👑 20 · 🔥 5"); the info line shows it only when
   there is no capsule (landscape, logged out). User rejected it as a lone line twice.
 - Chat auto-translation (2026-10-26, `ChatTranslation.swift`): live and VOD chat, iOS 18+, free and
-  on-device. NaturalLanguage detects the language (≥ 0.8, ≥ 12 letters or 3 words, no `!cmd`,
-  text tokens only); non-German goes to `ChatTranslator` queues; `ChatTranslatorHost` (hidden
-  view) runs one `.translationTask` worker per source language (≤ 4), batches of 10 every 0.5 s,
+  on-device. NaturalLanguage detects the language (constrained to ~30 chat languages, ≥ 0.5,
+  ≥ 4 letters, no `!cmd`, text tokens only; once a language was seen 3× at ≥ 0.9 it becomes the
+  hint — a partial `languageHints` list zeroes unlisted languages, Spanish came out as English).
+  Tested on real chats (es/fr/pt/ru/en/de, 2026-10-26). Non-German goes to `ChatTranslator`
+  queues; a language starts a worker at once if its model is installed, else after 3 confident
+  lines (then iOS asks to download, so a misdetected slang line never prompts). `ChatTranslatorHost`
+  (1×1 view) runs one `.translationTask` worker per source language (≤ 8), batches of 10 every 0.5 s,
   queue capped at 30 (fast chats drop the oldest), text cache. Result on
   `ChatMessage.translation` (ChatService/VodChatService `setTranslation`), shown as a grey
   "translate" line under the message. Switch „Automatisch übersetzen" in the chat gear

@@ -19,6 +19,13 @@ final class ChatTranslator: ObservableObject {
     var apply: (String, String) -> Void = { _, _ in }
 
     private var queues: [String: [(id: String, text: String)]] = [:]
+    /// Confident detections per language in this chat: the main one becomes a hint, and a
+    /// language whose model isn't on the device is only downloaded once the chat really uses
+    /// it (a slang line read as Indonesian must not ask for a download).
+    private var seen: [String: Int] = [:]
+    /// Languages whose availability was asked: installed ones start at once.
+    private var installed: Set<String> = []
+    private var checking: Set<String> = []
     /// Same text, same translation (copypasta, spam).
     private var cache: [String: String] = [:]
     /// Languages the device can't translate to German, or whose download was declined.
@@ -37,6 +44,14 @@ final class ChatTranslator: ObservableObject {
         languages.append("en")
     }
 
+    /// The languages Twitch chats are written in (and German, to recognise it).
+    private static let candidates: [NLLanguage] = [
+        .english, .german, .spanish, .french, .portuguese, .russian, .italian, .polish, .turkish,
+        .japanese, .korean, .simplifiedChinese, .traditionalChinese, .arabic, .dutch, .ukrainian,
+        .swedish, .czech, .indonesian, .vietnamese, .thai, .hindi, .danish, .finnish, .norwegian,
+        .romanian, .hungarian, .greek, .hebrew,
+    ]
+
     /// New messages: foreign ones are queued for their language.
     func submit(_ messages: [ChatMessage]) {
         guard Self.isAvailable else { return }
@@ -50,11 +65,32 @@ final class ChatTranslator: ObservableObject {
             // A fast chat outruns any translator: the oldest unseen ones are dropped.
             if queue.count > 30 { queue.removeFirst(queue.count - 30) }
             queues[lang] = queue
-            if !languages.contains(lang), languages.count < 4 { languages.append(lang) }
+            startIfReady(lang)
         }
     }
 
     /// Up to `limit` queued messages of a language.
+    /// A worker for `lang`: at once when its model is on the device, after three confident
+    /// messages when iOS has to download it (and then asks).
+    private func startIfReady(_ lang: String) {
+        guard !languages.contains(lang), languages.count < 8 else { return }
+        if installed.contains(lang) || seen[lang, default: 0] >= 3 {
+            languages.append(lang)
+            return
+        }
+        guard #available(iOS 18.0, *), !checking.contains(lang) else { return }
+        checking.insert(lang)
+        Task {
+            let status = await LanguageAvailability().status(from: Locale.Language(identifier: lang),
+                                                             to: Locale.Language(identifier: "de"))
+            switch status {
+            case .installed: installed.insert(lang); startIfReady(lang)
+            case .unsupported: block(lang)
+            default: checking.remove(lang)   // download needed: wait for more of this language
+            }
+        }
+    }
+
     func take(_ lang: String, limit: Int = 10) -> [(id: String, text: String)] {
         let queue = queues[lang, default: []]
         let batch = Array(queue.prefix(limit))
@@ -72,16 +108,30 @@ final class ChatTranslator: ObservableObject {
     }
 
     func block(_ lang: String) {
+        logger.info("CHAT", "Übersetzung aus dieser Sprache nicht möglich", lang)
         blocked.insert(lang)
         queues[lang] = nil
         languages.removeAll { $0 == lang }
     }
 
     // MARK: Detection
+    /// Tested on real chats (es, fr, pt, ru, en, de): limited to chat languages, and biased to
+    /// the chat's main language once known. A partial hint list must not be used: it pushes
+    /// every unlisted language to zero (Spanish lines came out as English).
     private func language(of text: String) -> String? {
         recognizer.reset()
+        recognizer.languageConstraints = Self.candidates
+        if let main = seen.max(by: { $0.value < $1.value }), main.value >= 3 {
+            var hints: [NLLanguage: Double] = [:]
+            for l in Self.candidates { hints[l] = 0.02 }
+            hints[NLLanguage(main.key)] = 0.5
+            recognizer.languageHints = hints
+        } else {
+            recognizer.languageHints = [:]
+        }
         recognizer.processString(text)
-        guard let best = recognizer.languageHypotheses(withMaximum: 1).first, best.value >= 0.8 else { return nil }
+        guard let best = recognizer.languageHypotheses(withMaximum: 1).first, best.value >= 0.5 else { return nil }
+        if best.value >= 0.9 { seen[best.key.rawValue, default: 0] += 1 }
         return best.key.rawValue
     }
 
@@ -95,13 +145,10 @@ final class ChatTranslator: ObservableObject {
         .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Long enough to say something and to be recognised: three words or twelve letters,
-    /// not a bot command.
+    /// Every written message (four letters at least), not a bot command.
     static func worthTranslating(_ text: String) -> Bool {
         guard !text.hasPrefix("!") else { return false }
-        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
-        let words = text.split(whereSeparator: \.isWhitespace).count
-        return letters >= 12 || (words >= 3 && letters >= 8)
+        return text.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count >= 4
     }
 }
 
@@ -117,7 +164,8 @@ struct ChatTranslatorHost: View {
                 }
             }
         }
-        .frame(width: 0, height: 0)
+        // A real (tiny) view: iOS anchors its language download sheet to it.
+        .frame(width: 1, height: 1)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -146,8 +194,9 @@ private struct TranslationWorker: View {
         do {
             // Missing language: iOS shows its download sheet once.
             try await session.prepareTranslation()
+            logger.success("CHAT", "Übersetzung bereit", "\(lang) → de")
         } catch {
-            logger.warn("CHAT", "Übersetzung nicht verfügbar", "\(lang): \(error.localizedDescription)")
+            logger.warn("CHAT", "Übersetzung nicht verfügbar (Download abgelehnt?)", "\(lang): \(error.localizedDescription)")
             translator.block(lang)
             return
         }
