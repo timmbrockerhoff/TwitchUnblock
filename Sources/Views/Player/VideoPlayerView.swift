@@ -822,6 +822,8 @@ struct VideoPlayerView: View {
     var onReduce: (() -> Void)? = nil
     var title: AnyView? = nil
     var onShowChat: (() -> Void)? = nil
+    var onPull: ((CGFloat) -> Void)? = nil
+    var onPullEnd: ((CGFloat, CGFloat) -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     @State private var lastPersisted: Double = -99
@@ -913,7 +915,8 @@ struct VideoPlayerView: View {
                                       onZoom: landscape ? { fill in
                                           guard fill != store.fillScreen else { return }
                                           withAnimation(.easeInOut(duration: 0.25)) { store.fillScreen = fill }
-                                      } : nil)
+                                      } : nil,
+                                      onPull: onPull, onPullEnd: onPullEnd)
             }
         }
         .overlay(alignment: .topLeading) {

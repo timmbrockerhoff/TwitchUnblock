@@ -178,6 +178,9 @@ English, short, explaining *why*.
   Pinch out in landscape fills the video area (`.aspectRatio(.fill)` + clipped, stored as
   `store.fillScreen` = Settings → "Bildschirm füllen"), pinch in shows the whole picture again;
   the frame needs `minWidth/minHeight: 0` or the filled picture pushes the chat off screen.
+  Portrait: swiping down on the bare picture reduces the player like the chevron
+  (`PlayerControlsOverlay.onPull/onPullEnd` → `pullPlayer`/`endPull`, simultaneous drag on the
+  tap zones only; as a plain `.gesture` it swallowed the taps).
   Older notes below describe the previous landscape layout.
 - Landscape player (Apple's): video column full height (vertical safe areas ignored, sides kept
   for the Dynamic Island), header as `landscapeOverlay` over the video, shown/hidden

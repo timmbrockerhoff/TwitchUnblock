@@ -202,6 +202,10 @@ struct PlayerControlsOverlay: View {
     var onShowChat: (() -> Void)? = nil
     /// Landscape: pinch out fills the screen (true), pinch in shows the whole picture (false).
     var onZoom: ((Bool) -> Void)? = nil
+    /// Portrait: swiping down on the picture pulls the player down (distance), and on release
+    /// reduces it or lets it spring back (distance, predicted end) — same as the chevron.
+    var onPull: ((CGFloat) -> Void)? = nil
+    var onPullEnd: ((CGFloat, CGFloat) -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     /// Side of the last double tap (−1 left, +1 right), for its "10 Sekunden" flash.
@@ -315,6 +319,21 @@ struct PlayerControlsOverlay: View {
             tapZone(side: -1)
             tapZone(side: 1)
         }
+        // Only on the bare picture: buttons and the bar above it keep their own touches.
+        // Global space: the player moves with the finger, its own space would jitter.
+        // Simultaneous: as a plain `.gesture` it took the taps (show/hide, double tap ±10 s).
+        .simultaneousGesture(DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .onChanged { v in
+                guard let onPull else { return }
+                // Mostly downward only: a sideways or upward drag does nothing.
+                let t = v.translation
+                onPull(t.height > abs(t.width) ? t.height : 0)
+            }
+            .onEnded { v in
+                let t = v.translation
+                onPullEnd?(t.height > abs(t.width) ? t.height : 0, v.predictedEndTranslation.height)
+            },
+            including: onPull == nil ? .subviews : .all)
     }
 
     private func tapZone(side: Int) -> some View {

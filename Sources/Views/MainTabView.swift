@@ -965,7 +965,10 @@ struct MainTabView: View {
                 // Landscape has nothing under the video: who is on sits by the chevron.
                 title: landscape ? AnyView(landscapeTitle) : nil,
                 onShowChat: landscape && store.landscapeChat == .hidden
-                    ? { withAnimation { store.landscapeChat = .column } } : nil
+                    ? { withAnimation { store.landscapeChat = .column } } : nil,
+                // Portrait: swipe down on the picture reduces, as the chevron does.
+                onPull: landscape ? nil : { pullPlayer(max(0, $0)) },
+                onPullEnd: landscape ? nil : { endPull(max(0, $0), predicted: $1) }
             )
         }
     }
