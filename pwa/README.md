@@ -13,9 +13,9 @@ Die Web-App ist eine Portierung der SwiftUI-App aus diesem Repo (Branch `optimiz
 
 1. Die Pages-Adresse in Safari öffnen (nach dem ersten Deployment: `https://timmbrockerhoff.github.io/TwitchUnblock/`).
 2. Teilen-Knopf → „Zum Home-Bildschirm“.
-3. Die App vom Home-Bildschirm starten. Erst dann gibt es Mitteilungen, und die Daten bleiben dauerhaft gespeichert (Safari löscht Daten normaler Webseiten nach sieben Tagen ohne Besuch).
+3. Die App vom Home-Bildschirm starten. Sie hat dort ihren eigenen Speicher, getrennt von Safari: Follows und Verlauf aus Safari sind dort nicht vorhanden (Übertragen per Sicherung exportieren/importieren). Safari selbst löscht Daten normaler Webseiten nach sieben Tagen ohne Besuch.
 
-Anmelden geht in den Einstellungen mit „Mit Twitch anmelden“: Die App zeigt einen Code, den man auf `twitch.tv/activate` eingibt. Ein Passwort gibt man in der App nie ein.
+Anmelden geht in den Einstellungen mit „Mit Twitch anmelden“: Die App zeigt einen Code, den man auf `twitch.tv/activate` eingibt. Ein Passwort gibt man in der App nie ein. Dieser eine Login (Twitchs TV-Zugang) reicht für Chat, Folgen, Kanalpunkte und Drops.
 
 ## Entwickeln
 

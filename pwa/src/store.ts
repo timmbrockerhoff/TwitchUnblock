@@ -48,7 +48,18 @@ export const state = {
   hiddenCategories: loadArr<{ id: string; name: string }>('hiddenCategories'),
   favCategories: loadArr<{ id: string; name: string; boxArt: string }>('favCategories'), // "Deine Kategorien", local
   searchHistory: loadArr<string>('searchHistory'),
-  account: (() => { try { return JSON.parse(localStorage.getItem('account') || 'null') as Account | null; } catch { return null; } })(),
+  account: (() => {
+    try {
+      // The earlier second login (TV client, "rewardsAccount") becomes the one login.
+      const tv = JSON.parse(localStorage.getItem('rewardsAccount') || 'null');
+      if (tv) {
+        const a: Account = { token: tv.token, refresh: tv.refresh, login: tv.login, userId: tv.userId, name: tv.login, avatar: '', scopes: [] };
+        localStorage.setItem('account', JSON.stringify(a)); localStorage.removeItem('rewardsAccount');
+        return a;
+      }
+      return JSON.parse(localStorage.getItem('account') || 'null') as Account | null;
+    } catch { return null; }
+  })(),
   accountFollows: [] as string[],
   history: loadArr<HistoryEntry>('history'),
   progress: (() => { try { return JSON.parse(localStorage.getItem('progress') || '{}') as Record<string, number>; } catch { return {}; } })(), // vod id → seconds

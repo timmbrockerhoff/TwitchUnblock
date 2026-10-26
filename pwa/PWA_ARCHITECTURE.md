@@ -67,7 +67,9 @@ Der VOD-Chat fragt `VideoCommentsByOffsetOrCursor` (Persisted Query) ab und gibt
 
 ## Anmeldung
 
-Das Gerätecode-Verfahren läuft so: Die App holt einen Code bei `id.twitch.tv/oauth2/device`, der Nutzer gibt ihn auf `twitch.tv/activate` ein, die App fragt alle 5 s nach dem Token. Das Refresh-Token erneuert abgelaufene Tokens ohne Secret. Gespeichert wird das Token in `localStorage`. Da die Seite keine fremden Skripte lädt, kann es nur die App selbst lesen. Der Weg über eine Weiterleitungsseite ging nicht: Die registrierte Adresse der App-Client-ID (`mxfia19.github.io/…/auth.html`) leitet an `twitchunblock://` weiter.
+Ein einziger Login per Gerätecode mit Twitchs TV-Client-ID: Die App holt einen Code bei `id.twitch.tv/oauth2/device`, der Nutzer gibt ihn auf `twitch.tv/activate` ein, die App fragt alle 5 s nach dem Token. Gemessen am 26.10.2026: `gql.twitch.tv` verlangt für diesen Client kein Integritäts-Token (Folgen, Kanalpunkte, Drops-Inventar und -Einlösung gehen), IRC nimmt den Token an, Helix `users` auch. Für `channels/followed` und `chat/color` braucht Helix Scopes; die App fragt sie an, ob Twitch sie dem TV-Client gibt, ist offen. Das Token läuft laut `validate` nicht ab; ein Refresh-Token ist trotzdem gespeichert. Es liegt in `localStorage`, die Seite lädt keine fremden Skripte.
+
+Der Login der iOS-App ließ sich nicht übernehmen: Ihre registrierte Weiterleitungsseite (`mxfia19.github.io/…/auth.html`) gibt das Token an `twitchunblock://` weiter, und der twitch.tv-Cookie samt Integritäts-Token ist für eine fremde Seite nicht erreichbar.
 
 ## Deployment
 

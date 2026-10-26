@@ -24,7 +24,7 @@ Die iOS-App meldet sich zusätzlich im eingebetteten twitch.tv an und liest das 
 - Watch Streak und das Einlösen von Kanalpunkte-Belohnungen
 - werbefreie Wiedergabe über das eigene Abo oder Turbo
 
-Kanalpunkte, Drops und das Folgen auf Twitch laufen deshalb über einen eigenen, zweiten Login mit Twitchs TV-Zugang (Einstellungen → Kanalpunkte & Drops). Ob Twitch das Einlösen damit annimmt, ist **nicht getestet**; das Protokoll in den Einstellungen zeigt jeden Versuch mit Ergebnis. Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
+Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). Damit gehen Chatten, Folgen auf Twitch, Kanalpunkte und Drops, im Simulator mit echtem Konto geprüft. Drops werden nur gutgeschrieben, wenn das Spielkonto beim Hersteller mit Twitch verknüpft ist. Die Liste der gefolgten Kanäle und die Namensfarbe brauchen Berechtigungen, die Twitch dem TV-Zugang vielleicht nicht gibt (nicht getestet). Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
 
 ## Durch iOS und WebKit
 

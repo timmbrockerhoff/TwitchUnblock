@@ -7,7 +7,7 @@ import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hid
   setAccount, removeHistory, clearHistory, exportBackup, importBackup, type HistoryEntry } from './store';
 import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, setChatColor, type DeviceCode } from './account';
 import { play, push, openChannel, type Route } from './nav';
-import { rewards, setRewardsAccount, startRewardsLogin, pollRewardsLogin, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
+import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 import { Page, AccountButton, Shelf, Empty, Spinner, StreamCard, VodCard, ClipCard, CategoryTile, Icon, Sheet, Segmented, Toggle, Select, relDate } from './ui';
 
 const LANGS: [string, string][] = [['', 'Weltweit'], ['de', 'Deutsch'], ['en', 'Englisch'], ['fr', 'Französisch'], ['es', 'Spanisch'],
@@ -284,7 +284,7 @@ export function ChannelPage({ login }: { login: string }) {
       <button class="btn bordered" onClick={() => hideChannel(login, !s.hiddenChannels.includes(login))}>{s.hiddenChannels.includes(login) ? 'Einblenden' : 'Ausblenden'}</button>
     </div>
     {twf?.err && <p class="hint pad error">Twitch hat abgelehnt: {twf.err}</p>}
-    {!rewards.account && <p class="hint pad">Auf Twitch folgen und entfolgen geht mit dem TV-Zugang: Einstellungen → Kanalpunkte, Drops &amp; Folgen. Ohne ihn folgst du nur in dieser App.</p>}
+    {!rewards.account && <p class="hint pad">Ohne Login folgst du nur in dieser App. Mit Login (Einstellungen → Mit Twitch anmelden) folgst du auf Twitch.</p>}
     <div class="tabs">{([['overview', 'Übersicht'], ['vods', 'VODs'], ['clips', 'Clips'], ['highlights', 'Highlights'], ['playlists', 'Playlists']] as [ChannelTab, string][])
       .map(([k, l]) => <button class={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
     {tab === 'overview' && <>
@@ -319,7 +319,6 @@ export function Settings() {
   const s = useStore();
   const st = s.settings;
   const [login, setLogin] = useState(false);
-  const [rewardsLogin, setRewardsLogin] = useState(false);
   const [color, setColor] = useState('#9146ff');
   const [colorMsg, setColorMsg] = useState('');
   const [importMsg, setImportMsg] = useState('');
@@ -345,24 +344,20 @@ export function Settings() {
     <h2 class="section-title">Konto</h2>
     <div class="group">
       {s.account ? <>
-        <div class="row"><div class="acc"><img class="avatar sm" src={s.account.avatar} alt="" /><div><div>{s.account.name}</div><div class="row-sub">Verbunden · {s.accountFollows.length} Twitch-Follows</div></div></div></div>
+        <div class="row"><div class="acc"><img class="avatar sm" src={s.account.avatar} alt="" /><div><div>{s.account.name}</div><div class="row-sub">Verbunden{s.account.scopes.includes('user:read:follows') ? ` · ${s.accountFollows.length} Twitch-Follows` : ''}</div></div></div></div>
         <button class="row danger" onClick={() => confirm('Möchtest du dich wirklich abmelden?') && setAccount(null)}>Abmelden</button>
       </> : <button class="row accent" onClick={() => setLogin(true)}>Mit Twitch anmelden</button>}
     </div>
-    <p class="hint pad">Anmeldung per Gerätecode auf twitch.tv/activate: kein Passwort in dieser App, kein Server. Damit: Twitch-Follows, Chatten, Namensfarbe.</p>
+    <p class="hint pad">Ein Login per Code auf twitch.tv/activate (Twitchs TV-Zugang): kein Passwort in dieser App, kein Server. Damit: Chatten, Folgen auf Twitch, Kanalpunkte, Drops.</p>
 
-    <h2 class="section-title">Kanalpunkte, Drops &amp; Folgen</h2>
+    {s.account && <><h2 class="section-title">Kanalpunkte &amp; Drops</h2>
     <div class="group">
-      {rewards.account ? <>
-        <div class="row"><div><div>Verbunden als {rewards.account.login}</div><div class="row-sub">Twitch-TV-Zugang für Kanalpunkte, Drops und Folgen auf Twitch</div></div></div>
-        <Toggle label="Truhen automatisch einlösen" value={st.autoPoints} onChange={v => setSetting('autoPoints', v)} />
-        <Toggle label="Drops automatisch einlösen" value={st.autoDrops} onChange={v => setSetting('autoDrops', v)} />
-        <Toggle label="Drops-Fortschritt sammeln" sub="Lädt bei Kanälen mit Drops einen unsichtbaren zweiten Stream in niedriger Qualität (mehr Datenverbrauch)" value={st.dropsStream} onChange={v => setSetting('dropsStream', v)} />
-        <button class="row accent" onClick={() => checkDrops(true)}>Drops jetzt prüfen</button>
-        <button class="row danger" onClick={() => setRewardsAccount(null)}>Trennen</button>
-      </> : <button class="row accent" onClick={() => setRewardsLogin(true)}>TV-Zugang anmelden</button>}
+      <Toggle label="Truhen automatisch einlösen" value={st.autoPoints} onChange={v => setSetting('autoPoints', v)} />
+      <Toggle label="Drops automatisch einlösen" value={st.autoDrops} onChange={v => setSetting('autoDrops', v)} />
+      <Toggle label="Drops-Fortschritt sammeln" sub="Lädt bei Kanälen mit Drops einen unsichtbaren zweiten Stream in niedriger Qualität (mehr Datenverbrauch)" value={st.dropsStream} onChange={v => setSetting('dropsStream', v)} />
+      <button class="row accent" onClick={() => checkDrops(true)}>Drops jetzt prüfen</button>
     </div>
-    <p class="hint pad">Eigene Anmeldung per Code mit Twitchs TV-Zugang: Der normale Login reicht Twitch dafür nicht. Damit: Kanalpunkte (solange ein Live-Stream in der App läuft), Drops und Folgen/Entfolgen auf Twitch.</p>
+    <p class="hint pad">Punkte und Drops gibt es, solange ein Live-Stream in der App läuft.</p></>}
     {rewards.drops.length > 0 && <div class="group">{rewards.drops.map(c => <div class="row"><div style={{ flex: 1 }}>
       <div>{c.game} · {c.name}</div>
       {!c.linked && <div class="row-sub">Spielkonto nicht verknüpft{c.linkURL && <> · <a href={c.linkURL} target="_blank" rel="noopener">verknüpfen</a></>}</div>}
@@ -430,30 +425,24 @@ export function Settings() {
     </div>
     <p class="hint pad">Basiert auf TwitchUnblock von MXFia19 (MIT-Lizenz). Nicht mit Twitch verbunden.</p>
     {login && <LoginSheet onClose={() => setLogin(false)} />}
-    {rewardsLogin && <LoginSheet rewards onClose={() => setRewardsLogin(false)} />}
   </Page>;
 }
 
-function LoginSheet({ onClose, rewards: forRewards }: { onClose: () => void; rewards?: boolean }) {
+function LoginSheet({ onClose }: { onClose: () => void }) {
   const [code, setCode] = useState<DeviceCode>();
   const [err, setErr] = useState('');
   useEffect(() => {
     let cancelled = false;
-    (forRewards ? startRewardsLogin() : startDeviceLogin()).then(async c => {
+    startDeviceLogin().then(async c => {
       setCode(c);
-      if (forRewards) {
-        const acc = await pollRewardsLogin(c, () => cancelled);
-        if (cancelled) return;
-        if (acc) { setRewardsAccount(acc); rewardsLog(`Angemeldet als ${acc.login}`, true); checkDrops(true); onClose(); } else setErr('Der Code ist abgelaufen. Bitte erneut versuchen.');
-        return;
-      }
       const acc = await pollDeviceLogin(c, () => cancelled);
       if (cancelled) return;
-      if (acc) { setAccount(acc); loadAccountFollows(); onClose(); } else setErr('Der Code ist abgelaufen. Bitte erneut versuchen.');
+      if (acc) { setAccount(acc); rewardsLog(`Angemeldet als ${acc.login}`, true); loadAccountFollows(); checkDrops(true); onClose(); }
+      else setErr('Der Code ist abgelaufen. Bitte erneut versuchen.');
     }).catch(e => setErr('Anmeldung fehlgeschlagen: ' + e.message));
     return () => { cancelled = true; };
   }, []);
-  return <Sheet title={forRewards ? 'TV-Zugang anmelden' : 'Mit Twitch anmelden'} onClose={onClose}>
+  return <Sheet title="Mit Twitch anmelden" onClose={onClose}>
     {err ? <p class="error">{err}</p> : !code ? <Spinner /> : <div class="login">
       <p>Öffne twitch.tv/activate, melde dich dort an und gib diesen Code ein:</p>
       <div class="code" onClick={() => navigator.clipboard?.writeText(code.user_code)}>{code.user_code}</div>

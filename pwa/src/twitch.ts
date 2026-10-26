@@ -6,8 +6,12 @@ import { parseMaster, type Master } from './logic';
 export const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 /** Twitch's Android client id: only for page 2+ of lists, where the web id needs an integrity token. */
 const GQL_NEXT_CLIENT_ID = 'kd1unb4b3q4t58fwlpcbzcbnm76a8fp';
-/** The app's own public client (the same as the iOS app); device code flow needs no secret. */
+/** The iOS app's own public client; kept for reference, the web login uses TV_CLIENT_ID. */
 export const HELIX_CLIENT_ID = '1e68ku2ehgzy5cy0di3xvfy82sxpf6';
+/** Twitch's TV app client: device-code login without a secret, and gql.twitch.tv takes its token
+ *  for follows, channel points and drops without an integrity token (measured 2026-10-26). One
+ *  login for everything; IRC accepts its token too. */
+export const TV_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
 export const LUMINOUS_AS = ['as.luminous.dev'];
 export const LUMINOUS_EU = ['eu.luminous.dev', 'eu2.luminous.dev', 'eu3.luminous.dev'];
 export const TTVLOL_HOSTS = ['twitch-al.nadeko.net'];

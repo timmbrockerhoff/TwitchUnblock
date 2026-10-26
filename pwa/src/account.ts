@@ -1,6 +1,7 @@
-// Twitch login without a client secret: OAuth device code flow with the app's public client
-// (the browser can't use the iOS app's redirect page, which hands the token to twitchunblock://).
-import { HELIX_CLIENT_ID } from './twitch';
+// Twitch login without a client secret: OAuth device code flow with Twitch's TV client (one
+// login for chat, follows, channel points and drops; the iOS app's redirect page hands tokens to
+// twitchunblock:// and can't be used by a web page).
+import { TV_CLIENT_ID as CLIENT_ID } from './twitch';
 import { state, setAccount, changed, type Account } from './store';
 
 export const SCOPES = ['user:read:follows', 'chat:read', 'chat:edit', 'user:manage:chat_color'];
@@ -8,7 +9,7 @@ export const SCOPES = ['user:read:follows', 'chat:read', 'chat:edit', 'user:mana
 export type DeviceCode = { device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number };
 export async function startDeviceLogin(): Promise<DeviceCode> {
   const r = await fetch('https://id.twitch.tv/oauth2/device', { method: 'POST',
-    body: new URLSearchParams({ client_id: HELIX_CLIENT_ID, scopes: SCOPES.join(' ') }) });
+    body: new URLSearchParams({ client_id: CLIENT_ID, scopes: SCOPES.join(' ') }) });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -19,7 +20,7 @@ export async function pollDeviceLogin(code: DeviceCode, cancelled: () => boolean
   while (Date.now() < until && !cancelled()) {
     await new Promise(r => setTimeout(r, wait));
     const r = await fetch('https://id.twitch.tv/oauth2/token', { method: 'POST', body: new URLSearchParams({
-      client_id: HELIX_CLIENT_ID, device_code: code.device_code, scopes: SCOPES.join(' '),
+      client_id: CLIENT_ID, device_code: code.device_code, scopes: SCOPES.join(' '),
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }) }).catch(() => undefined);
     if (!r) continue;
     const j = await r.json().catch(() => ({}));
@@ -37,10 +38,10 @@ async function accountFor(token: string, refresh?: string): Promise<Account | un
 }
 
 /** Public clients refresh without a secret. Returns the new token or undefined (signed out). */
-async function refreshToken(): Promise<string | undefined> {
+export async function refreshToken(): Promise<string | undefined> {
   const a = state.account; if (!a?.refresh) return undefined;
   const r = await fetch('https://id.twitch.tv/oauth2/token', { method: 'POST', body: new URLSearchParams({
-    client_id: HELIX_CLIENT_ID, grant_type: 'refresh_token', refresh_token: a.refresh }) }).catch(() => undefined);
+    client_id: CLIENT_ID, grant_type: 'refresh_token', refresh_token: a.refresh }) }).catch(() => undefined);
   const j = await r?.json().catch(() => undefined);
   if (!j?.access_token) return undefined;
   setAccount({ ...a, token: j.access_token, refresh: j.refresh_token ?? a.refresh });
@@ -50,7 +51,7 @@ async function refreshToken(): Promise<string | undefined> {
 export async function helix(path: string, token = state.account?.token, init: RequestInit = {}): Promise<any> {
   if (!token) return undefined;
   const call = (t: string) => fetch(`https://api.twitch.tv/helix/${path}`, { ...init,
-    headers: { ...(init.headers as any), Authorization: `Bearer ${t}`, 'Client-Id': HELIX_CLIENT_ID } });
+    headers: { ...(init.headers as any), Authorization: `Bearer ${t}`, 'Client-Id': CLIENT_ID } });
   let r = await call(token).catch(() => undefined);
   if (r?.status === 401 && token === state.account?.token) {
     const t = await refreshToken();
@@ -61,9 +62,10 @@ export async function helix(path: string, token = state.account?.token, init: Re
   return r.status === 204 ? {} : r.json();
 }
 
-/** Channels the account follows on Twitch (read-only: Helix has no follow/unfollow any more). */
+/** Channels the account follows on Twitch (Helix; needs the user:read:follows scope, which
+ *  Twitch may not grant the TV client: then the list stays empty and per-channel state is used). */
 export async function loadAccountFollows() {
-  const a = state.account; if (!a) return;
+  const a = state.account; if (!a || !a.scopes.includes('user:read:follows')) return;
   const out: string[] = [];
   let cursor = '';
   do {

@@ -1,21 +1,20 @@
-// Channel points and drops, claimed automatically (ChannelPointsService.swift, Drops.swift).
+// Channel points, drops and following, with the one login (Twitch's TV client, see account.ts).
 // The iOS app uses the twitch.tv session cookie plus an integrity token minted in a WebView;
-// a web page can read neither. Instead: a second device-code login with Twitch's own TV client
-// id (accepted by id.twitch.tv and gql.twitch.tv from any origin, measured 2026-10-26), the
-// same route as open-source points/drops miners. Whether Twitch accepts the claim mutations
-// with that token is only verifiable with a real login: every step is logged for that.
-import { changed, state } from './store';
+// a web page can read neither. The TV client's token needs no integrity token on gql.twitch.tv
+// (measured 2026-10-26: balance and drops inventory readable). Every claim is logged.
+import { changed, state, setAccount } from './store';
+import { refreshToken } from './account';
+import { TV_CLIENT_ID } from './twitch';
 
-export const TV_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
 const CLAIM_POINTS_HASH = '46aaeebe02c99afdf4fc97c7c0cba964124bf6b0af229395f1f6d1feed05b3d0';
 const CLAIM_DROP_HASH = 'a455deea71bdc9015b78eb49f4acfbce8baa7ccbedd28e549bb025bd0f751930';
 /** Twitch's analytics endpoint ("spade_url" in twitch.tv's settings.js); CORS `*`. */
 const SPADE_URL = 'https://spade.twitch.tv/track';
 
-export type Rewards = { token: string; refresh?: string; userId: string; login: string };
 export type RewardLog = { at: number; text: string; ok?: boolean };
 export const rewards = {
-  account: (() => { try { return JSON.parse(localStorage.getItem('rewardsAccount') || 'null') as Rewards | null; } catch { return null; } })(),
+  /** The one login (store.account), TV client. */
+  get account() { return state.account; },
   log: [] as RewardLog[],
   balance: {} as Record<string, number>,        // channel login → points
   drops: [] as DropCampaign[],
@@ -27,44 +26,6 @@ export function log(text: string, ok?: boolean) {
   rewards.log = [{ at: Date.now(), text, ok }, ...rewards.log].slice(0, 60);
   changed();
 }
-export function setRewardsAccount(a: Rewards | null) {
-  rewards.account = a;
-  if (a) localStorage.setItem('rewardsAccount', JSON.stringify(a)); else localStorage.removeItem('rewardsAccount');
-  changed();
-}
-
-// Login ----------------------------------------------------------------------------------------
-export async function startRewardsLogin() {
-  const r = await fetch('https://id.twitch.tv/oauth2/device', { method: 'POST', body: new URLSearchParams({ client_id: TV_CLIENT_ID, scopes: '' }) });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json() as Promise<{ device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number }>;
-}
-export async function pollRewardsLogin(code: { device_code: string; interval: number; expires_in: number }, cancelled: () => boolean): Promise<Rewards | undefined> {
-  const until = Date.now() + code.expires_in * 1000;
-  let wait = Math.max(code.interval, 5) * 1000;
-  while (Date.now() < until && !cancelled()) {
-    await new Promise(r => setTimeout(r, wait));
-    const r = await fetch('https://id.twitch.tv/oauth2/token', { method: 'POST', body: new URLSearchParams({
-      client_id: TV_CLIENT_ID, device_code: code.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }) }).catch(() => undefined);
-    const j = await r?.json().catch(() => ({})) ?? {};
-    if (j.access_token) {
-      const v = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: `OAuth ${j.access_token}` } }).then(x => x.json()).catch(() => undefined);
-      if (!v?.user_id) throw new Error('Token ungültig');
-      return { token: j.access_token, refresh: j.refresh_token, userId: v.user_id, login: v.login };
-    }
-    if (j.message === 'slow_down') wait += 5000;
-    else if (r && j.message !== 'authorization_pending') throw new Error(j.message || `HTTP ${r.status}`);
-  }
-  return undefined;
-}
-async function refresh(): Promise<boolean> {
-  const a = rewards.account; if (!a?.refresh) return false;
-  const j = await fetch('https://id.twitch.tv/oauth2/token', { method: 'POST', body: new URLSearchParams({
-    client_id: TV_CLIENT_ID, grant_type: 'refresh_token', refresh_token: a.refresh }) }).then(r => r.json()).catch(() => undefined);
-  if (!j?.access_token) return false;
-  setRewardsAccount({ ...a, token: j.access_token, refresh: j.refresh_token ?? a.refresh });
-  return true;
-}
 
 /** GQL as the TV client with the rewards token; one token refresh on 401. */
 async function gql(body: unknown, retried = false): Promise<any> {
@@ -72,9 +33,9 @@ async function gql(body: unknown, retried = false): Promise<any> {
   const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: AbortSignal.timeout(15000),
     headers: { 'Client-ID': TV_CLIENT_ID, Authorization: `OAuth ${a.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined);
   if (r?.status === 401 && !retried) {
-    if (await refresh()) return gql(body, true);
-    log('Anmeldung für Kanalpunkte/Drops abgelaufen – bitte neu anmelden', false);
-    setRewardsAccount(null);
+    if (await refreshToken()) return gql(body, true);
+    log('Anmeldung abgelaufen – bitte neu anmelden', false);
+    setAccount(null);
     return undefined;
   }
   return r?.json().catch(() => undefined);
@@ -161,8 +122,12 @@ export async function checkDrops(manual = false) {
     const res = await gql([{ operationName: 'DropsPage_ClaimDropRewards', variables: { input: { dropInstanceID: d.instance } },
       extensions: { persistedQuery: { version: 1, sha256Hash: CLAIM_DROP_HASH } } }]);
     const err = errors(res);
+    const payload = res?.[0]?.data?.claimDropRewards;
     if (err) { log(`Drop „${d.name}“ nicht eingelöst: ${err}`, false); claiming.delete(d.instance); }
-    else { log(`Drop „${d.name}“ (${c.game}) eingelöst`, true); d.claimed = true; changed(); }
+    // Measured: with an unlinked game account Twitch answers ELIGIBLE_FOR_ALL but keeps the drop
+    // unclaimed; it can only be claimed after linking.
+    else if (payload?.isUserAccountConnected === false) log(`Drop „${d.name}“ (${c.game}) wartet: Spielkonto nicht verknüpft`, false);
+    else { log(`Drop „${d.name}“ (${c.game}) eingelöst (${payload?.status ?? 'ok'})`, true); d.claimed = true; changed(); }
   }
 }
 

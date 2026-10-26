@@ -95,15 +95,15 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Twitch-, BTTV-, FFZ-, 7TV-Emotes | `EmoteService.swift` | A | umgesetzt | Sim |
 | BTTV/7TV-Änderungen live | `BTTVLive.swift` | B | nicht umgesetzt | – |
 | Badges | `BadgeService.swift` | A | umgesetzt (öffentliches GQL) | Sim |
-| Schreiben | `ChatService.send` | B | umgesetzt (IRC mit `chat:edit`), eigene Nachricht lokal angezeigt | nicht getestet (kein Login) |
+| Schreiben | `ChatService.send` | B | umgesetzt (IRC mit dem Login-Token), eigene Nachricht lokal angezeigt | Sim mit echtem Konto: „test“ im eigenen Kanal gesendet (mit Erlaubnis des Nutzers), von einem unabhängigen anonymen Chat-Client empfangen |
 | Automatisch übersetzen | `ChatTranslation.swift` | B | nur Googles Web-Endpunkt (`gtx`); Apples Übersetzung auf dem Gerät gibt es im Browser nicht. Abweichung: mindestens zwei Wörter, Erkennungs-Konfidenz ≥ 0,5, keine Übersetzung, die nur Groß-/Kleinschreibung oder Lacher ändert | Sim |
 | Raummodi (Slow, Follower, Abo, Emote) als Infozeile | `ChatView` `infoLine` | A | umgesetzt | Sim |
 | Gelöschte Nachrichten, Bans | `CLEARCHAT`, `CLEARMSG` | A | umgesetzt (ausblenden oder durchgestrichen) | Sim: echte Moderator-Löschung nach 32 s durchgestrichen, mit Option aus ausgeblendet |
-| Erwähnungen hervorheben | `ChatModels.swift` | A | umgesetzt | nicht getestet |
+| Erwähnungen hervorheben | `ChatModels.swift` | A | umgesetzt | mit Login nicht beobachtet (niemand hat das Konto erwähnt), **nicht getestet** |
 | Bots und !Befehle ausblenden | `ChatSettingsSheet` | A | umgesetzt | Sim: an → keine Bot-Zeilen und !Befehle mehr |
 | Schriftgröße, Zeitstempel | `ChatSettingsSheet` | A | umgesetzt | Sim: 20 px und Zeitstempel bei allen Nachrichten |
-| Emote-Auswahl | `EmotePickerView.swift` | C | nur Kanal- und Drittanbieter-Emotes; eigene Abo-Emotes bräuchten den Scope `user:read:emotes` | nicht getestet |
-| Namensfarbe | `setChatColor` | A | umgesetzt (Helix `PUT chat/color`, CORS geprüft) | nicht getestet |
+| Emote-Auswahl | `EmotePickerView.swift` | C | nur Kanal- und Drittanbieter-Emotes; eigene Abo-Emotes bräuchten den Scope `user:read:emotes` | Sim: 400 Emotes, Antippen fügt „caedJAMMER“ ins Feld ein |
+| Namensfarbe | `setChatColor` | A | Helix `PUT chat/color`, braucht den Scope `user:manage:chat_color`; die App fragt ihn beim Login an | Scope fehlte beim getesteten Login; ob Twitch ihn dem TV-Login gibt, ist **nicht getestet** |
 | Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info | `ChatMenuSheet.swift`, `BotCommands.swift`, `MessageSheet.swift`, `EmoteInfoService.swift` | B | nicht umgesetzt | – |
 | Angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids, Watch Streak | `LiveEventsService.swift`, `ChatPubSub.swift`, `RaidService.swift`, `HypeTrainCard.swift`, `ChatNotices.swift` | C | nicht umgesetzt; ob `wss://hermes.twitch.tv` von fremden Seiten aus antwortet, ist nicht geprüft | – |
 
@@ -111,14 +111,14 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
-| Anmeldung (Hauptkonto) | `TwitchAuthManager.swift`, `TwitchWebAuthManager.swift`, `TwitchWebLoginSheet` | B | Gerätecode-Verfahren (`id.twitch.tv/oauth2/device`) mit der App-Client-ID, ohne Secret, mit Refresh-Token | Code-Anzeige: Chromium; vollständige Anmeldung vom Nutzer auf dem iPhone bestätigt (26.10.2026); Token-Endpunkt antwortet `authorization_pending` |
+| Anmeldung (Hauptkonto) | `TwitchAuthManager.swift`, `TwitchWebAuthManager.swift`, `TwitchWebLoginSheet` | B | ein einziger Login per Gerätecode mit Twitchs TV-Client-ID (`TV_CLIENT_ID` in `src/twitch.ts`), ohne Secret; Token läuft laut Twitch nicht ab (`expires_in 0`), Refresh-Token vorhanden. Ein früherer Zweit-Login wird übernommen | Sim (installierte App): Login mit dem Konto des Nutzers, Code vom Nutzer bestätigt; Übernahme des Zweit-Logins mit Name und Bild |
 | Web-Sitzung (Cookie `auth-token`) | `TwitchWebAuthManager.swift` | D | eine fremde Seite kann twitch.tv-Cookies nicht lesen | – |
-| Gefolgte Kanäle des Kontos | `getFollowedLogins` | A | umgesetzt (Helix, nur lesen) | nicht getestet |
-| Auf Twitch folgen/entfolgen | `FollowService` | C | umgesetzt mit dem TV-Zugang (Kanalseite und Herz im Player). Gemessen: `followUser` beantwortet Twitch für die Web-Client-ID mit „failed integrity check“, für die TV-Client-ID nur mit „unauthenticated“, verlangt dort also kein Integritäts-Token. Ohne TV-Zugang nur lokales Folgen | ohne Login: Chromium (Hinweis und lokales Folgen); Folgen mit echtem Konto **nicht getestet** |
+| Gefolgte Kanäle des Kontos | `getFollowedLogins` | C | Helix `channels/followed`, braucht den Scope `user:read:follows`; die App fragt ihn beim Login an. Die GQL-Abfragen `follows` und `followedLiveUsers` antworten dem TV-Token mit „service error“ | Sim: ohne Scope abgelehnt („Missing scope“); ob Twitch den Scope dem TV-Login gibt, ist **nicht getestet** |
+| Auf Twitch folgen/entfolgen | `FollowService` | C | umgesetzt mit dem Login (Kanalseite und Herz im Player). `followUser` beantwortet Twitch für die Web-Client-ID mit „failed integrity check“, für die TV-Client-ID ohne Integritäts-Token | Sim mit echtem Konto: gefolgt (bei Twitch `followedAt` gesetzt) und entfolgt (wieder `null`) |
 | Lokales Folgen ohne Konto | `isLocallyFollowed` | A | umgesetzt | Sim |
 | Gefolgte Kategorien | `getFollowedCategoriesGQL` | D | braucht die Web-Sitzung | – |
-| Kanalpunkte: Truhe automatisch, Kontostand | `ChannelPointsService.swift`, `PointsTracker.swift`, `ChannelPointsView.swift` | C | umgesetzt über einen zweiten Gerätecode-Login mit Twitchs TV-Client-ID (`src/rewards.ts`): Kontostand und Truhe alle 30 s, „minute-watched“ an `spade.twitch.tv` jede Minute, solange ein Live-Stream läuft. Belohnungen einlösen (`ChannelPointsView`) und Watch Streak fehlen | Login-Code: Chromium; Einlösen **nicht getestet** (braucht echten Login) |
-| Drops: automatisch einlösen, Fortschritt, Konto-Verknüpfungen | `Drops.swift`, `DropsView.swift` | C | umgesetzt mit demselben TV-Login: Inventar beim Start, bei Rückkehr in die App und alle 5 min, fertige Drops werden eingelöst. Fortschritt über einen unsichtbaren zweiten Stream mit Konto-Token (die App liest dafür die Playlist, das geht im Browser nicht). Verknüpfen nur als Link zur Publisher-Seite | **nicht getestet** |
+| Kanalpunkte: Truhe automatisch, Kontostand | `ChannelPointsService.swift`, `PointsTracker.swift`, `ChannelPointsView.swift` | C | umgesetzt mit dem Login: Stand und Truhe alle 30 s, „minute-watched“ jede Minute, solange ein Live-Stream läuft. Belohnungen einlösen und Watch Streak fehlen | Sim mit echtem Konto: Stand angezeigt, bei caedrel in gut 8 min von 10 auf 320 Punkte (Zuschauen wird gezählt); Truhe siehe unten |
+| Drops: automatisch einlösen, Fortschritt, Konto-Verknüpfungen | `Drops.swift`, `DropsView.swift` | C | umgesetzt mit dem Login: Inventar beim Start, bei Rückkehr und alle 5 min; Einlösen per `DropsPage_ClaimDropRewards`. Bei nicht verknüpftem Spielkonto antwortet Twitch `ELIGIBLE_FOR_ALL` mit `isUserAccountConnected: false` und löst nicht ein; die App meldet dann „Spielkonto nicht verknüpft“. Fortschritt über einen unsichtbaren zweiten Stream mit Konto-Token | Sim mit echtem Konto: Inventar gelesen, Einlösung von Twitch angenommen (ohne Integritäts-Token), wegen nicht verknüpftem ARC-Raiders-Konto nicht gutgeschrieben; Fehler gefunden und behoben: App meldete das als „eingelöst“. Fortschritt siehe unten |
 
 ## Entdecken und Kanalseite
 

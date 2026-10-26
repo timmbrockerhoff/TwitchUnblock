@@ -140,7 +140,7 @@ export class ChatClient {
     const acc = state.account;
     ws.onopen = () => {
       ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
-      if (acc?.scopes.includes('chat:edit')) { ws.send(`PASS oauth:${acc.token}`); ws.send(`NICK ${acc.login}`); }
+      if (acc) { ws.send(`PASS oauth:${acc.token}`); ws.send(`NICK ${acc.login}`); }
       else { ws.send('PASS SCHMOOPIIE'); ws.send(`NICK justinfan${10000 + Math.floor(Math.random() * 80000)}`); }
       ws.send(`JOIN #${this.login}`);
       this.retry = 0; this.connected = true; this.onEvent({ type: 'state' });
@@ -188,7 +188,7 @@ export class ChatClient {
     // Batched like the Swift ChatService (~200 ms): one render for a burst of messages.
     this.flushTimer ??= setTimeout(() => { this.flushTimer = undefined; const q = this.queue; this.queue = []; this.onBatch(q); }, 200);
   }
-  get canSend() { return !!state.account?.scopes.includes('chat:edit') && this.connected; }
+  get canSend() { return !!state.account && this.connected; }
   send(text: string) {
     const acc = state.account; if (!acc || !this.ws || !this.connected) return false;
     this.ws.send(`PRIVMSG #${this.login} :${text.replace(/[\r\n]/g, ' ')}`);

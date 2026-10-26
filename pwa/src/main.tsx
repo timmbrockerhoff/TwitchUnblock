@@ -7,6 +7,8 @@ import { Home, Browse, Library, RoutePage } from './pages';
 import { PlayerHost } from './player';
 import { Icon } from './ui';
 import { checkDrops } from './rewards';
+import { helix } from './account';
+import { state, setAccount } from './store';
 import { clipSlugFromInput, extractVodId, isVodInput, loginFromInput, isValidLogin, vodStartFromInput } from './logic';
 
 function App() {
@@ -45,6 +47,10 @@ function openFromURL() {
 applyAccent();
 loadDB();
 render(<App />, document.getElementById('app')!);
+// An account taken over from the earlier second login has no name/avatar yet.
+if (state.account && !state.account.avatar) helix(`users?id=${state.account.userId}`).then(j => {
+  const u = j?.data?.[0]; if (u && state.account) setAccount({ ...state.account, name: u.display_name, avatar: u.profile_image_url });
+});
 // Finished drops are claimed on start and every return to the app (ForegroundRefresh in iOS).
 checkDrops();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkDrops(); });
