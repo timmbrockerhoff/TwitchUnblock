@@ -165,3 +165,29 @@ export async function checkDrops(manual = false) {
     else { log(`Drop „${d.name}“ (${c.game}) eingelöst`, true); d.claimed = true; changed(); }
   }
 }
+
+// Following on Twitch -----------------------------------------------------------------------------
+// gql.twitch.tv answers followUser for the web client id with "failed integrity check", for the TV
+// client id only with "unauthenticated" (measured 2026-10-26): with the TV login it needs no
+// integrity token, like the TV app itself.
+/** Whether the TV-login account follows `login` on Twitch; undefined without login or on error. */
+export async function twitchFollowState(login: string): Promise<{ id: string; following: boolean } | undefined> {
+  if (!rewards.account) return undefined;
+  const j = await gql({ query: 'query($l: String!) { user(login: $l) { id self { follower { followedAt } } } }', variables: { l: login } });
+  const u = j?.data?.user; if (!u) return undefined;
+  return { id: u.id, following: !!u.self?.follower };
+}
+/** Follows or unfollows on Twitch. Returns an error text, or undefined on success. */
+export async function setTwitchFollow(channelId: string, login: string, follow: boolean): Promise<string | undefined> {
+  const j = await gql(follow
+    ? { query: 'mutation($i: FollowUserInput!) { followUser(input: $i) { follow { user { id } } error { code } } }', variables: { i: { targetID: channelId, disableNotifications: false } } }
+    : { query: 'mutation($i: UnfollowUserInput!) { unfollowUser(input: $i) { follow { user { id } } } }', variables: { i: { targetID: channelId } } });
+  const err = errors(j) ?? j?.data?.followUser?.error?.code;
+  if (!j) return 'Keine Antwort von Twitch';
+  if (err) { log(`${follow ? 'Folgen' : 'Entfolgen'} ${login}: ${err}`, false); return err; }
+  log(`${follow ? 'Folgst jetzt' : 'Entfolgt'}: ${login}`, true);
+  // Keep the home lists in step without waiting for the next Helix read.
+  state.accountFollows = follow ? [...new Set([...state.accountFollows, login])] : state.accountFollows.filter(l => l !== login);
+  changed();
+  return undefined;
+}

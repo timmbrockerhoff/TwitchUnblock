@@ -205,3 +205,13 @@ export function isAdCue(id: string, value: unknown): boolean {
   const v = value as { key?: string; data?: unknown } | undefined;
   return v?.key === 'X-TV-TWITCH-STREAM-SOURCE' && typeof v.data === 'string' && v.data !== 'live';
 }
+
+/** Live sources measured 20+ minutes first, by ad breaks per hour; unchanged until two are
+ *  measured (LiveAdStats.ranked). `stats`: source → [breaks, seconds watched].
+ *  ponytail: old measurements never decay; clear "liveAdStats" if the proxies change a lot. */
+export function rankSources<T extends string>(sources: T[], stats: Record<string, [number, number]>): T[] {
+  const rated = sources.filter(s => (stats[s]?.[1] ?? 0) >= 1200).map(s => [s, stats[s][0] / (stats[s][1] / 3600)] as const);
+  if (rated.length < 2) return sources;
+  const first = [...rated].sort((a, b) => a[1] - b[1]).map(r => r[0]);
+  return [...first, ...sources.filter(s => !first.includes(s))];
+}

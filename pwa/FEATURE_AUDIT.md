@@ -45,9 +45,9 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Zurückspulen im Live (LiveDVRPlaylist: Aufnahme + Live-Segmente in einer Playlist) | `LiveDVRPlaylist.swift`, `LivePlaylistLoader.swift` | C | ersetzt: beim Zurückspulen wechselt der Player auf die laufende Aufnahme (Archiv-VOD), nativ abgespielt; „● Live“ springt zurück. Keine verschmolzene Zeitleiste, Kanäle ohne Aufnahme nur im kleinen nativen Puffer | Sim: eine Stunde zurück (5:00:31 von 6:00:20), „● Live“ zurück zum Live-Stream; Fehler gefunden und behoben: der Sprung beim Laden wurde verworfen. Bild im Simulator teils schwarz |
 | Werbepausen mit Ersatz-Stream füllen | `adFreeBackupPlaylist`, `LiveDVRPlaylist` | D | nicht möglich: verlangt das Umschreiben der Media-Playlist, und `playlist.ttvnw.net` antwortet fremden Seiten mit 403 | – |
 | Werbepausen erkennen, Ton aus, Hinweis | `AdBreakMonitor.swift`, `liveAdGap` | C | umgesetzt über die `EXT-X-DATERANGE`-Metadaten, die Safari als Cues meldet (maßgeblich ist der zuletzt begonnene Eintrag); Ton aus, Hinweis, danach Ton wie vorher; Knopf „Ersatz-Stream“ lädt ein Token mit Player-Typ embed/popout/autoplay | Sim mit echter Werbung (Pre-Roll bei 6 von 12 Top-Streams): Hinweis und Ton aus für ~32 s, danach weiter; zwei Fehler gefunden und behoben (Video blieb nach der Werbung stehen; Hinweis blieb nach der Werbung stehen). Ersatz-Stream: bei otplol_ sofort ohne Werbung |
-| Werbepausen je Quelle zählen, Reihenfolge danach | `LiveAdStats` | B | nicht umgesetzt | – |
+| Werbepausen je Quelle zählen, Reihenfolge danach | `LiveAdStats` | B | umgesetzt: Sekunden und Pausen je Quelle, Anzeige bei der Quellen-Reihenfolge, Schalter „Nach Werbepausen sortieren“ (Proxys mit den wenigsten Pausen pro Stunde zuerst, sobald zwei je 20 min gemessen sind) | Logik: `npm test`; Chromium: Anzeige und Reihenfolge (Albanien vor Asien bei 1 statt 6 Pausen/h); Zählen im Simulator: siehe unten |
 | Chat-Verzögerung an die Latenz anpassen, Chat-Replay bei großem Abstand | `liveLatency`, `LiveLatency.swift` | B | nicht umgesetzt | – |
-| Zuschauerzahl und Laufzeit regelmäßig aktualisieren | `getStreamStats` | A | nur beim Öffnen geladen; Laufzeit läuft mit | Sim |
+| Zuschauerzahl und Laufzeit regelmäßig aktualisieren | `getStreamStats` | A | Zuschauer, Titel, Kategorie und Aufnahme jede Minute; Laufzeit läuft mit | siehe unten |
 
 ## Player und Bedienung
 
@@ -58,7 +58,7 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Querformat: Video neben dem Chat | Landscape-Layout | B | umgesetzt per CSS, sobald das Gerät gedreht wird | Sim |
 | Querformat per Knopf erzwingen | `requestGeometryUpdate` | D | iOS-Safari hat kein `screen.orientation.lock` | – |
 | Bild füllen per Pinch | `fillScreen` | B | nicht umgesetzt | – |
-| Wischen nach unten minimiert | `PlayerPull.swift` | B | nicht umgesetzt (Knopf ⌄ vorhanden) | – |
+| Wischen nach unten minimiert | `PlayerPull.swift` | B | umgesetzt im Hochformat (mindestens 90 px nach unten über das Video) | siehe unten |
 | Mini-Player über der Tab-Leiste | `TabAccessory` | B | umgesetzt | Sim |
 | AirPlay | AVKit | B | `webkitShowPlaybackTargetPicker` | Sim: Knopf ruft die iOS-Auswahl auf; ohne AirPlay-Geräte im Simulator nicht weiter prüfbar, auf dem iPhone **nicht getestet** |
 | Bild in Bild | AVKit | C | `webkitSetPresentationMode`; der Knopf erscheint nur, wenn das Gerät Bild in Bild meldet | Sim: Safari im Simulator meldet kein Bild in Bild, Knopf ausgeblendet; auf dem iPhone **nicht getestet** |
@@ -114,7 +114,7 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Anmeldung (Hauptkonto) | `TwitchAuthManager.swift`, `TwitchWebAuthManager.swift`, `TwitchWebLoginSheet` | B | Gerätecode-Verfahren (`id.twitch.tv/oauth2/device`) mit der App-Client-ID, ohne Secret, mit Refresh-Token | Code-Anzeige: Chromium; vollständige Anmeldung vom Nutzer auf dem iPhone bestätigt (26.10.2026); Token-Endpunkt antwortet `authorization_pending` |
 | Web-Sitzung (Cookie `auth-token`) | `TwitchWebAuthManager.swift` | D | eine fremde Seite kann twitch.tv-Cookies nicht lesen | – |
 | Gefolgte Kanäle des Kontos | `getFollowedLogins` | A | umgesetzt (Helix, nur lesen) | nicht getestet |
-| Auf Twitch folgen/entfolgen | `FollowService` | D | GQL-Mutation braucht Web-Sitzung und Integritäts-Token; Helix hat keinen Endpunkt mehr | – |
+| Auf Twitch folgen/entfolgen | `FollowService` | C | umgesetzt mit dem TV-Zugang (Kanalseite und Herz im Player). Gemessen: `followUser` beantwortet Twitch für die Web-Client-ID mit „failed integrity check“, für die TV-Client-ID nur mit „unauthenticated“, verlangt dort also kein Integritäts-Token. Ohne TV-Zugang nur lokales Folgen | ohne Login: Chromium (Hinweis und lokales Folgen); Folgen mit echtem Konto **nicht getestet** |
 | Lokales Folgen ohne Konto | `isLocallyFollowed` | A | umgesetzt | Sim |
 | Gefolgte Kategorien | `getFollowedCategoriesGQL` | D | braucht die Web-Sitzung | – |
 | Kanalpunkte: Truhe automatisch, Kontostand | `ChannelPointsService.swift`, `PointsTracker.swift`, `ChannelPointsView.swift` | C | umgesetzt über einen zweiten Gerätecode-Login mit Twitchs TV-Client-ID (`src/rewards.ts`): Kontostand und Truhe alle 30 s, „minute-watched“ an `spade.twitch.tv` jede Minute, solange ein Live-Stream läuft. Belohnungen einlösen (`ChannelPointsView`) und Watch Streak fehlen | Login-Code: Chromium; Einlösen **nicht getestet** (braucht echten Login) |
@@ -127,7 +127,7 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Startseite mit Regalen (Jetzt live · Du folgst, Ansehen fortsetzen, Clips, Top-Streams mit Sprache, Offline) und „Alle“-Listen | `HomeView.swift` | A | umgesetzt | Sim |
 | Durchsuchen: Kanäle, Kategorien, Links (VOD, Clip, Kanal), Suchverlauf | `SearchView.swift` | A | umgesetzt | Chromium (Tippen ins Suchfeld scheitert im Simulator an der Einfüge-Abfrage von iOS) |
 | Top-Kategorien als Raster, Kategorie mit Sprachfilter | `CategoriesView.swift` | A | umgesetzt | Sim (Raster), Chromium (Kategorie) |
-| „Deine Kategorien“ | `CategoriesView.swift` | D/B | Twitch-Kategorien brauchen die Web-Sitzung; lokale Kategorie-Favoriten wären möglich, sind aber nicht umgesetzt | – |
+| „Deine Kategorien“ | `CategoriesView.swift` | B | lokal: Herz auf der Kategorie-Seite, Regal „Deine Kategorien“ in Durchsuchen. Die Twitch-Kategorien des Kontos bräuchten die Web-Sitzung (D) | Chromium: League of Legends gefolgt, Regal erscheint |
 | Kanalseite (Banner, Avatar mit Live-Ring, Partner, Follower, Beschreibung, Links, Panels, Tabs Übersicht/VODs/Clips/Highlights/Playlists, VOD-Filter) | `ChannelView.swift`, `ChannelAboutView.swift` | A | umgesetzt | Sim (Übersicht, VODs, Clips) |
 | Kanäle und Kategorien ausblenden | `HiddenContent.swift`, `HiddenContentSheet.swift` | A | umgesetzt, Liste in den Einstellungen | Sim: Kategorie aus Raster und Top-Streams verschwunden, Kanal ausgeblendet, über Einstellungen wieder eingeblendet |
 | Seiten nach Seite 1 (Android-Client-ID) | `gqlNextRequest` | A | übernommen | Sim: Top-Kategorien 100 → 200, Top-Streams 29 → 56 |

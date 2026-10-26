@@ -3,6 +3,7 @@
 // later write was lost without an error; localStorage is synchronous and can't hang.
 // A tiny observable replaces the Swift AppStore's @Published fields.
 import { get } from 'idb-keyval';
+import { rankSources } from './logic';
 import { useEffect, useState } from 'preact/hooks';
 import type { LiveSource } from './twitch';
 
@@ -21,6 +22,8 @@ export type Settings = {
   topLang: string;                    // "" = world
   notifyLive: boolean;
   speed: number;
+  adRanking: boolean;                 // order proxies by measured ad breaks (rankByAds)
+  fillScreen: boolean;                // landscape: video fills the area (pinch out), cropped
   autoPoints: boolean;                // claim channel point chests (rewards.ts)
   autoDrops: boolean;                 // claim finished drops
   dropsStream: boolean;               // hidden account stream so drop minutes count
@@ -28,7 +31,7 @@ export type Settings = {
 const defaults: Settings = {
   accent: '#9146ff', sourceOrder: ['as', 'al', 'eu', 'twitch'], quality: 'source', lowLatency: true, adSwitch: true,
   chatFont: 15, chatTimestamps: false, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false,
-  topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true,
+  topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true, adRanking: true, fillScreen: false,
 };
 export type Account = { token: string; refresh?: string; login: string; userId: string; name: string; avatar: string; scopes: string[] };
 export type HistoryEntry = { kind: 'vod' | 'live' | 'clip'; id: string; title: string; login: string; name: string; thumb: string; length?: number; at: number };
@@ -43,6 +46,7 @@ export const state = {
   follows: loadArr<string>('follows'),                // local follows (no account needed)
   hiddenChannels: loadArr<string>('hiddenChannels'),
   hiddenCategories: loadArr<{ id: string; name: string }>('hiddenCategories'),
+  favCategories: loadArr<{ id: string; name: string; boxArt: string }>('favCategories'), // "Deine Kategorien", local
   searchHistory: loadArr<string>('searchHistory'),
   account: (() => { try { return JSON.parse(localStorage.getItem('account') || 'null') as Account | null; } catch { return null; } })(),
   accountFollows: [] as string[],
@@ -84,6 +88,24 @@ export function hideCategory(c: { id: string; name: string }, hide = true) {
   state.hiddenCategories = hide ? [...state.hiddenCategories.filter(x => x.id !== c.id), c] : state.hiddenCategories.filter(x => x.id !== c.id);
   persist('hiddenCategories');
 }
+export function toggleFavCategory(c: { id: string; name: string; boxArt: string }) {
+  state.favCategories = state.favCategories.some(x => x.id === c.id) ? state.favCategories.filter(x => x.id !== c.id) : [...state.favCategories, c];
+  persist('favCategories');
+}
+
+/** Ad breaks seen per live source and how long it played (LiveAdStats in the Swift app). */
+type AdStats = Record<string, [number, number]>; // source → [breaks, seconds watched]
+const adStats: AdStats = (() => { try { return JSON.parse(localStorage.getItem('liveAdStats') || '{}'); } catch { return {}; } })();
+let adStatsSaved = 0;
+export function recordAdStats(source: string, seconds: number, breaks: number) {
+  const v = adStats[source] ?? [0, 0];
+  v[0] += breaks; v[1] += seconds; adStats[source] = v;
+  // Written at most once a minute (called every 10 s while a live stream plays).
+  if (breaks || Date.now() - adStatsSaved > 60000) { adStatsSaved = Date.now(); try { localStorage.setItem('liveAdStats', JSON.stringify(adStats)); } catch {} }
+}
+export const adStatsFor = (source: string) => adStats[source];
+export const rankByAds = <T extends string>(sources: T[]) => rankSources(sources, adStats);
+
 export function addSearch(q: string) {
   state.searchHistory = [q, ...state.searchHistory.filter(x => x !== q)].slice(0, 15);
   persist('searchHistory');

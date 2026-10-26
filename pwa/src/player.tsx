@@ -6,10 +6,10 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
 import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive } from './logic';
 import { ChatClient, VodChat, loadGlobalEmotes, loadChannelEmotes, translate, wantsTranslation, isBotLine, emoteList, type ChatMsg, type RoomState } from './chat';
-import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow } from './store';
+import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow, recordAdStats, rankByAds } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
 import { Icon, Sheet, Spinner } from './ui';
-import { rewards, watchChannel, channelHasDrops, accountStreamURL, checkDrops, log as rewardsLog } from './rewards';
+import { rewards, watchChannel, channelHasDrops, accountStreamURL, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 
 const SOURCE_LABEL: Record<string, string> = { as: 'Luminous Asien', al: 'Proxy Albanien', eu: 'Luminous Europa', twitch: 'Twitch offiziell' };
 type V = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitShowPlaybackTargetPicker?: () => void;
@@ -75,9 +75,12 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   // Live rewind: the running broadcast's recording, played natively (its seekable range is the whole broadcast).
   const [archiveId, setArchiveId] = useState<string>();
   const [inArchive, setInArchive] = useState(false);
+  const inArchiveRef = useRef(false);
+  inArchiveRef.current = inArchive;
   const [ad, setAd] = useState(false);
   const [tryOrder, setTryOrder] = useState<tw.LiveSource[]>();
   const liveURL = useRef('');
+  const pull = useRef<{ x: number; y: number }>();
   const isLive = target.kind === 'live';
 
   const setSrc = (url: string, at?: number) => {
@@ -101,7 +104,12 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         setInfo({ title: sInfo?.title ?? login, sub: sInfo?.game ?? '', login, name: sInfo?.name, avatar: st?.avatar, userId: st?.userId,
           viewers: sInfo?.viewers, startedAt: sInfo?.startedAt, thumb: sInfo?.thumb });
         setArchiveId(st?.archiveId);
-        const order = tryOrder ?? s.settings.sourceOrder;
+        // Automatic order: proxies by measured ad breaks, official Twitch stays where it is.
+        const ranked = (o: tw.LiveSource[]) => {
+          const proxies = rankByAds(o.filter(x => x !== 'twitch'));
+          return o.map(x => x === 'twitch' ? x : proxies.shift()!);
+        };
+        const order = tryOrder ?? (s.settings.adRanking ? ranked(s.settings.sourceOrder) : s.settings.sourceOrder);
         const hit = await tw.raceLive(order, login, s.settings.lowLatency, src => alive && setStatus(`Quelle: ${SOURCE_LABEL[src]} …`), !!tryOrder);
         if (!alive) return;
         if (!hit) { setError({ text: st ? 'Keine Quelle hat für diesen Livestream geantwortet.' : 'Netzwerkfehler.' }); return; }
@@ -167,6 +175,33 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     v.playbackRate = target.kind === 'live' ? 1 : s.settings.speed;
     return () => { v.removeEventListener('timeupdate', tick); if (target.kind === 'vod') setProgress(target.id, v.currentTime); v.removeAttribute('src'); v.load(); };
   }, []);
+
+  // Viewers, title and category every minute (getStreamStats), not only when opening.
+  useEffect(() => {
+    if (target.kind !== 'live') return;
+    const t = setInterval(async () => {
+      const st = await tw.streamStats(target.login.toLowerCase());
+      const x = st?.stream; if (!x) return;
+      setInfo(i => ({ ...i, title: x.title, sub: x.game, viewers: x.viewers }));
+      if (st.archiveId) setArchiveId(st.archiveId);
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Ad-break statistics per source: seconds watched live and breaks started.
+  const adRef = useRef(false);
+  useEffect(() => {
+    if (target.kind !== 'live' || !source) return;
+    const t = setInterval(() => {
+      const v = video.current;
+      if (v && !v.paused && !inArchiveRef.current) recordAdStats(source, 10, 0);
+    }, 10000);
+    return () => clearInterval(t);
+  }, [source]);
+  useEffect(() => {
+    if (ad && !adRef.current && source) recordAdStats(source, 0, 1);
+    adRef.current = ad;
+  }, [ad]);
 
   // Closing iOS's fullscreen player pauses the video ~0.3 s later (measured in the Simulator);
   // if it was playing, carry on.
@@ -250,7 +285,16 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   };
 
   return <>
-    <div class="stage">
+    <div class={'stage' + (s.settings.fillScreen ? ' fill' : '')}
+      // Pinch out fills the screen in landscape, pinch in shows the whole picture (fillScreen).
+      {...{ ongestureend: (e: any) => { if (matchMedia('(orientation: landscape)').matches && Math.abs(e.scale - 1) > 0.1) setSetting('fillScreen', e.scale > 1); } }}
+      onTouchStart={e => { pull.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
+      onTouchEnd={e => {
+        const p = pull.current; pull.current = undefined;
+        if (!p || matchMedia('(orientation: landscape)').matches) return;
+        const dx = e.changedTouches[0].clientX - p.x, dy = e.changedTouches[0].clientY - p.y;
+        if (dy > 90 && Math.abs(dx) < 60) minimizePlayer();
+      }}>
       <video ref={video} playsInline preload="auto" {...{ 'x-webkit-airplay': 'allow' }} poster={info.thumb?.replace('{width}', '640').replace('{height}', '360')} />
       {dropsURL && <video class="drops-stream" src={dropsURL} autoPlay muted playsInline aria-hidden="true" />}
       <Controls video={video} kind={target.kind} info={info} inArchive={inArchive} archive={!!archiveId} liveTotal={liveTotal}
@@ -281,7 +325,11 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
           <div class="card-sub">{[info.name, info.sub, info.viewers != null ? formatViewers(info.viewers) + ' Zuschauer' : '', source ? SOURCE_LABEL[source] : ''].filter(Boolean).join(' · ')}</div>
         </div>
         {info.login && rewards.balance[info.login] != null && <span class="points" title="Kanalpunkte">◆ {formatViewers(rewards.balance[info.login])}</span>}
-        {info.login && <button class={'nav-btn' + (isFollowed(info.login) ? ' accent' : ' muted')} onClick={() => toggleFollow(info.login!)} aria-label="Folgen"><Icon n="heart" /></button>}
+        {info.login && <button class={'nav-btn' + (isFollowed(info.login) ? ' accent' : ' muted')} aria-label="Folgen" onClick={async () => {
+          // With the TV login the heart follows on Twitch, otherwise locally.
+          const st = rewards.account && await twitchFollowState(info.login!);
+          if (st) await setTwitchFollow(st.id, info.login!, !st.following); else toggleFollow(info.login!);
+        }}><Icon n="heart" /></button>}
       </div>
       {target.kind === 'clip' && (window as any).__clipVod && <button class="btn bordered small pad-x" onClick={() => play({ kind: 'vod', id: (window as any).__clipVod.id, start: (window as any).__clipVod.at })}>Zur VOD</button>}
       {!s.settings.chatHidden && target.kind === 'live' && info.login && <ChatPanel login={info.login} channelId={info.userId} />}

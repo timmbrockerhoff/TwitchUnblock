@@ -3,11 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
 import type { ChannelBrief, Stream, Category, Vod, Clip, ChannelInfo } from './twitch';
 import { formatViewers, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
-import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, addSearch, clearSearchHistory,
+import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, addSearch, clearSearchHistory, toggleFavCategory, adStatsFor,
   setAccount, removeHistory, clearHistory, exportBackup, importBackup, type HistoryEntry } from './store';
 import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, setChatColor, type DeviceCode } from './account';
 import { play, push, openChannel, type Route } from './nav';
-import { rewards, setRewardsAccount, startRewardsLogin, pollRewardsLogin, checkDrops, log as rewardsLog } from './rewards';
+import { rewards, setRewardsAccount, startRewardsLogin, pollRewardsLogin, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 import { Page, AccountButton, Shelf, Empty, Spinner, StreamCard, VodCard, ClipCard, CategoryTile, Icon, Sheet, Segmented, Toggle, Select, relDate } from './ui';
 
 const LANGS: [string, string][] = [['', 'Weltweit'], ['de', 'Deutsch'], ['en', 'Englisch'], ['fr', 'Französisch'], ['es', 'Spanisch'],
@@ -165,6 +165,7 @@ export function Browse() {
     </> : <>
       {s.searchHistory.length > 0 && <div class="chips pad">{s.searchHistory.map(h => <button class="chip" onClick={() => setQ(h)}>{h}</button>)}
         <button class="chip ghost" onClick={clearSearchHistory}>Verlauf löschen</button></div>}
+      {s.favCategories.length > 0 && <Shelf title="Deine Kategorien">{s.favCategories.map(c => <CategoryTile c={c} />)}</Shelf>}
       <h2 class="section-title">Top-Kategorien</h2>
       {top ? <div class="cat-grid">{visibleTop.map(c => <CategoryTile c={c} />)}</div> : <Spinner />}
       {next && <button class="btn wide" onClick={more}>Mehr laden</button>}
@@ -179,7 +180,11 @@ export function CategoryPage({ id, title }: { id: string; title: string }) {
   useEffect(() => { setData(undefined); tw.categoryStreams(id, lang || undefined).then(setData); }, [id, lang]);
   const more = () => data?.next && tw.categoryStreams(id, lang || undefined, data.next).then(r => r && setData({ ...r, streams: [...data.streams, ...r.streams] }));
   const hidden = s.hiddenCategories.some(c => c.id === id);
-  return <Page title={title} back trailing={<button class="nav-btn text" onClick={() => hideCategory({ id, name: title }, !hidden)}>{hidden ? 'Einblenden' : 'Ausblenden'}</button>}>
+  const fav = s.favCategories.some(c => c.id === id);
+  return <Page title={title} back trailing={<>
+    <button class={'nav-btn' + (fav ? '' : ' muted')} aria-label={fav ? 'Nicht mehr folgen' : 'Folgen'}
+      onClick={() => toggleFavCategory({ id, name: title, boxArt: data?.category.boxArt ?? '' })}><Icon n="heart" /></button>
+    <button class="nav-btn text" onClick={() => hideCategory({ id, name: title }, !hidden)}>{hidden ? 'Einblenden' : 'Ausblenden'}</button></>}>
     {data && <div class="cat-head pad"><img src={data.category.boxArt.replace('{width}', '285').replace('{height}', '380')} alt="" />
       <div><div class="row-sub">{formatViewers(data.category.viewers ?? 0)} Zuschauer</div>
         <select class="inline-select" value={lang} onChange={e => setLang((e.target as HTMLSelectElement).value)}>{LANGS.map(([v, l]) => <option value={v}>{l}</option>)}</select></div></div>}
@@ -239,6 +244,15 @@ export function ChannelPage({ login }: { login: string }) {
   if (info === null) return <Page title={login} back><Empty title="Streamer nicht gefunden" /></Page>;
   if (!info) return <Page title={login} back><Spinner /></Page>;
   const followedOnTwitch = s.accountFollows.includes(login);
+  // With the TV login the button follows on Twitch itself; without it, locally.
+  const [twf, setTwf] = useState<{ id: string; following: boolean; busy?: boolean; err?: string }>();
+  useEffect(() => { setTwf(undefined); if (rewards.account) twitchFollowState(login).then(setTwf); }, [login, rewards.account?.userId]);
+  const toggleTwitch = async () => {
+    if (!twf || twf.busy) return;
+    setTwf({ ...twf, busy: true });
+    const err = await setTwitchFollow(twf.id, login, !twf.following);
+    setTwf(err ? { ...twf, busy: false, err } : { id: twf.id, following: !twf.following });
+  };
   const share = () => navigator.share?.({ title: info.name, url: `https://www.twitch.tv/${login}` }).catch(() => {});
   const moreVods = () => vods?.next && tw.channelVideos(login, 'ARCHIVE', vods.next).then(r => r && setVods({ vods: [...vods.vods, ...r.vods], next: r.next }));
   const clipsOf = clipList ?? [];
@@ -261,12 +275,16 @@ export function ChannelPage({ login }: { login: string }) {
       <button class="link" onClick={() => setOpen(false)}>Weniger anzeigen</button></div>}
     {!open && info.socials.length > 0 && <button class="link pad" onClick={() => setOpen(true)}>{info.socials[0].title}{info.socials.length > 1 ? ` und ${info.socials.length - 1} weitere Links` : ''}</button>}
     <div class="ch-actions pad">
-      <button class={'btn ' + (isFollowed(login) ? 'bordered' : 'prominent')} disabled={followedOnTwitch && !s.follows.includes(login)}
-        onClick={() => toggleFollow(login)}><Icon n="heart" size={18} /> {followedOnTwitch ? 'Folgst du (Twitch)' : s.follows.includes(login) ? 'Gefolgt' : 'Folgen'}</button>
+      {twf ? <button class={'btn ' + (twf.following ? 'bordered' : 'prominent')} disabled={twf.busy} onClick={toggleTwitch}>
+          <Icon n="heart" size={18} /> {twf.busy ? '…' : twf.following ? 'Gefolgt (Twitch)' : 'Auf Twitch folgen'}</button>
+        : <button class={'btn ' + (isFollowed(login) ? 'bordered' : 'prominent')} disabled={followedOnTwitch && !s.follows.includes(login)}
+          onClick={() => toggleFollow(login)}><Icon n="heart" size={18} /> {followedOnTwitch ? 'Folgst du (Twitch)' : s.follows.includes(login) ? 'Gefolgt' : 'Folgen'}</button>}
+      {twf && s.follows.includes(login) && <button class="btn bordered" onClick={() => toggleFollow(login)}>Lokal entfolgen</button>}
       <button class="btn bordered" onClick={() => play({ kind: 'multi', logins: [login] })}><Icon n="grid" size={18} /> Multi-Live</button>
       <button class="btn bordered" onClick={() => hideChannel(login, !s.hiddenChannels.includes(login))}>{s.hiddenChannels.includes(login) ? 'Einblenden' : 'Ausblenden'}</button>
     </div>
-    {followedOnTwitch && <p class="hint pad">Twitch-Follows lassen sich im Web nur lesen: Folgen/Entfolgen auf Twitch braucht ein Integritäts-Token, das nur twitch.tv selbst erzeugen kann.</p>}
+    {twf?.err && <p class="hint pad error">Twitch hat abgelehnt: {twf.err}</p>}
+    {!rewards.account && <p class="hint pad">Auf Twitch folgen und entfolgen geht mit dem TV-Zugang: Einstellungen → Kanalpunkte, Drops &amp; Folgen. Ohne ihn folgst du nur in dieser App.</p>}
     <div class="tabs">{([['overview', 'Übersicht'], ['vods', 'VODs'], ['clips', 'Clips'], ['highlights', 'Highlights'], ['playlists', 'Playlists']] as [ChannelTab, string][])
       .map(([k, l]) => <button class={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
     {tab === 'overview' && <>
@@ -294,6 +312,8 @@ export function ChannelPage({ login }: { login: string }) {
 }
 
 // Einstellungen ----------------------------------------------------------------------------------
+const adStatsLabel = ([breaks, sec]: [number, number]) =>
+  `${Math.round(sec / 60)} min gemessen · ${breaks} ${breaks === 1 ? 'Werbepause' : 'Werbepausen'}${sec >= 600 ? ` (${(breaks / (sec / 3600)).toFixed(1).replace('.', ',')}/h)` : ''}`;
 const SOURCE_NAMES: Record<tw.LiveSource, string> = { as: 'Luminous Asien', al: 'Proxy Albanien (TTV.LOL)', eu: 'Luminous Europa', twitch: 'Twitch offiziell (mit Werbung)' };
 export function Settings() {
   const s = useStore();
@@ -331,18 +351,18 @@ export function Settings() {
     </div>
     <p class="hint pad">Anmeldung per Gerätecode auf twitch.tv/activate: kein Passwort in dieser App, kein Server. Damit: Twitch-Follows, Chatten, Namensfarbe.</p>
 
-    <h2 class="section-title">Kanalpunkte &amp; Drops</h2>
+    <h2 class="section-title">Kanalpunkte, Drops &amp; Folgen</h2>
     <div class="group">
       {rewards.account ? <>
-        <div class="row"><div><div>Verbunden als {rewards.account.login}</div><div class="row-sub">Twitch-TV-Zugang, nur für Kanalpunkte und Drops</div></div></div>
+        <div class="row"><div><div>Verbunden als {rewards.account.login}</div><div class="row-sub">Twitch-TV-Zugang für Kanalpunkte, Drops und Folgen auf Twitch</div></div></div>
         <Toggle label="Truhen automatisch einlösen" value={st.autoPoints} onChange={v => setSetting('autoPoints', v)} />
         <Toggle label="Drops automatisch einlösen" value={st.autoDrops} onChange={v => setSetting('autoDrops', v)} />
         <Toggle label="Drops-Fortschritt sammeln" sub="Lädt bei Kanälen mit Drops einen unsichtbaren zweiten Stream in niedriger Qualität (mehr Datenverbrauch)" value={st.dropsStream} onChange={v => setSetting('dropsStream', v)} />
         <button class="row accent" onClick={() => checkDrops(true)}>Drops jetzt prüfen</button>
         <button class="row danger" onClick={() => setRewardsAccount(null)}>Trennen</button>
-      </> : <button class="row accent" onClick={() => setRewardsLogin(true)}>Für Kanalpunkte &amp; Drops anmelden</button>}
+      </> : <button class="row accent" onClick={() => setRewardsLogin(true)}>TV-Zugang anmelden</button>}
     </div>
-    <p class="hint pad">Eigene Anmeldung per Code mit Twitchs TV-Zugang: Der normale Login reicht Twitch dafür nicht. Punkte gibt es, solange ein Live-Stream in der App läuft.</p>
+    <p class="hint pad">Eigene Anmeldung per Code mit Twitchs TV-Zugang: Der normale Login reicht Twitch dafür nicht. Damit: Kanalpunkte (solange ein Live-Stream in der App läuft), Drops und Folgen/Entfolgen auf Twitch.</p>
     {rewards.drops.length > 0 && <div class="group">{rewards.drops.map(c => <div class="row"><div style={{ flex: 1 }}>
       <div>{c.game} · {c.name}</div>
       {!c.linked && <div class="row-sub">Spielkonto nicht verknüpft{c.linkURL && <> · <a href={c.linkURL} target="_blank" rel="noopener">verknüpfen</a></>}</div>}
@@ -357,11 +377,13 @@ export function Settings() {
       <Select label="Bevorzugte Qualität" value={st.quality} onChange={v => setSetting('quality', v)}
         options={[['auto', 'Automatisch'], ['source', 'Source'], ['1080', '1080p'], ['720', '720p'], ['480', '480p'], ['360', '360p'], ['160', '160p'], ['audio', 'Nur Audio']]} />
       <Toggle label="Niedrige Latenz" value={st.lowLatency} onChange={v => setSetting('lowLatency', v)} />
+      <Toggle label="Bildschirm füllen" sub="Im Querformat: Bild füllt die Fläche (Ränder abgeschnitten); auch per Auseinanderziehen" value={st.fillScreen} onChange={v => setSetting('fillScreen', v)} />
       <Toggle label="Werbepausen erkennen" sub="Ton aus und Hinweis, sobald Twitch eine Werbepause meldet" value={st.adSwitch} onChange={v => setSetting('adSwitch', v)} />
     </div>
     <h2 class="section-title">Reihenfolge der Live-Quellen</h2>
-    <div class="group">{st.sourceOrder.map((src, i) => <div class="row"><span>{i + 1}. {SOURCE_NAMES[src]}</span>
+    <div class="group">{st.sourceOrder.map((src, i) => <div class="row"><div><div>{i + 1}. {SOURCE_NAMES[src]}</div>{adStatsFor(src) && <div class="row-sub">{adStatsLabel(adStatsFor(src)!)}</div>}</div>
       <span><button class="nav-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Nach oben">↑</button><button class="nav-btn" disabled={i === st.sourceOrder.length - 1} onClick={() => move(i, 1)} aria-label="Nach unten">↓</button></span></div>)}</div>
+    <div class="group"><Toggle label="Nach Werbepausen sortieren" sub="Proxys mit den wenigsten gemessenen Werbepausen zuerst, sobald zwei je 20 Minuten gelaufen sind" value={st.adRanking} onChange={v => setSetting('adRanking', v)} /></div>
     <p class="hint pad">Die Proxys werden zeitversetzt parallel probiert, Twitch offiziell erst, wenn alle davor gescheitert sind. Nur bei den Proxys gibt es eine Qualitätsauswahl (siehe Info).</p>
 
     <h2 class="section-title">Chat</h2>
@@ -431,7 +453,7 @@ function LoginSheet({ onClose, rewards: forRewards }: { onClose: () => void; rew
     }).catch(e => setErr('Anmeldung fehlgeschlagen: ' + e.message));
     return () => { cancelled = true; };
   }, []);
-  return <Sheet title={forRewards ? 'Kanalpunkte & Drops' : 'Mit Twitch anmelden'} onClose={onClose}>
+  return <Sheet title={forRewards ? 'TV-Zugang anmelden' : 'Mit Twitch anmelden'} onClose={onClose}>
     {err ? <p class="error">{err}</p> : !code ? <Spinner /> : <div class="login">
       <p>Öffne twitch.tv/activate, melde dich dort an und gib diesen Code ein:</p>
       <div class="code" onClick={() => navigator.clipboard?.writeText(code.user_code)}>{code.user_code}</div>

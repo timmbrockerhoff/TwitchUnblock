@@ -20,12 +20,11 @@ Twitch lässt fremde Webseiten seine Playlists nicht lesen: `playlist.ttvnw.net`
 
 Die iOS-App meldet sich zusätzlich im eingebetteten twitch.tv an und liest das Cookie `auth-token`. Eine fremde Webseite kann Cookies von twitch.tv nicht lesen, und das Integritäts-Token, das Twitch für Schreibaktionen verlangt, entsteht nur auf twitch.tv selbst. Deshalb fehlen:
 
-- Folgen und Entfolgen auf dem Twitch-Konto (gefolgte Kanäle werden nur gelesen; lokales Folgen geht)
 - gefolgte Kategorien des Kontos
 - Watch Streak und das Einlösen von Kanalpunkte-Belohnungen
 - werbefreie Wiedergabe über das eigene Abo oder Turbo
 
-Kanalpunkte und Drops laufen deshalb über einen eigenen, zweiten Login mit Twitchs TV-Zugang (Einstellungen → Kanalpunkte & Drops). Ob Twitch das Einlösen damit annimmt, ist **nicht getestet**; das Protokoll in den Einstellungen zeigt jeden Versuch mit Ergebnis. Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
+Kanalpunkte, Drops und das Folgen auf Twitch laufen deshalb über einen eigenen, zweiten Login mit Twitchs TV-Zugang (Einstellungen → Kanalpunkte & Drops). Ob Twitch das Einlösen damit annimmt, ist **nicht getestet**; das Protokoll in den Einstellungen zeigt jeden Versuch mit Ergebnis. Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
 
 ## Durch iOS und WebKit
 
@@ -46,7 +45,7 @@ Kanalpunkte und Drops laufen deshalb über einen eigenen, zweiten Login mit Twit
 
 ## Noch nicht umgesetzt, aber möglich
 
-Diese Funktionen gehen im Browser, fehlen aber noch: Werbepausen-Statistik je Quelle, Chat-Verzögerung passend zur Latenz, Pinch zum Füllen, Wischen zum Minimieren, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info, angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids (Hermes-WebSocket, nicht geprüft), lokale Kategorie-Favoriten, Systemprotokolle, Hinweise in der App, regelmäßige Aktualisierung der Zuschauerzahl, immersiver Player mit Chat über dem Video.
+Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, Pinch zum Füllen, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info, angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids (Hermes-WebSocket, nicht geprüft), Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
 
 ## Nicht getestet
 

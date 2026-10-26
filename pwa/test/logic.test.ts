@@ -1,7 +1,7 @@
 // Self-check of the pure logic: `npm test` (Node 22+, no test framework).
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
-  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, formatClock } from '../src/logic.ts';
+  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, formatClock } from '../src/logic.ts';
 
 const master = `#EXTM3U
 #EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID="chunked",NAME="1080p60 (source)",AUTOSELECT=YES,DEFAULT=YES
@@ -57,4 +57,6 @@ assert.ok(adActive([amazon, adKey]));
 assert.ok(!adActive([amazon, adKey, live]));
 assert.ok(adActive([live, { ...adKey, start: 90 }]));   // mid-roll after live
 assert.ok(!adActive([live]));
+assert.deepEqual(rankSources(['as', 'al', 'eu'], { as: [6, 3600], al: [1, 3600] }), ['al', 'as', 'eu']);
+assert.deepEqual(rankSources(['as', 'al', 'eu'], { as: [6, 3600], al: [1, 600] }), ['as', 'al', 'eu']); // only one ≥ 20 min
 console.log('logic: all checks passed');
