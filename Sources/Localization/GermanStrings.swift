@@ -263,7 +263,6 @@ let kGermanStrings: [String: String] = [
     "see_all": "Alle",
     "more": "…mehr",
     "resume_remove": "Entfernen",
-    "resume_progress": "{a} von {b}",
     "less": "Weniger anzeigen",
     "overview": "Übersicht",
     "links_more": "{a} und {n} weitere Links",

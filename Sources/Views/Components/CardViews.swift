@@ -651,14 +651,6 @@ struct ResumeVodCard: View {
 
     private var thumb: String { vodThumb(item, meta: metaStore.meta(item.term)) }
 
-    /// "5h 8min von 6h 18min", nil without the VOD's length.
-    private var progressLine: String? {
-        guard let total = metaStore.meta(item.term)?.lengthSeconds, total > 0 else { return nil }
-        return store.t("resume_progress")
-            .replacingOccurrences(of: "{a}", with: formatDuration(Int(store.getVodProgress(item.term))))
-            .replacingOccurrences(of: "{b}", with: formatDuration(total))
-    }
-
     /// Picture with the watched part as a purple bar along its bottom.
     private func picture(width: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
@@ -682,7 +674,15 @@ struct ResumeVodCard: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
+        // Tap plays; a long press opens a small menu right at the card. A context menu lifted a
+        // preview as an extra layer over the whole screen.
+        Menu {
+            Button(role: .destructive) {
+                withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
+            } label: {
+                Label(store.t("resume_remove"), systemImage: "xmark")
+            }
+        } label: {
             VStack(alignment: .leading, spacing: TSpace.xs) {
                 picture(width: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -699,34 +699,11 @@ struct ResumeVodCard: View {
                 }
             }
             .frame(width: 220, alignment: .leading)
+            .multilineTextAlignment(.leading)
+        } primaryAction: {
+            onTap()
         }
         .buttonStyle(.plain)
-        // Long press: out of "Ansehen fortsetzen" (Home and Meine VODs); it stays in the history
-        // with its progress. Own preview, as in Apple's TV app: the lifted card was cut oddly.
-        .contextMenu {
-            // One choice only: deleting from the history is done in the history itself.
-            Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
-            } label: {
-                Label(store.t("resume_remove"), systemImage: "xmark")
-            }
-        } preview: {
-            VStack(alignment: .leading, spacing: 6) {
-                picture(width: 320)
-                Group {
-                    Text(item.display)
-                        .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
-                        .lineLimit(2)
-                    if let line = progressLine {
-                        Text(line).font(.footnote).foregroundColor(.tMuted)
-                    }
-                }
-                .padding(.horizontal, 12)
-            }
-            .padding(.bottom, 12)
-            .frame(width: 320)
-            .background(Color.tCard)
-        }
         .task { await metaStore.load(item.term) }
     }
 }
