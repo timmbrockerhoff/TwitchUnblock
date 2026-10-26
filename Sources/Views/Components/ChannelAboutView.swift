@@ -9,11 +9,13 @@ import SwiftUI
 struct ChannelAboutView: View {
     let about: ChannelAbout
     let name: String
+    /// Channel page with the text opened in place: description and links are shown there.
+    var panelsOnly = false
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: TSpace.md) {
-            card
+            if !panelsOnly { card }
             ForEach(about.panels) { p in panel(p) }
         }
     }

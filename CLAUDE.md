@@ -171,8 +171,8 @@ English, short, explaining *why*.
   (opacity 0, IRC keeps running); `streamInfo` shows in its place.
 - Channel page = YouTube-style overview (2026-10-26, `ChannelView.swift`): banner
   (`ChannelAbout.bannerURL`), avatar (red ring when live), name + partner check, @login,
-  followers · LIVE/offline since, description "…mehr" + "X und n weitere Links" (sheet with
-  `ChannelAboutView`), follow (`PlayerFollowButton`) + share, underlined tabs Übersicht / VODs /
+  followers · LIVE/offline since, description "…mehr" + "X und n weitere Links" (open in place:
+  full text, links, panels via `ChannelAboutView(panelsOnly:)`, "Weniger anzeigen"), follow (`PlayerFollowButton`) + share, underlined tabs Übersicht / VODs /
   Clips / Highlights / Playlists. Übersicht = live card or newest VOD + `TShelf`s; 🔍 in the nav
   bar filters VODs. `store.openChannelPage` reduces the player and pushes the page on the tab it
   was opened from (`openedChannel: (tab, login)`, navigationDestination in `tabRoot`); an offline

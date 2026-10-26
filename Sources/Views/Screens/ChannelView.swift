@@ -23,7 +23,7 @@ struct ChannelView: View {
 
     private enum Tab: CaseIterable { case overview, videos, clips, highlights, playlists }
     @State private var tab: Tab = .overview
-    @State private var showAbout = false
+    @State private var aboutOpen = false
     @State private var showFilter = false
 
     @State private var filterText   = ""
@@ -209,7 +209,6 @@ struct ChannelView: View {
                 .accessibilityLabel(store.t("ph_keyword"))
             }
         }
-        .sheet(isPresented: $showAbout) { aboutSheet }
         .task(id: login) {
             await searchChannel(login)
             // Header (banner, followers, description) and the overview's shelves.
@@ -265,28 +264,57 @@ struct ChannelView: View {
                 }
             }
 
-            if let text = about?.description, !text.isEmpty {
-                Button { showAbout = true } label: {
-                    // Cut by hand: with lineLimit the "…mehr" at the end was cut off too.
-                    let flat = text.replacingOccurrences(of: "\n", with: " ")
-                    let short = flat.count > 80 ? String(flat.prefix(80)) : flat
-                    (Text(short).foregroundColor(.tMuted) + Text(" " + store.t("more")).bold().foregroundColor(.tText))
-                        .font(.subheadline)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+            // "…mehr" opens the text right here (as on YouTube), with the links and panels.
+            if let about, !about.description.isEmpty || !about.socials.isEmpty {
+                if aboutOpen {
+                    VStack(alignment: .leading, spacing: TSpace.md) {
+                        if !about.description.isEmpty {
+                            Text(richText(about.description))
+                                .font(.subheadline).foregroundColor(.tText)
+                                .tint(.tPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        ForEach(about.socials) { social in
+                            Link(destination: social.url) {
+                                Label(social.title, systemImage: "link")
+                                    .font(.subheadline.weight(.semibold)).foregroundColor(.tPrimary)
+                            }
+                        }
+                        ChannelAboutView(about: about, name: channelName, panelsOnly: true)
+                        Button(store.t("less")) {
+                            withAnimation(.easeInOut(duration: 0.2)) { aboutOpen = false }
+                        }
+                        .font(.subheadline.weight(.bold)).foregroundColor(.tText)
+                        .buttonStyle(.plain)
+                    }
+                    .transition(.opacity)
+                } else {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { aboutOpen = true } } label: {
+                        VStack(alignment: .leading, spacing: TSpace.sm) {
+                            if !about.description.isEmpty {
+                                // Cut by hand: with lineLimit the "…mehr" at the end was cut off too.
+                                let flat = about.description.replacingOccurrences(of: "\n", with: " ")
+                                let short = flat.count > 80 ? String(flat.prefix(80)) : flat
+                                (Text(short).foregroundColor(.tMuted)
+                                 + Text(" " + store.t("more")).bold().foregroundColor(.tText))
+                                    .font(.subheadline)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            if let first = about.socials.first {
+                                Label(about.socials.count > 1
+                                      ? store.t("links_more").replacingOccurrences(of: "{a}", with: first.title)
+                                          .replacingOccurrences(of: "{n}", with: "\(about.socials.count - 1)")
+                                      : first.title,
+                                      systemImage: "link")
+                                    .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-            }
-            if let socials = about?.socials, let first = socials.first {
-                Button { showAbout = true } label: {
-                    Label(socials.count > 1
-                          ? store.t("links_more").replacingOccurrences(of: "{a}", with: first.title)
-                              .replacingOccurrences(of: "{n}", with: "\(socials.count - 1)")
-                          : first.title,
-                          systemImage: "link")
-                        .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
-                }
-                .buttonStyle(.plain)
             }
 
             HStack(spacing: TSpace.sm) {
@@ -507,24 +535,6 @@ struct ChannelView: View {
         }
     }
 
-    // MARK: About sheet
-    private var aboutSheet: some View {
-        NavigationStack {
-            ScrollView {
-                if let about {
-                    ChannelAboutView(about: about, name: channelName)
-                        .padding(TSpace.lg)
-                } else {
-                    TEmptyState(icon: "info.circle", title: store.t("about_empty"))
-                }
-            }
-            .background(Color.tDark)
-            .navigationTitle(channelName)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { TCloseButton { showAbout = false } } }
-        }
-        .presentationDetents([.medium, .large])
-    }
     // MARK: – Highlights
     @ViewBuilder private var highlightsSection: some View {
         if loadingHighlights {
@@ -799,7 +809,7 @@ struct ChannelView: View {
 
         loading = true; errorMsg = nil; retryLogin = nil; liveData = nil; lastBroadcastAt = nil; vods = []
         filterText = ""; searchedName = login
-        tab = .overview; clips = []; clipsFor = ""; loadingClips = false
+        tab = .overview; aboutOpen = false; clips = []; clipsFor = ""; loadingClips = false
         clipsLocked = false; clipsCursor = nil; loadingMoreClips = false
         about = nil; aboutFor = ""; loadingAbout = false
         // Reconstruction de la chaîne précédente : abandonnée.
