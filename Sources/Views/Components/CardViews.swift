@@ -651,28 +651,41 @@ struct ResumeVodCard: View {
 
     private var thumb: String { vodThumb(item, meta: metaStore.meta(item.term)) }
 
+    /// "5h 8min von 6h 18min", nil without the VOD's length.
+    private var progressLine: String? {
+        guard let total = metaStore.meta(item.term)?.lengthSeconds, total > 0 else { return nil }
+        return store.t("resume_progress")
+            .replacingOccurrences(of: "{a}", with: formatDuration(Int(store.getVodProgress(item.term))))
+            .replacingOccurrences(of: "{b}", with: formatDuration(total))
+    }
+
+    /// Picture with the watched part as a purple bar along its bottom.
+    private func picture(width: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            AsyncImage(url: URL(string: thumb)) { img in
+                img.resizable().aspectRatio(16/9, contentMode: .fill)
+            } placeholder: {
+                Rectangle().fill(Color.tSurface)
+            }
+            if let ratio {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Color.black.opacity(0.5)
+                        Color.tPrimary.frame(width: geo.size.width * ratio)
+                    }
+                }
+                .frame(height: 4)
+            }
+        }
+        .frame(width: width, height: width * 9 / 16)
+        .clipped()
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: TSpace.xs) {
-                ZStack(alignment: .bottom) {
-                    AsyncImage(url: URL(string: thumb)) { img in
-                        img.resizable().aspectRatio(16/9, contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(Color.tSurface)
-                    }
-                    if let ratio {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Color.black.opacity(0.5)
-                                Color.tPrimary.frame(width: geo.size.width * ratio)
-                            }
-                        }
-                        .frame(height: 4)
-                    }
-                }
-                .frame(width: 220, height: 124)
-                .clipped()
-                .cornerRadius(6)
+                picture(width: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
                 Text(item.display)
                     .font(.subheadline.weight(.semibold))
@@ -689,14 +702,30 @@ struct ResumeVodCard: View {
         }
         .buttonStyle(.plain)
         // Long press: out of "Ansehen fortsetzen" (Home and Meine VODs); it stays in the history
-        // with its progress.
+        // with its progress. Own preview, as in Apple's TV app: the lifted card was cut oddly.
         .contextMenu {
             // One choice only: deleting from the history is done in the history itself.
             Button(role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
             } label: {
-                Label(store.t("resume_remove"), systemImage: "xmark.circle")
+                Label(store.t("resume_remove"), systemImage: "xmark")
             }
+        } preview: {
+            VStack(alignment: .leading, spacing: 6) {
+                picture(width: 320)
+                Group {
+                    Text(item.display)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.tText)
+                        .lineLimit(2)
+                    if let line = progressLine {
+                        Text(line).font(.footnote).foregroundColor(.tMuted)
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .padding(.bottom, 12)
+            .frame(width: 320)
+            .background(Color.tCard)
         }
         .task { await metaStore.load(item.term) }
     }
