@@ -175,6 +175,9 @@ English, short, explaining *why*.
   Chat column has the same `chatHeader(landscape:)` (gear, ✕ → `landscapeChat = .hidden`) and the
   points capsule (compact, "Chatten…"). "Über dem Video" is gone in the native player (stored
   `.overlay` reads as `.column`); the immersive player keeps its three modes.
+  Pinch out in landscape fills the video area (`.aspectRatio(.fill)` + clipped, stored as
+  `store.fillScreen` = Settings → "Bildschirm füllen"), pinch in shows the whole picture again;
+  the frame needs `minWidth/minHeight: 0` or the filled picture pushes the chat off screen.
   Older notes below describe the previous landscape layout.
 - Landscape player (Apple's): video column full height (vertical safe areas ignored, sides kept
   for the Dynamic Island), header as `landscapeOverlay` over the video, shown/hidden

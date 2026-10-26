@@ -200,6 +200,8 @@ struct PlayerControlsOverlay: View {
     var title: AnyView? = nil
     /// Landscape with the chat closed: its button, before AirPlay.
     var onShowChat: (() -> Void)? = nil
+    /// Landscape: pinch out fills the screen (true), pinch in shows the whole picture (false).
+    var onZoom: ((Bool) -> Void)? = nil
 
     @EnvironmentObject private var store: AppStore
     /// Side of the last double tap (−1 left, +1 right), for its "10 Sekunden" flash.
@@ -292,6 +294,10 @@ struct PlayerControlsOverlay: View {
                 .transition(.opacity)
             }
         }
+        .simultaneousGesture(MagnificationGesture().onEnded { scale in
+            guard let onZoom else { return }
+            if scale > 1.08 { onZoom(true) } else if scale < 0.92 { onZoom(false) }
+        })
         .background {
             if model.visible {
                 LinearGradient(colors: [.black.opacity(0.45), .black.opacity(0.1), .black.opacity(0.55)],

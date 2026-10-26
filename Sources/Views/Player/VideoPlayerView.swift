@@ -897,13 +897,23 @@ struct VideoPlayerView: View {
         // The UIKit player view takes no touches: they go to the controls laid over it
         // (a UIKit view under a SwiftUI overlay otherwise keeps every touch).
         .allowsHitTesting(controls == nil)
-        .aspectRatio(16/9, contentMode: .fit)
+        // Landscape zoomed (pinch out, or Settings → "Bildschirm füllen"): the picture fills the
+        // whole area and its overflow is cut off; pinch in for the whole picture again.
+        .aspectRatio(16/9, contentMode: landscape && store.fillScreen ? .fill : .fit)
+        // The offered size exactly (min 0): filled, the picture would otherwise grow the layout
+        // and push the chat column off screen instead of being cut.
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        .clipped()
         .background(Color.black)
         .overlay {
             if let controls {
                 PlayerControlsOverlay(model: controls, isLive: isLive, landscape: landscape,
                                       onFullscreen: onFullscreen, onSettings: onSettings,
-                                      onReduce: onReduce, title: title, onShowChat: onShowChat)
+                                      onReduce: onReduce, title: title, onShowChat: onShowChat,
+                                      onZoom: landscape ? { fill in
+                                          guard fill != store.fillScreen else { return }
+                                          withAnimation(.easeInOut(duration: 0.25)) { store.fillScreen = fill }
+                                      } : nil)
             }
         }
         .overlay(alignment: .topLeading) {
