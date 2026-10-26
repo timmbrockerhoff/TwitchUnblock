@@ -24,6 +24,8 @@ struct ChannelView: View {
     private enum Tab: CaseIterable { case overview, videos, clips, highlights, playlists }
     @State private var tab: Tab = .overview
     @State private var aboutOpen = false
+    /// The opened description is on screen: the floating "Weniger anzeigen" shows.
+    @State private var aboutOnScreen = false
     @State private var showFilter = false
 
     @State private var filterText   = ""
@@ -181,6 +183,7 @@ struct ChannelView: View {
 
 
     var body: some View {
+        ScrollViewReader { scroll in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: TSpace.lg) {
                 if loading {
@@ -191,11 +194,41 @@ struct ChannelView: View {
                                 action: retryAction)
                 } else if liveData != nil {
                     header
+                        .id("channelHeader")
+                        .onAppear { aboutOnScreen = true }
+                        .onDisappear { aboutOnScreen = false }
                     tabBar
                     tabContent
                 }
                 Spacer(minLength: 40)
             }
+        }
+        // A long opened description (many panels) ends far down: this closes it from anywhere.
+        .overlay(alignment: .bottom) {
+            if aboutOpen && aboutOnScreen {
+                Button {
+                    // Back to the header first, then fold: folded first, the page stayed far down.
+                    withAnimation(.easeInOut(duration: 0.3)) { scroll.scrollTo("channelHeader", anchor: .top) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.easeInOut(duration: 0.2)) { aboutOpen = false }
+                    }
+                } label: {
+                    Label(store.t("less"), systemImage: "chevron.up")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.tText)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        // Solid enough to read over colourful panels.
+                        .background(.regularMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                }
+                .buttonStyle(.plain)
+                // On the row of the minimized tab bar (the home button), measured from the
+                // screen's bottom edge.
+                .padding(.bottom, 32)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
         }
         .background(Color.tDark)
         .navigationTitle("")
@@ -273,6 +306,8 @@ struct ChannelView: View {
                                 .font(.subheadline).foregroundColor(.tText)
                                 .tint(.tPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
+                                // Tapping the text closes it again (links in it still open).
+                                .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { aboutOpen = false } }
                         }
                         ForEach(about.socials) { social in
                             Link(destination: social.url) {
