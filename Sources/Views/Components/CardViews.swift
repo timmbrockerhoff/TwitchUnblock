@@ -674,36 +674,50 @@ struct ResumeVodCard: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: TSpace.xs) {
+        VStack(alignment: .leading, spacing: TSpace.xs) {
+            Button(action: onTap) {
                 picture(width: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
 
-                Text(item.display)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.tText)
-                    .lineLimit(1)
-                if let streamer = item.streamer {
-                    Text(streamer)
-                        .font(.footnote)
-                        .foregroundColor(.tMuted)
-                        .lineLimit(1)
+            HStack(alignment: .top, spacing: 0) {
+                Button(action: onTap) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.display)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.tText)
+                            .lineLimit(1)
+                        if let streamer = item.streamer {
+                            Text(streamer)
+                                .font(.footnote)
+                                .foregroundColor(.tMuted)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                // "⋯" as on YouTube: a small menu right here. A long-press context menu laid the
+                // system's blur over the whole screen.
+                Menu {
+                    Button(role: .destructive) {
+                        withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
+                    } label: {
+                        Label(store.t("resume_remove"), systemImage: "xmark")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.tMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(store.t("resume_remove"))
             }
-            .frame(width: 220, alignment: .leading)
         }
-        .buttonStyle(.plain)
-        // As Apple's TV app ("Weiter ansehen"): a long press lifts just the picture, at its own
-        // size, with the menu under it (lifting the whole card cut it out oddly).
-        .contextMenu {
-            Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
-            } label: {
-                Label(store.t("resume_remove"), systemImage: "xmark")
-            }
-        } preview: {
-            picture(width: 220)
-        }
+        .frame(width: 220, alignment: .leading)
         .task { await metaStore.load(item.term) }
     }
 }
