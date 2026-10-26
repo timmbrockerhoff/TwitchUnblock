@@ -45,7 +45,7 @@ Kanalpunkte, Drops und das Folgen auf Twitch laufen deshalb über einen eigenen,
 
 ## Noch nicht umgesetzt, aber möglich
 
-Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, Pinch zum Füllen, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info, angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids (Hermes-WebSocket, nicht geprüft), Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
+Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, BTTV/7TV-Live-Updates, Chatter-Liste, Bot-Befehle, Nutzerkarte, Emote-Info, angepinnte Nachrichten, Umfragen, Vorhersagen, Hype Train, Raids (Hermes-WebSocket, nicht geprüft), Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
 
 ## Nicht getestet
 

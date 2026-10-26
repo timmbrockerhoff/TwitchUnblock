@@ -244,7 +244,8 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 @media (orientation: landscape) and (max-height: 600px) {
   .player:not(.mini) { flex-direction: row; }
   .player:not(.mini) .stage { flex: 1; height: 100%; aspect-ratio: auto; margin: 0; }
-  .player:not(.mini) .below { flex: 0 0 34%; border-left: .5px solid var(--sep); padding-right: env(safe-area-inset-right); }
+  .player:not(.mini) .below { flex: 0 0 34%; min-width: 0; border-left: .5px solid var(--sep); padding-right: env(safe-area-inset-right); }
+  .player:not(.mini) .stage { min-width: 0; }
   .player.no-chat:not(.mini) .below { display: none; }
   .player:not(.mini) ~ .tabbar { display: none; }
 }

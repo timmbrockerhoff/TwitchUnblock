@@ -45,9 +45,9 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Zurückspulen im Live (LiveDVRPlaylist: Aufnahme + Live-Segmente in einer Playlist) | `LiveDVRPlaylist.swift`, `LivePlaylistLoader.swift` | C | ersetzt: beim Zurückspulen wechselt der Player auf die laufende Aufnahme (Archiv-VOD), nativ abgespielt; „● Live“ springt zurück. Keine verschmolzene Zeitleiste, Kanäle ohne Aufnahme nur im kleinen nativen Puffer | Sim: eine Stunde zurück (5:00:31 von 6:00:20), „● Live“ zurück zum Live-Stream; Fehler gefunden und behoben: der Sprung beim Laden wurde verworfen. Bild im Simulator teils schwarz |
 | Werbepausen mit Ersatz-Stream füllen | `adFreeBackupPlaylist`, `LiveDVRPlaylist` | D | nicht möglich: verlangt das Umschreiben der Media-Playlist, und `playlist.ttvnw.net` antwortet fremden Seiten mit 403 | – |
 | Werbepausen erkennen, Ton aus, Hinweis | `AdBreakMonitor.swift`, `liveAdGap` | C | umgesetzt über die `EXT-X-DATERANGE`-Metadaten, die Safari als Cues meldet (maßgeblich ist der zuletzt begonnene Eintrag); Ton aus, Hinweis, danach Ton wie vorher; Knopf „Ersatz-Stream“ lädt ein Token mit Player-Typ embed/popout/autoplay | Sim mit echter Werbung (Pre-Roll bei 6 von 12 Top-Streams): Hinweis und Ton aus für ~32 s, danach weiter; zwei Fehler gefunden und behoben (Video blieb nach der Werbung stehen; Hinweis blieb nach der Werbung stehen). Ersatz-Stream: bei otplol_ sofort ohne Werbung |
-| Werbepausen je Quelle zählen, Reihenfolge danach | `LiveAdStats` | B | umgesetzt: Sekunden und Pausen je Quelle, Anzeige bei der Quellen-Reihenfolge, Schalter „Nach Werbepausen sortieren“ (Proxys mit den wenigsten Pausen pro Stunde zuerst, sobald zwei je 20 min gemessen sind) | Logik: `npm test`; Chromium: Anzeige und Reihenfolge (Albanien vor Asien bei 1 statt 6 Pausen/h); Zählen im Simulator: siehe unten |
+| Werbepausen je Quelle zählen, Reihenfolge danach | `LiveAdStats` | B | umgesetzt: Sekunden und Pausen je Quelle, Anzeige bei der Quellen-Reihenfolge, Schalter „Nach Werbepausen sortieren“ (Proxys mit den wenigsten Pausen pro Stunde zuerst, sobald zwei je 20 min gemessen sind) | Logik: `npm test`; Chromium: Anzeige und Reihenfolge (Albanien vor Asien bei 1 statt 6 Pausen/h); Sim: 70 s für „Luminous Asien“ gezählt |
 | Chat-Verzögerung an die Latenz anpassen, Chat-Replay bei großem Abstand | `liveLatency`, `LiveLatency.swift` | B | nicht umgesetzt | – |
-| Zuschauerzahl und Laufzeit regelmäßig aktualisieren | `getStreamStats` | A | Zuschauer, Titel, Kategorie und Aufnahme jede Minute; Laufzeit läuft mit | siehe unten |
+| Zuschauerzahl und Laufzeit regelmäßig aktualisieren | `getStreamStats` | A | Zuschauer, Titel, Kategorie und Aufnahme jede Minute; Laufzeit läuft mit | Sim: Abfrage nachweislich jede Minute |
 
 ## Player und Bedienung
 
@@ -55,15 +55,15 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 |---|---|---|---|---|
 | Eigene Steuerung im YouTube-Stil (Leiste, ±10 s, Doppeltipp, Ausblenden nach 3 s, „● Live“) | `PlayerControls.swift` | B | umgesetzt (`Controls` in `src/player.tsx`) | Sim |
 | Vollbild | `rotatePlayer` | C | nativer Vollbild-Player von iOS (`webkitEnterFullscreen`); dort fehlen eigene Steuerung und Chat. Das iPhone kennt die Fullscreen-API nur für `<video>` | Sim: öffnet den iOS-Vollbild-Player; Fehler gefunden und behoben: nach dem Schließen stand das Video auf Pause |
-| Querformat: Video neben dem Chat | Landscape-Layout | B | umgesetzt per CSS, sobald das Gerät gedreht wird | Sim |
+| Querformat: Video neben dem Chat | Landscape-Layout | B | umgesetzt per CSS, sobald das Gerät gedreht wird | Sim; Fehler gefunden und behoben: in der installierten App drückte ein langer Untertitel die Chat-Spalte auf zwei Drittel der Breite |
 | Querformat per Knopf erzwingen | `requestGeometryUpdate` | D | iOS-Safari hat kein `screen.orientation.lock` | – |
-| Bild füllen per Pinch | `fillScreen` | B | nicht umgesetzt | – |
-| Wischen nach unten minimiert | `PlayerPull.swift` | B | umgesetzt im Hochformat (mindestens 90 px nach unten über das Video) | siehe unten |
+| Bild füllen per Pinch | `fillScreen` | B | umgesetzt im Querformat (Auseinanderziehen füllt, Zusammenziehen zeigt alles), auch als Schalter „Bildschirm füllen“ | Sim: beide Gesten, Einstellung gespeichert |
+| Wischen nach unten minimiert | `PlayerPull.swift` | B | umgesetzt im Hochformat (mindestens 90 px nach unten über das Video) | Sim: Wischen über das Video → Mini-Player, Stream läuft weiter |
 | Mini-Player über der Tab-Leiste | `TabAccessory` | B | umgesetzt | Sim |
 | AirPlay | AVKit | B | `webkitShowPlaybackTargetPicker` | Sim: Knopf ruft die iOS-Auswahl auf; ohne AirPlay-Geräte im Simulator nicht weiter prüfbar, auf dem iPhone **nicht getestet** |
 | Bild in Bild | AVKit | C | `webkitSetPresentationMode`; der Knopf erscheint nur, wenn das Gerät Bild in Bild meldet | Sim: Safari im Simulator meldet kein Bild in Bild, Knopf ausgeblendet; auf dem iPhone **nicht getestet** |
 | Wiedergabe im Hintergrund, Sperrbildschirm | `PlaybackAudio.swift` | C | mit Bild pausiert iOS beim Wechsel auf den Home-Bildschirm und setzt bei Rückkehr fort; mit Qualität „Nur Audio“ läuft der Ton im Hintergrund weiter (nur bei Proxy-Quellen wählbar). Media-Session-Titel gesetzt | Sim: Video 20 s im Hintergrund → pausiert; „Nur Audio“ 26 s im Hintergrund → lief durch. Sperrbildschirm-Anzeige nicht gesehen |
-| Schlaf-Timer | `SleepTimerService.swift` | A | umgesetzt | Sim: 15 min gesetzt, siehe unten |
+| Schlaf-Timer | `SleepTimerService.swift` | A | umgesetzt | Sim (installierte App): 21:15:20 auf 15 min gestellt, um 21:30:42 war der Player geschlossen |
 | Geschwindigkeit (VOD/Clip) | `PlayerSettingsSheet` | A | umgesetzt | Sim: 1,5× → 6 s Video in 4 s, gespeichert |
 | Immersiver Player (Chat über dem Video, drei Modi) | `ImmersivePlayer.swift` | C | nicht übernommen; nur Hoch- und Querformat | – |
 | Live Activity, Dynamic Island | `PlayerActivity.swift`, `Widgets/`, `Shared/` | D | gibt es für Web-Apps nicht | – |
