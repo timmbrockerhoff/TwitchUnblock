@@ -71,7 +71,8 @@ English, short, explaining *why*.
   in system style; mini player = `tabViewBottomAccessory` + `.tabBarMinimizeBehavior(.onScrollDown)`
   on iOS 26.1+ (`TabAccessory`), the old floating bar below that.
   Home (2026-10-22) = shelves like Apple's TV app (`TShelf`): Jetzt live · Du folgst, Ansehen
-  fortsetzen, Clips deiner Kanäle (9:16, opens the clip feed), Top-Streams (language menu),
+  fortsetzen, Clips deiner Kanäle (9:16, opens the clip feed; since 2026-10-26 every clip of the last 24 h
+  of every followed channel, like the "24 Std." filter, newest first, 8 channels at a time), Top-Streams (language menu),
   Offline avatars; "Alle" pushes the old full lists (grid/list toggle in their toolbar).
   Browse (same day): one search field for channels, links and categories (category shelf under
   the channel suggestions); idle = "Deine Kategorien" shelf + top-category grid; a category is

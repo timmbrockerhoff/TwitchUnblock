@@ -162,27 +162,26 @@ struct HomeView: View {
     }
 
     // MARK: – Clips of followed channels
-    /// Last week's most viewed clips of followed channels (live ones first),
-    /// newest first.
-    /// ponytail: 25 channels × 5 clips, one request each; a paged feed if
-    /// that ever feels short.
-    /// Clips of the followed channels (5 each, last week), per login.
+    /// Every clip of the last 24 hours of every followed channel, as the "24 Std." filter of a
+    /// channel's clips shows them. A channel's page holds up to 100 (Twitch's first page).
     private func followedClips() async -> [String: [ClipData]] {
         var seen = Set<String>()
         let logins = (allFollowedLive.map { $0.userLogin.lowercased() } + twitchFollowLogins
                       + store.localFollows.map { $0.lowercased() })
             .filter { seen.insert($0).inserted }
-            .prefix(25)
-        return await withTaskGroup(of: (String, [ClipData]).self) { group in
-            for login in logins {
-                group.addTask {
-                    (login, Array((await getClipsPage(login: login, period: "LAST_WEEK", after: nil))?.clips.prefix(5) ?? []))
+        var byLogin: [String: [ClipData]] = [:]
+        // A few at a time: hundreds of followed channels at once would flood the connection.
+        for chunk in stride(from: 0, to: logins.count, by: 8).map({ Array(logins[$0..<min($0 + 8, logins.count)]) }) {
+            await withTaskGroup(of: (String, [ClipData]).self) { group in
+                for login in chunk {
+                    group.addTask {
+                        (login, (await getClipsPage(login: login, period: "LAST_DAY", after: nil))?.clips ?? [])
+                    }
                 }
+                for await (login, list) in group where !list.isEmpty { byLogin[login] = list }
             }
-            var byLogin: [String: [ClipData]] = [:]
-            for await (login, list) in group { byLogin[login] = list }
-            return byLogin
         }
+        return byLogin
     }
 
     /// All channels mixed, newest first.
@@ -192,17 +191,10 @@ struct HomeView: View {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// One channel picked: its few clips right away, then a full page (last month when the
-    /// last week has none).
+    /// One channel picked: its clips of the last 24 hours, newest first.
     private func pickClipChannel(_ login: String?) {
         clipChannel = login
-        guard let login else { channelClips = []; return }
-        channelClips = clipsByLogin[login] ?? []
-        Task {
-            var clips = await getClipsPage(login: login, period: "LAST_WEEK", after: nil)?.clips ?? []
-            if clips.isEmpty { clips = await getClipsPage(login: login, period: "LAST_MONTH", after: nil)?.clips ?? [] }
-            if clipChannel == login, !clips.isEmpty { channelClips = Array(clips.prefix(20)) }
-        }
+        channelClips = login.map { (clipsByLogin[$0] ?? []).sorted { $0.createdAt > $1.createdAt } } ?? []
     }
 
     /// Display name of a followed login (live or offline list), else the login.
@@ -500,7 +492,7 @@ struct HomeView: View {
                     Text(store.t("no_clips"))
                         .font(.subheadline).foregroundColor(.tMuted)
                 } else {
-                    ForEach(Array(clips.prefix(20).enumerated()), id: \.element.id) { index, clip in
+                    ForEach(Array(clips.enumerated()), id: \.element.id) { index, clip in
                         ShelfClipCard(clip: clip) {
                             onOpenClipFeed(ClipFeedItem(clips: clips, start: index))
                         }
