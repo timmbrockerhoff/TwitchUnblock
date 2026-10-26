@@ -169,14 +169,16 @@ English, short, explaining *why*.
   bar any more — quality, "Chat ausblenden" (`cfg_chat_hidden`, portrait; landscape toggles
   `landscapeChat`) and sleep timer live in the top bar's "⋯" menu. Hidden chat stays alive
   (opacity 0, IRC keeps running); `streamInfo` shows in its place.
-- No channel page any more (2026-10-26): `store.openChannelPage(login)` (Home avatars, chat
-  emote card, search tab) opens the player (`playLive`, chat closed). Under the player's info
-  (`streamInfo`, portrait with chat closed) `SearchView(initialChannel:)` is embedded: offline
-  line + tabs VODs/Highlights/Playlists/Clips/Info (no header, no own scroll view; reloads per
-  channel). Offline live → `liveOffline` + `offlinePoster` (avatar, "offline", ⌄) instead of an
-  error. Search tab: picking a channel goes through `openChannel` → player. Name/avatar taps in
-  the player → `showChannelContent()` (chat closed, portrait). `ChannelHeroView`, `SheetBar`,
-  `channelSheet` deleted.
+- Channel page = YouTube-style overview (2026-10-26, `ChannelView.swift`): banner
+  (`ChannelAbout.bannerURL`), avatar (red ring when live), name + partner check, @login,
+  followers · LIVE/offline since, description "…mehr" + "X und n weitere Links" (sheet with
+  `ChannelAboutView`), follow (`PlayerFollowButton`) + share, underlined tabs Übersicht / VODs /
+  Clips / Highlights / Playlists. Übersicht = live card or newest VOD + `TShelf`s; 🔍 in the nav
+  bar filters VODs. `store.openChannelPage` reduces the player and pushes the page on the tab it
+  was opened from (`openedChannel: (tab, login)`, navigationDestination in `tabRoot`); an offline
+  live link opens the page too. SearchView is search only (categories, suggestions, history,
+  VOD/clip links); the channel loading/recovery code moved to ChannelView unchanged. User rejected
+  channel content embedded under the player (overloaded) the same day.
 - Landscape = portrait (2026-10-23): same `PlayerControlsOverlay` (⌄ reduce + `landscapeTitle`
   channel/uptime/viewers top left, AirPlay + gear top right, 💬 when the chat is closed), no
   separate header over the video (`landscapeOverlay` deleted, no ✕: close from the mini player).

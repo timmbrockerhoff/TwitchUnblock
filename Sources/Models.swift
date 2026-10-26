@@ -114,6 +114,9 @@ struct ChannelAbout {
     let followers: Int?
     let socials: [Social]
     let panels: [Panel]
+    /// Profile banner (channel page header), nil when the channel has none.
+    var bannerURL: URL? = nil
+    var isPartner = false
 }
 
 /// Clip prêt à lire : MP4 signés par qualité, et la VOD d'origine (chat).

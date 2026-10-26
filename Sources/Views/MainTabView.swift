@@ -128,9 +128,8 @@ struct MainTabView: View {
     /// minuteries du direct sans lecteur.
     @State private var loadGeneration = 0
     /// Page d'une chaîne ouverte en feuille (sans passer par l'onglet Recherche).
-    /// The live channel is offline: the player shows its offline picture and, under it, the
-    /// channel's VODs and clips (there is no separate channel page).
-    @State private var liveOffline = false
+    /// Channel page pushed on the current tab's stack (YouTube-like), nil when none.
+    @State private var openedChannel: (tab: TabName, login: String)? = nil
     /// Clip en cours : VOD d'origine et position, pour en rejouer le chat.
     @State private var clipVodId: String? = nil
     @State private var clipOffset: Double = 0
@@ -258,6 +257,12 @@ struct MainTabView: View {
     private func tabRoot<Content: View>(_ tab: TabName, @ViewBuilder _ content: () -> Content) -> some View {
         NavigationStack {
             content()
+                .navigationDestination(isPresented: Binding(
+                    // Only on the tab it was opened from: switching tabs leaves it there.
+                    get: { openedChannel?.tab == tab },
+                    set: { if !$0, openedChannel?.tab == tab { openedChannel = nil } })) {
+                    if let page = openedChannel { channelPage(page.login) }
+                }
                 .navigationTitle(tab.label(store))
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -287,10 +292,7 @@ struct MainTabView: View {
                 tabRoot(.search) {
                     SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
                                onPlayLive: { playLive($0) },
-                               onPlayClip: { playClip($0, $1) },
-                               onPlayClipList: { playClipQueue($0, $1) },
-                               onPlayQueue: { playQueue($0, $1) },
-                               onRecovered: { playRecovered($0) })
+                               onPlayClip: { playClip($0, $1) })
                 }
                 tabRoot(.library) {
                     LibraryView(onPlayVod: { playVod($0, $1, $2, $3) },
@@ -442,14 +444,19 @@ struct MainTabView: View {
                 .inAppNoticeHost()
         }
         // Notification « en live » touchée : on ouvre le direct.
-        // A channel asked for (name in the chat, Home, search): its player — live, or its offline
-        // view — with the channel's VODs and clips under it, chat closed so they show.
+        // A channel asked for (avatar on Home, name in the player or chat, search): its page on
+        // the current tab, the player reduced to the mini player (as on YouTube).
         .onChange(of: store.pendingChannel) { login in
             guard let login else { return }
             store.pendingChannel = nil
             afterClosingPresentations {
-                playLive(login)
-                withAnimation { chatHidden = true }
+                if playerVisible {
+                    if playerIsLandscape { rotatePlayer(toLandscape: false) }
+                    reducePlayer()
+                }
+                openedChannel = nil
+                let tab = activeTab
+                DispatchQueue.main.async { openedChannel = (tab, login) }
             }
         }
         // Notification touchée (direct) : ce qui est
@@ -597,11 +604,6 @@ struct MainTabView: View {
 
                 } else if let links = qualityLinks {
                     playerBody(links: links, size: geo.size, landscape: landscape)
-                } else if liveOffline {
-                    VStack(spacing: 0) {
-                        offlinePoster.frame(height: geo.size.width * 9 / 16)
-                        streamInfo
-                    }
                 }
             }
             // Bascule direct ↔ enregistrement : une pastille discrète en haut,
@@ -860,7 +862,7 @@ struct MainTabView: View {
                 savedTime: currentVodId.map { store.getVodProgress($0) } ?? 0,
                 contentID: linksContentID,
                 info: overlayInfo,
-                onChannel: playerChannelLogin.map { _ in { showChannelContent() } },
+                onChannel: playerChannelLogin.map { l in { store.openChannelPage(l) } },
                 sleepLabel: sleepTimer.isActive ? sleepTimer.label : nil,
                 chatMode: store.landscapeChat,
                 isLandscape: landscape,
@@ -967,7 +969,7 @@ struct MainTabView: View {
                 Text(currentChannelName ?? statusTitle)
                     .font(.tCardTitle).foregroundColor(.tText).lineLimit(1)
                     // Toucher le pseudo : page de la chaîne.
-                    .onTapGesture { showChannelContent() }
+                    .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
 
                 HStack(spacing: TSpace.sm) {
                     if isLivePlaying {
@@ -1120,7 +1122,7 @@ struct MainTabView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(currentChannelName ?? statusTitle)
                     .font(.tCardTitle).foregroundColor(.white).lineLimit(1)
-                    .onTapGesture { showChannelContent() }
+                    .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
                 HStack(spacing: TSpace.sm) {
                     if isLivePlaying {
                         if let start = liveStartedAt {
@@ -1168,16 +1170,13 @@ struct MainTabView: View {
     private var streamInfo: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: TSpace.md) {
-                // Offline: the picture above already says who; no title or details to show.
-                if !liveOffline {
-                    Text(statusTitle)
-                        .font(.title3.weight(.bold)).foregroundColor(.tText)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if isLivePlaying || !liveGame.isEmpty {
-                        detailsLine(font: .footnote)
-                    }
+                Text(statusTitle)
+                    .font(.title3.weight(.bold)).foregroundColor(.tText)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isLivePlaying || !liveGame.isEmpty {
+                    detailsLine(font: .footnote)
                 }
                 HStack(spacing: TSpace.md) {
                     // Avatar and name open the channel; the button is the follow status, as on
@@ -1185,6 +1184,7 @@ struct MainTabView: View {
                     playerAvatar(40)
                     Text(currentChannelName ?? playerChannelLogin ?? "")
                         .font(.headline).foregroundColor(.tText).lineLimit(1)
+                        .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
                     Spacer(minLength: 0)
                     if let login = playerChannelLogin {
                         PlayerFollowButton(login: login, channelId: isLivePlaying ? currentChannelId : nil)
@@ -1196,19 +1196,7 @@ struct MainTabView: View {
                         .padding(.horizontal, TSpace.lg)
                 }
                 .padding(.horizontal, -TSpace.lg)
-                if !liveOffline { chatCard.padding(.top, TSpace.xs) }
-                // The channel's VODs, highlights, playlists, clips and info (formerly its own page).
-                if let login = playerChannelLogin {
-                    SearchView(onPlayVod: { playVod($0, $1, $2, $3) },
-                               onPlayLive: { playLive($0) },
-                               onPlayClip: { playClip($0, $1) },
-                               onPlayClipList: { playClipQueue($0, $1) },
-                               onPlayQueue: { playQueue($0, $1) },
-                               onRecovered: { playRecovered($0) },
-                               initialChannel: login)
-                        .padding(.horizontal, -TSpace.lg)
-                        .padding(.top, TSpace.sm)
-                }
+                chatCard.padding(.top, TSpace.xs)
             }
             .padding(TSpace.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1291,6 +1279,16 @@ struct MainTabView: View {
         .buttonStyle(.plain)
     }
 
+    private func channelPage(_ login: String) -> some View {
+        ChannelView(login: login,
+                    onPlayVod: { playVod($0, $1, $2, $3) },
+                    onPlayLive: { playLive($0) },
+                    onPlayClip: { playClip($0, $1) },
+                    onPlayClipList: { playClipQueue($0, $1) },
+                    onPlayQueue: { playQueue($0, $1) },
+                    onRecovered: { playRecovered($0) })
+    }
+
     private func playerAvatar(_ size: CGFloat) -> some View {
         AsyncImage(url: URL(string: liveAvatar ?? "")) { img in
             img.resizable().scaledToFill()
@@ -1299,43 +1297,7 @@ struct MainTabView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .onTapGesture { showChannelContent() }
-    }
-
-    /// Offline channel: where the video would be, its avatar and "offline", with the chevron
-    /// to reduce as on the video.
-    private var offlinePoster: some View {
-        ZStack {
-            Color.black
-            VStack(spacing: TSpace.sm) {
-                playerAvatar(72)
-                Text(currentChannelName ?? statusTitle)
-                    .font(.headline).foregroundColor(.white)
-                Text(store.t("offline_msg"))
-                    .font(.subheadline).foregroundColor(.white.opacity(0.7))
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            Button { reducePlayer() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(store.t("reduce"))
-            .padding(.leading, 4).padding(.top, 4)
-        }
-        .gesture(topBarPull)
-    }
-
-    /// Name or avatar tapped in the player: its channel content is under the video (portrait,
-    /// chat closed), so get there.
-    private func showChannelContent() {
-        chatOnly = false
-        if playerIsLandscape { rotatePlayer(toLandscape: false) }
-        withAnimation { chatHidden = true }
+        .onTapGesture { if let l = playerChannelLogin { store.openChannelPage(l) } }
     }
 
     /// "6.3k Zuschauer · ● 3:15:11 · Dark Souls" (live) or the category (VOD), in grey.
@@ -1361,8 +1323,7 @@ struct MainTabView: View {
             actionChip(store.t("drops_chip"), "link") { showDropsLinks = true }
                 .tint(.tWarning)
         }
-        // Offline: nothing to add to the multi-live.
-        if !liveOffline, let multiLive = multiLiveAction {
+        if let multiLive = multiLiveAction {
             // Short label; a filled icon and checkmark say it is in the multi-live.
             actionChip(store.t("multi_title"),
                        menuMultiLiveOn ? "checkmark.rectangle.stack.fill" : "rectangle.split.2x2", action: multiLive)
@@ -1906,7 +1867,6 @@ struct MainTabView: View {
             if pendingDvrChannel == nil { liveStartedAt = nil }
         }
         playerMode    = mode
-        liveOffline   = false
         if !keepVisibility { playerVisible = true }
         // Une fermeture en plein fondu est remplacée par cette lecture (voir
         // stopPlayer).
@@ -2133,15 +2093,12 @@ struct MainTabView: View {
                         await MainActor.run { if gen == loadGeneration { liveAvatar = fallback } }
                     }
                 } else {
-                    // Offline: the player stays, with the channel's offline view and its VODs.
+                    // Offline (notification, link): its channel page instead of an error.
                     await MainActor.run {
                         guard gen == loadGeneration else { return }
-                        liveOffline = true
-                        statusTitle = channel
-                        loading = false; switchingSource = false
+                        stopPlayer()
+                        store.openChannelPage(channel)
                     }
-                    let avatar = await channelAvatar(login: channel.lowercased(), token: store.twitchToken)
-                    await MainActor.run { if gen == loadGeneration { liveAvatar = avatar } }
                 }
             }
         }
@@ -2300,7 +2257,7 @@ struct TabAccessory<Accessory: View>: ViewModifier {
 /// Follow status of the channel playing, as a capsule under the video: "Folgen" (purple) or
 /// "Folge ich" (grey, unfollow after confirming). Same service as the channel page: a real
 /// Twitch follow with the web session, else kept on this device.
-private struct PlayerFollowButton: View {
+struct PlayerFollowButton: View {
     let login: String
     let channelId: String?
 

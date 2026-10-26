@@ -969,7 +969,7 @@ struct HomeView: View {
 }
 
 /// Upright clip tile for the home shelf; opens the clip feed at this clip.
-private struct ShelfClipCard: View {
+struct ShelfClipCard: View {
     let clip: ClipData
     let onPress: () -> Void
 

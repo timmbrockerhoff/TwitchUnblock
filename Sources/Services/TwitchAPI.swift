@@ -2309,7 +2309,7 @@ func getClipsHelix(token: String, broadcasterId: String, period: String,
 func getChannelAbout(login: String) async -> ChannelAbout? {
     let q = """
     query($l: String!) { user(login: $l) {
-      description followers { totalCount }
+      description followers { totalCount } bannerImageURL roles { isPartner }
       channel { socialMedias { id name title url } }
       panels { id type ... on DefaultPanel { title imageURL linkURL description } }
     } }
@@ -2342,7 +2342,9 @@ func getChannelAbout(login: String) async -> ChannelAbout? {
     }
     return ChannelAbout(description: u["description"] as? String ?? "",
                         followers: (u["followers"] as? [String: Any])?["totalCount"] as? Int,
-                        socials: socials, panels: panels)
+                        socials: socials, panels: panels,
+                        bannerURL: web(u["bannerImageURL"]),
+                        isPartner: (u["roles"] as? [String: Any])?["isPartner"] as? Bool ?? false)
 }
 
 /// Highlights d'une chaîne (les 50 plus récents).
