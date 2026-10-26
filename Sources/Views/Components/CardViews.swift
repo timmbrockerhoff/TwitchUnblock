@@ -674,15 +674,7 @@ struct ResumeVodCard: View {
     }
 
     var body: some View {
-        // Tap plays; a long press opens a small menu right at the card. A context menu lifted a
-        // preview as an extra layer over the whole screen.
-        Menu {
-            Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
-            } label: {
-                Label(store.t("resume_remove"), systemImage: "xmark")
-            }
-        } label: {
+        Button(action: onTap) {
             VStack(alignment: .leading, spacing: TSpace.xs) {
                 picture(width: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -699,11 +691,19 @@ struct ResumeVodCard: View {
                 }
             }
             .frame(width: 220, alignment: .leading)
-            .multilineTextAlignment(.leading)
-        } primaryAction: {
-            onTap()
         }
         .buttonStyle(.plain)
+        // As Apple's TV app ("Weiter ansehen"): a long press lifts just the picture, at its own
+        // size, with the menu under it (lifting the whole card cut it out oddly).
+        .contextMenu {
+            Button(role: .destructive) {
+                withAnimation(.easeInOut(duration: 0.2)) { _ = store.resumeHidden.insert(item.term) }
+            } label: {
+                Label(store.t("resume_remove"), systemImage: "xmark")
+            }
+        } preview: {
+            picture(width: 220)
+        }
         .task { await metaStore.load(item.term) }
     }
 }
