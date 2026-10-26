@@ -227,7 +227,7 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .msg.old { opacity: .55; }
 .msg.mention { background: rgba(233, 25, 22, .18); border-radius: 6px; padding: 3px 6px; margin: 0 -6px; }
 .msg.deleted { opacity: .35; text-decoration: line-through; }
-.msg.system { border-left: 3px solid var(--accent); padding-left: 8px; }
+.msg.system { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 6px; padding: 4px 6px; margin: 2px -6px; }
 .sys { color: var(--muted); font-size: .9em; }
 .ts { color: var(--muted); font-size: .85em; }
 .badge-img { display: inline-block; width: 18px; height: 18px; vertical-align: -3px; margin-right: 3px; }
