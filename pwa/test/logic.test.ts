@@ -1,7 +1,8 @@
 // Self-check of the pure logic: `npm test` (Node 22+, no test framework).
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
-  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, adBridgePlan, formatClock, chatSync } from '../src/logic.ts';
+  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, adBridgePlan, formatClock, chatSync,
+  LiveSyncEstimator, rejectionText, followerDuration, chatHidden, chatMentions, replayHistory, readHype, applyHype, endHypeFlash, type LiveHype } from '../src/logic.ts';
 import { workerVariants } from '../src/vod.ts';
 
 const master = `#EXTM3U
@@ -83,4 +84,78 @@ assert.deepEqual(chatSync({ now, t: 100, pdt0: now - 102_000, edge: 108 }), { de
 assert.deepEqual(chatSync({ now, t: 100 }), { delay: 0, replay: false });
 assert.deepEqual(chatSync({ now, t: 3500, archiveStart: now - 3600_000 }), { delay: 94, replay: false });
 assert.equal(chatSync({ now, t: 3000, archiveStart: now - 3600_000 }).replay, true);
+assert.deepEqual(chatSync({ now, t: 100, pdt0: now - 120_000, edge: 105, nudge: 5 }), { delay: 19, replay: false });
+assert.deepEqual(chatSync({ now, t: 100, pdt0: now - 120_000, edge: 105, nudge: -20 }), { delay: 0, replay: false });
+
+// Sync estimator: the edge's measured age replaces the fixed 6 s once 6 samples are in; one odd
+// sample (an ad cue's date) doesn't move the 10th percentile.
+const est = new LiveSyncEstimator();
+for (let i = 0; i < 4; i++) est.offset(20, 8, now + i * 1000);
+assert.equal(chatSync({ now, t: 100, pdt0: now - 120_000, edge: 108, est }).delay, 14);   // 5th sample: 20 − 6 until ready
+assert.equal(est.ready, false);
+assert.equal(chatSync({ now, t: 100, pdt0: now - 120_000, edge: 108, est }).delay, 8);    // 6th: 20 − 12 (measured edge age)
+assert.equal(est.ready, true);
+est.offset(90, 8, now + 6000);                                                              // ad cue: age 82, ignored by the percentile
+assert.equal(est.offset(20, 8, now + 7000), 8);
+assert.equal(est.offset(20, 8, now + 70000), 8);                                            // old samples gone: plain edge distance
+assert.equal(new LiveSyncEstimator().offset(undefined, 7), 7);
+
+// Twitch refusals in German; follower duration like ChatRoomModes.duration.
+assert.equal(followerDuration(30), '30 Min.');
+assert.equal(followerDuration(90), '1 Std. 30 Min.');
+assert.equal(followerDuration(1500), '1 Tag 1 Std.');
+assert.equal(followerDuration(2880), '2 Tage');
+assert.equal(rejectionText('msg_followersonly_followed', 'x', 10), 'Nachricht nicht gesendet: Du musst dem Kanal seit 10 Min. folgen, um zu chatten.');
+assert.equal(rejectionText('msg_slowmode', 'x'), 'Nachricht nicht gesendet: Langsamer Modus, warte etwas zwischen den Nachrichten.');
+assert.equal(rejectionText('msg_something_new', 'Raw text'), 'Nachricht nicht gesendet: Raw text');
+assert.equal(rejectionText('no_permission', 'x'), undefined);
+
+// Filters: own lines never hidden; bots and "!commands" are separate switches; muted words substring.
+const f = { me: 'Me', blockedUsers: ['troll'], mutedWords: ['Spoiler'], hideBots: true, hideCommands: false, highlightWords: ['hallo'] };
+assert.ok(chatHidden('troll', 'hi', f));
+assert.ok(chatHidden('nightbot', 'hi', f));
+assert.ok(chatHidden('blerp', 'hi', f));
+assert.ok(!chatHidden('nightbot', '!cmd', { ...f, hideBots: false }));
+assert.ok(chatHidden('bob', '!cmd', { ...f, hideCommands: true }));
+assert.ok(chatHidden('bob', 'ein SPOILER', f));
+assert.ok(!chatHidden('me', 'spoiler', f));
+assert.deepEqual(chatMentions('bob', 'hey @Me!', 'me', ['hallo']), { mention: true, highlighted: false });
+assert.deepEqual(chatMentions('bob', 'Hallo, alle', 'me', ['hallo']), { mention: false, highlighted: true });
+assert.deepEqual(chatMentions('me', 'me hallo', 'me', ['hallo']), { mention: false, highlighted: false });
+
+// History replay: rm-deleted, CLEARCHAT on a login, CLEARMSG on an id; sorted by tmi-sent-ts.
+const hist = [
+  '@id=b;tmi-sent-ts=2000 :bob!bob@bob.tmi.twitch.tv PRIVMSG #c :late',
+  '@id=a;tmi-sent-ts=1000;rm-deleted=1 :ann!ann@ann.tmi.twitch.tv PRIVMSG #c :gone',
+  '@id=c;tmi-sent-ts=1500 :cat!cat@cat.tmi.twitch.tv PRIVMSG #c :hi',
+  '@tmi-sent-ts=2100 :tmi.twitch.tv CLEARCHAT #c :cat',
+  '@target-msg-id=b;tmi-sent-ts=2200 :tmi.twitch.tv CLEARMSG #c :late',
+  '@id=d;tmi-sent-ts=2300 :cat!cat@cat.tmi.twitch.tv PRIVMSG #c :after the ban',
+].map(parseIRC).filter(Boolean) as any[];
+assert.deepEqual(replayHistory(hist).map(h => [h.irc.tags.id, h.deleted]), [['a', true], ['c', true], ['b', true], ['d', false]]);
+
+// Hype train: approach → kickoff (1.5 s) → departed (10 s) → level done (4 s) → ended (15 s).
+const t0 = 1_000_000;
+const approach = readHype({ approaching: { id: 'h1', goal: 3, participants: [{}], eventsRemaining: [{ events: 2, secondsRemaining: 100 }, { events: 1, secondsRemaining: 100 }] } }, t0)!;
+assert.equal(approach.phase, 'approaching'); assert.equal(approach.left, 1); assert.equal(approach.bigGoal, false);
+const run1 = readHype({ execution: { id: 'h1', progress: { goal: 1000, progression: 250, remainingSeconds: 300, level: { value: 1, goal: 1000 } } } }, t0)!;
+assert.equal(run1.percent, 0.25); assert.equal(run1.endsAt, t0 + 300_000);
+assert.equal(readHype({ execution: { id: 'h1', endedAt: 'x', progress: {} } }, t0), undefined);
+assert.equal(readHype({ execution: { id: 'h1', progress: { goal: 1, total: 5, level: { value: 2, goal: 3 } } } }, t0)!.percent, 1); // total − (level.goal − goal) = 3 ≥ goal
+let h: LiveHype | undefined = applyHype(approach, run1, t0 + 5000);
+assert.deepEqual(h!.flash, { k: 'kickoff' }); assert.equal(h!.flashUntil, t0 + 6500);
+h = endHypeFlash(h!, t0 + 6500);
+assert.deepEqual(h!.flash, { k: 'departed' });
+const run2 = { ...run1, level: 2, percent: 0.1 };
+h = applyHype(h, run2, t0 + 10_000);                     // level up while "departed" shows: waits
+assert.deepEqual(h!.flash, { k: 'departed' }); assert.equal(h!.pendingLevelDone, 1);
+h = endHypeFlash(h!, t0 + 16_500);
+assert.deepEqual(h!.flash, { k: 'levelDone', n: 1 });
+h = endHypeFlash(h!, t0 + 20_500);
+assert.equal(h!.flash, undefined);
+h = applyHype(h, undefined, (run2.endsAt ?? 0) - 1000);  // gone at its deadline after level 1: ended
+assert.deepEqual(h!.flash, { k: 'ended', level: 2, percent: 10 });
+assert.equal(endHypeFlash(h!, 0), undefined);
+assert.equal(applyHype(run1, undefined, t0), undefined); // level 1 expired: nothing shown
+assert.deepEqual(applyHype(undefined, run1, t0)!.flash, { k: 'departed' });
 console.log('logic: all checks passed');

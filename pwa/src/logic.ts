@@ -227,20 +227,197 @@ export function adBridgePlan(prev: AdBridge | undefined, current: string, now: n
   return { tried, at: same ? prev.at : now, next: candidates.filter(c => !tried.includes(c)) };
 }
 
+/** Smoothed distance to the live edge (LiveSyncEstimator in LiveLatency.swift): `latency` =
+ *  now − segment date of the playing position, `behind` = seekable end − position. The edge's
+ *  age (latency − behind) is sampled over 60 s; its 10th percentile stands in for the fixed
+ *  "−6 s" guess once 6 samples are in. One odd sample (ad cue date, clock jump) is ignored. */
+export class LiveSyncEstimator {
+  private samples: { at: number; edge: number }[] = [];
+  reset() { this.samples = []; }
+  get ready() { return this.samples.length >= 6; }
+  offset(latency: number | undefined, behind: number, now = Date.now()): number {
+    if (!Number.isFinite(behind)) return 0;
+    if (latency == null || !Number.isFinite(latency) || latency <= 0) return Math.max(0, behind);
+    const edge = latency - behind;
+    if (edge > -5 && edge < 120) this.samples.push({ at: now, edge });
+    this.samples = this.samples.filter(s => now - s.at <= 60000);
+    if (this.samples.length < 6) return Math.max(0, behind);
+    const sorted = this.samples.map(s => s.edge).sort((a, b) => a - b);
+    return Math.max(0, latency - sorted[Math.floor(sorted.length / 10)]);
+  }
+}
+
 /** Live chat sync (MainTabView.chatDelay): seconds to hold live chat so it matches the picture,
  *  or `replay` when the picture is over 5 min behind and the recording plays (VOD chat instead).
  *  `t`: currentTime; `pdt0`: date (ms) of media time 0 from the playlist's PROGRAM-DATE-TIME
  *  (Safari's getStartDate); `edge`: seekable end; `archiveStart`: broadcast start while the
- *  recording plays (its offset 0). Other viewers run ~6 s behind real time themselves. */
-export function chatSync(p: { now: number; t: number; pdt0?: number; edge?: number; archiveStart?: number }): { delay: number; replay: boolean } {
+ *  recording plays (its offset 0). Other viewers run ~6 s behind real time themselves; `est`
+ *  measures that instead once it has enough samples. `nudge`: the user's ±20 s trim. */
+export function chatSync(p: { now: number; t: number; pdt0?: number; edge?: number; archiveStart?: number; nudge?: number; est?: LiveSyncEstimator }): { delay: number; replay: boolean } {
   const ok = (x?: number): x is number => x != null && Number.isFinite(x);
+  const nudge = p.nudge ?? 0;
   if (ok(p.archiveStart)) {
     const lag = (p.now - p.archiveStart) / 1000 - p.t;
-    return lag > 300 ? { delay: 0, replay: true } : { delay: Math.max(0, lag - 6), replay: false };
+    return lag > 300 ? { delay: 0, replay: true } : { delay: Math.max(0, lag - 6 + nudge), replay: false };
   }
   const behind = ok(p.edge) ? Math.max(0, p.edge - p.t) : 0;
   const lag = ok(p.pdt0) ? (p.now - p.pdt0) / 1000 - p.t : NaN;
+  const smoothed = p.est?.offset(ok(lag) ? lag : undefined, behind, p.now);
   // Less than the distance to the edge is impossible (device clock running late): use the edge.
-  const delay = ok(lag) && lag >= behind - 0.5 ? lag - 6 : behind;
-  return { delay: Math.min(300, Math.max(0, delay)), replay: false };
+  const delay = p.est?.ready && smoothed != null ? smoothed : ok(lag) && lag >= behind - 0.5 ? lag - 6 : behind;
+  return { delay: Math.min(300, Math.max(0, delay + nudge)), replay: false };
+}
+
+// Chat rules (ChatService.swift, AppStore.swift) ------------------------------------------------
+/** Twitch's refusal (NOTICE msg-id) → German line; `followersMinutes` fills "{d}". */
+const REJECTIONS: Record<string, string> = {
+  msg_followersonly: 'Nachricht nicht gesendet: Nur Follower des Kanals können chatten. Folge ihm, um mitzumachen.',
+  msg_followersonly_zero: 'Nachricht nicht gesendet: Nur Follower des Kanals können chatten. Folge ihm, um mitzumachen.',
+  msg_followersonly_followed: 'Nachricht nicht gesendet: Du musst dem Kanal seit {d} folgen, um zu chatten.',
+  msg_subsonly: 'Nachricht nicht gesendet: Der Chat ist nur für Abonnenten.',
+  msg_emoteonly: 'Nachricht nicht gesendet: Nur Emotes sind erlaubt.', msg_emotesonly: 'Nachricht nicht gesendet: Nur Emotes sind erlaubt.',
+  msg_slowmode: 'Nachricht nicht gesendet: Langsamer Modus, warte etwas zwischen den Nachrichten.',
+  msg_r9k: 'Nachricht nicht gesendet: Modus für einzigartige Nachrichten, diese wurde schon gepostet.',
+  msg_duplicate: 'Nachricht nicht gesendet: identisch mit deiner vorherigen.',
+  msg_verified_email: 'Nachricht nicht gesendet: Dieser Kanal verlangt ein verifiziertes Konto (E-Mail oder Telefon).',
+  msg_requires_verified_phone_number: 'Nachricht nicht gesendet: Dieser Kanal verlangt ein verifiziertes Konto (E-Mail oder Telefon).',
+  msg_timedout: 'Nachricht nicht gesendet: Du hast in diesem Chat einen Timeout.',
+  msg_rejected: 'Nachricht von der automatischen Moderation des Kanals zurückgehalten.',
+  msg_rejected_mandatory: 'Nachricht von der automatischen Moderation des Kanals zurückgehalten.',
+  msg_ratelimit: 'Nachricht nicht gesendet: zu viele Nachrichten auf einmal, warte etwas.',
+  msg_channel_suspended: 'Nachricht nicht gesendet: Dieser Chat ist nicht verfügbar.',
+  msg_suspended: 'Nachricht nicht gesendet: Dieser Chat ist nicht verfügbar.',
+};
+export function rejectionText(msgId: string, text: string, followersMinutes = 0): string | undefined {
+  const t = REJECTIONS[msgId] ?? (msgId.startsWith('msg_') ? 'Nachricht nicht gesendet: {t}' : undefined);
+  return t?.replace('{d}', followersMinutes > 0 ? followerDuration(followersMinutes) : '').replace('{t}', text);
+}
+/** "Follower seit …" (ChatRoomModes.duration, abbreviated, two units at most). */
+export function followerDuration(minutes: number): string {
+  const d = Math.floor(minutes / 1440), h = Math.floor(minutes % 1440 / 60), m = minutes % 60;
+  const parts = minutes >= 1440 ? [d && `${d} ${d === 1 ? 'Tag' : 'Tage'}`, h && `${h} Std.`]
+    : minutes >= 60 ? [h && `${h} Std.`, m && `${m} Min.`] : [`${minutes} Min.`];
+  return parts.filter(Boolean).join(' ');
+}
+
+export const KNOWN_BOTS = new Set(['nightbot', 'streamelements', 'moobot', 'fossabot', 'streamlabs', 'wizebot', 'soundalerts', 'sery_bot',
+  'botisimo', 'own3d', 'kofistreambot', 'pokemoncommunitygame', 'deepbot', 'coebot', 'phantombot', 'creatisbot', 'blerp']);
+export type ChatFilters = { me?: string; blockedUsers: string[]; mutedWords: string[]; hideBots: boolean; hideCommands: boolean; highlightWords: string[] };
+/** AppStore.isChatFiltered: own lines never hidden; blocked, bots, "!commands", muted words. */
+export function chatHidden(login: string, text: string, f: ChatFilters): boolean {
+  const l = login.toLowerCase();
+  if (!l || l === f.me?.toLowerCase()) return false;
+  if (f.blockedUsers.includes(l)) return true;
+  if (f.hideBots && KNOWN_BOTS.has(l)) return true;
+  if (f.hideCommands && text.startsWith('!')) return true;
+  const low = text.toLowerCase();
+  return f.mutedWords.some(w => w && low.includes(w.toLowerCase()));
+}
+/** ChatMessage.mentions: "@me" / bare "me" / a highlight word as a whole word (not own lines). */
+export function chatMentions(login: string, text: string, me: string | undefined, words: string[]): { mention: boolean; highlighted: boolean } {
+  const m = (me ?? '').toLowerCase();
+  if (m && login.toLowerCase() === m) return { mention: false, highlighted: false };
+  let mention = false, highlighted = false;
+  for (const raw of text.toLowerCase().split(/\s+/)) {
+    const w = raw.replace(/^[@.,!?:;]+|[@.,!?:;]+$/g, '');
+    if (m && w === m) mention = true;
+    else if (words.includes(w)) highlighted = true;
+  }
+  return { mention, highlighted };
+}
+
+/** Recent-messages replay (ChatService.loadRecentMessages): moderation lines in the list apply
+ *  to the lines before them (`rm-deleted`, CLEARCHAT on a login, CLEARMSG on an id); the result
+ *  is chronological by `tmi-sent-ts`. */
+export function replayHistory(lines: IRCMessage[]): { irc: IRCMessage; deleted: boolean }[] {
+  const out: { irc: IRCMessage; deleted: boolean }[] = [];
+  for (const irc of lines) {
+    if (irc.command === 'PRIVMSG' || irc.command === 'USERNOTICE') out.push({ irc, deleted: irc.tags['rm-deleted'] === '1' });
+    else if (irc.command === 'CLEARCHAT') {
+      const who = (irc.params[1] ?? '').toLowerCase();
+      for (const o of out) if (!who || (o.irc.prefix?.split('!')[0] ?? o.irc.tags.login) === who) o.deleted = true;
+    } else if (irc.command === 'CLEARMSG') {
+      const id = irc.tags['target-msg-id'];
+      for (const o of out) if (id && o.irc.tags.id === id) o.deleted = true;
+    }
+  }
+  return out.sort((a, b) => Number(a.irc.tags['tmi-sent-ts'] ?? 0) - Number(b.irc.tags['tmi-sent-ts'] ?? 0));
+}
+
+// Hype train (LiveEventsService.swift): what Twitch's GQL says, then the transitions between
+// two reads (kickoff after an approach, departed, level done, ended) as timed flashes.
+export type HypeFlash = { k: 'kickoff' } | { k: 'departed' } | { k: 'levelDone'; n: number } | { k: 'ended'; level: number; percent: number };
+export type LiveHype = {
+  id: string; phase: 'approaching' | 'running'; variant: 'regular' | 'golden' | 'treasure';
+  level: number; percent: number; left: number; bigGoal: boolean; endsAt?: number;
+  flash?: HypeFlash; flashUntil?: number; pendingLevelDone?: number;
+};
+const variantOf = (d: any): LiveHype['variant'] => d?.isGoldenKappaTrain ? 'golden' : d?.isTreasureTrain ? 'treasure' : 'regular';
+/** `ht` = user.channel.hypeTrain. The running train if its deadline is ahead, else the approach. */
+export function readHype(ht: any, now: number): LiveHype | undefined {
+  const ex = ht?.execution;
+  if (ex && ex.endedAt == null) {
+    const pr = ex.progress, goal = pr?.goal ?? 0, level = pr?.level?.value ?? 1;
+    // `total`/`level.goal` run over all levels: only `progression` (or the difference) is this level's.
+    let done = pr?.progression;
+    if (done == null && pr?.total != null && pr?.level?.goal != null) done = pr.total - (pr.level.goal - goal);
+    const ends = typeof pr?.remainingSeconds === 'number' ? now + pr.remainingSeconds * 1000 : ex.expiresAt ? Date.parse(ex.expiresAt) : undefined;
+    if (ends == null || ends > now) return { id: ex.id ?? '', phase: 'running', variant: variantOf(ex), level,
+      percent: goal > 0 ? Math.min(1, Math.max(0, (done ?? 0) / goal)) : 0, left: 1, bigGoal: false, endsAt: ends };
+  }
+  const ap = ht?.approaching;
+  if (ap) {
+    const goal = ap.goal ?? 0, big = goal > 5, steps: any[] = ap.eventsRemaining ?? [], joined = (ap.participants ?? []).length;
+    const counts = steps.map(s => s.events).filter((n: number) => n > 0);
+    const fewest = counts.length ? Math.min(...counts) : undefined;
+    const step = steps.find(s => s.events === (big ? 2 : 1)) ?? steps.find(s => s.events === fewest);
+    const ends = typeof step?.secondsRemaining === 'number' ? now + step.secondsRemaining * 1000 : ap.expiresAt ? Date.parse(ap.expiresAt) : undefined;
+    if (ends == null || ends > now) return { id: ap.id ?? '', phase: 'approaching', variant: variantOf(ap), level: 1, percent: 0,
+      left: fewest ?? Math.max(1, goal - joined), bigGoal: big, endsAt: ends };
+  }
+  return undefined;
+}
+/** Next shown state from the previous one and a fresh read (`undefined` = no train). */
+export function applyHype(prev: LiveHype | undefined, read: LiveHype | undefined, now: number): LiveHype | undefined {
+  if (!read) {
+    if (!prev || prev.flash?.k === 'ended') return prev;
+    // Gone at its deadline after level 1: COMPLETED. Otherwise Twitch shows nothing.
+    if (prev.phase === 'running' && prev.level >= 2 && prev.endsAt != null && now >= prev.endsAt - 3000)
+      return { ...prev, endsAt: undefined, flash: { k: 'ended', level: prev.level, percent: Math.floor(prev.percent * 100) }, flashUntil: now + 15000 };
+    return undefined;
+  }
+  const next = { ...read };
+  if (next.phase === 'running') {
+    if (prev?.phase === 'running' && prev.id === next.id) {
+      const up = next.level > prev.level;
+      if (prev.flash?.k === 'ended') {
+        if (up) { next.flash = { k: 'levelDone', n: prev.level }; next.flashUntil = now + 4000; }
+      } else if (prev.flash && (prev.flashUntil ?? 0) > now) {
+        if (up && prev.flash.k === 'levelDone') { next.flash = { k: 'levelDone', n: prev.level }; next.flashUntil = now + 4000; }
+        else {
+          // Kickoff/departed still showing: the finished level waits for it.
+          next.flash = prev.flash; next.flashUntil = prev.flashUntil;
+          next.pendingLevelDone = up ? prev.level : prev.pendingLevelDone;
+          if (prev.flash.k === 'kickoff') next.bigGoal = prev.bigGoal;
+        }
+      } else {
+        const n = up ? prev.level : prev.pendingLevelDone;
+        if (n != null) { next.flash = { k: 'levelDone', n }; next.flashUntil = now + 4000; }
+      }
+    } else {
+      const fromApproach = prev?.phase === 'approaching';
+      next.flash = { k: fromApproach ? 'kickoff' : 'departed' };
+      next.flashUntil = now + (fromApproach ? 1500 : 10000);
+      if (fromApproach && prev) next.bigGoal = prev.bigGoal;
+    }
+  }
+  return next;
+}
+/** The current flash ran out: kickoff → departed (10 s), departed → pending level, ended → gone. */
+export function endHypeFlash(h: LiveHype, now: number): LiveHype | undefined {
+  const f = h.flash; if (!f) return h;
+  if (f.k === 'kickoff') return { ...h, flash: { k: 'departed' }, flashUntil: now + 10000 };
+  if (f.k === 'ended') return undefined;
+  if (f.k === 'departed' && h.pendingLevelDone != null) return { ...h, flash: { k: 'levelDone', n: h.pendingLevelDone }, flashUntil: now + 4000, pendingLevelDone: undefined };
+  return { ...h, flash: undefined, flashUntil: undefined };
 }
