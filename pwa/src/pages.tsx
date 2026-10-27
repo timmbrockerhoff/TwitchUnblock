@@ -2,13 +2,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
 import type { ChannelBrief, Stream, Category, Vod, Clip, ChannelInfo } from './twitch';
-import { formatViewers, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
+import { formatViewers, formatDuration, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
 import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, addSearch, clearSearchHistory, toggleFavCategory, adStatsFor,
   setAccount, removeHistory, clearHistory, exportBackup, importBackup, type HistoryEntry } from './store';
 import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, accountFollowsError, setChatColor, type DeviceCode } from './account';
 import { play, push, openChannel, type Route } from './nav';
 import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 import { Page, AccountButton, Shelf, Empty, Spinner, StreamCard, VodCard, ClipCard, CategoryTile, Icon, Sheet, Segmented, Toggle, Select, relDate } from './ui';
+import { loadRecoverableStreams, resolveRecoverableStream, type RecoverableStream } from './vod';
 
 const LANGS: [string, string][] = [['', 'Weltweit'], ['de', 'Deutsch'], ['en', 'Englisch'], ['fr', 'Französisch'], ['es', 'Spanisch'],
   ['pt', 'Portugiesisch'], ['it', 'Italienisch'], ['ru', 'Russisch'], ['ja', 'Japanisch'], ['ko', 'Koreanisch'], ['tr', 'Türkisch'], ['pl', 'Polnisch']];
@@ -225,6 +226,8 @@ export function Library() {
 type ChannelTab = 'overview' | 'vods' | 'clips' | 'highlights' | 'playlists';
 export function ChannelPage({ login }: { login: string }) {
   const s = useStore();
+  const loginRef = useRef(login);
+  loginRef.current = login;
   const [info, setInfo] = useState<ChannelInfo | null>();
   const [tab, setTab] = useState<ChannelTab>('overview');
   const [open, setOpen] = useState(false);
@@ -234,25 +237,29 @@ export function ChannelPage({ login }: { login: string }) {
   const [period, setPeriod] = useState<'LAST_DAY' | 'LAST_WEEK' | 'LAST_MONTH' | 'ALL_TIME'>('LAST_WEEK');
   const [playlists, setPlaylists] = useState<{ id: string; title: string; vods: Vod[] }[]>();
   const [filter, setFilter] = useState('');
+  const [recovery, setRecovery] = useState<{ streams: RecoverableStream[]; unavailable: boolean }>();
+  const [resolving, setResolving] = useState<string>();
+  const [gone, setGone] = useState<Set<string>>(new Set());
+  const [twf, setTwf] = useState<{ id: string; following: boolean; busy?: boolean; err?: string }>();
+  const [twfFailed, setTwfFailed] = useState(false);
   useEffect(() => {
-    setInfo(undefined); setVods(undefined); setHighlights(undefined); setPlaylists(undefined);
-    tw.channelInfo(login).then(i => setInfo(i ?? (i === null ? null : undefined)));
-    tw.channelVideos(login).then(setVods);
-    tw.channelVideos(login, 'HIGHLIGHT').then(r => setHighlights(r?.vods ?? []));
+    let alive = true;
+    setInfo(undefined); setVods(undefined); setHighlights(undefined); setPlaylists(undefined); setRecovery(undefined); setGone(new Set()); setResolving(undefined);
+    tw.channelInfo(login).then(i => alive && setInfo(i ?? (i === null ? null : undefined)));
+    tw.channelVideos(login).then(r => alive && setVods(r));
+    tw.channelVideos(login, 'HIGHLIGHT').then(r => alive && setHighlights(r?.vods ?? []));
+    loadRecoverableStreams(login).then(r => alive && setRecovery(r));
+    return () => { alive = false; };
   }, [login]);
   useEffect(() => { setClipList(undefined); tw.clips(login, period).then(r => setClipList(r?.clips ?? [])); }, [login, period]);
   useEffect(() => { if (tab === 'playlists' && !playlists) tw.collections(login).then(setPlaylists); }, [tab]);
-  if (info === null) return <Page title={login} back><Empty title="Streamer nicht gefunden" /></Page>;
-  if (!info) return <Page title={login} back><Spinner /></Page>;
-  const followedOnTwitch = s.accountFollows.includes(login);
-  // With the TV login the button follows on Twitch itself; without it, locally.
-  const [twf, setTwf] = useState<{ id: string; following: boolean; busy?: boolean; err?: string }>();
-  // Logged in but the Twitch state can't be read: say so instead of silently following locally.
-  const [twfFailed, setTwfFailed] = useState(false);
   useEffect(() => {
     setTwf(undefined); setTwfFailed(false);
     if (rewards.account) twitchFollowState(login).then(st => st ? setTwf(st) : setTwfFailed(true));
   }, [login, rewards.account?.userId]);
+  if (info === null) return <Page title={login} back><Empty title="Streamer nicht gefunden" /></Page>;
+  if (!info) return <Page title={login} back><Spinner /></Page>;
+  const followedOnTwitch = s.accountFollows.includes(login);
   const toggleTwitch = async () => {
     if (!twf || twf.busy) return;
     setTwf({ ...twf, busy: true });
@@ -264,6 +271,21 @@ export function ChannelPage({ login }: { login: string }) {
   const clipsOf = clipList ?? [];
   const latest = vods?.vods[0];
   const shownVods = (vods?.vods ?? []).filter(v => !filter || v.title.toLowerCase().includes(filter.toLowerCase()));
+  const unlisted = (recovery?.streams ?? []).filter(r => {
+    if (filter && !`${r.title} ${r.game}`.toLowerCase().includes(filter.toLowerCase())) return false;
+    const start = Date.parse(r.start), window = 15 * 60_000;
+    if (info.stream?.startedAt && Math.abs(Date.parse(info.stream.startedAt) - start) < window) return false;
+    return !(vods?.vods ?? []).some(v => v.thumb.includes(`_${r.streamID}_`) || Math.abs(Date.parse(v.publishedAt) - start) < window);
+  });
+  const recover = async (r: RecoverableStream) => {
+    if (resolving) return;
+    setResolving(r.streamID); setGone(x => { const n = new Set(x); n.delete(r.streamID); return n; });
+    const vod = await resolveRecoverableStream(r);
+    if (loginRef.current.toLowerCase() !== r.login) return;
+    setResolving(undefined);
+    if (vod) play({ kind: 'recovered', vod });
+    else setGone(x => new Set(x).add(r.streamID));
+  };
   return <Page title={info.name} back large={false} trailing={<button class="nav-btn" onClick={share} aria-label="Teilen"><Icon n="share" /></button>}>
     {info.banner && <img class="banner" src={info.banner} alt="" />}
     <div class="ch-head">
@@ -307,6 +329,14 @@ export function ChannelPage({ login }: { login: string }) {
       <div class="grid">{shownVods.map(v => <VodCard v={v} wide />)}</div>
       {!vods ? <Spinner /> : !vods.vods.length && <Empty title="Keine VODs gefunden." />}
       {vods?.next && !filter && <button class="btn wide" onClick={moreVods}>Mehr laden</button>}
+      {unlisted.length > 0 && <section><h2 class="section-title">Nicht gelistete VODs</h2>
+        <p class="hint pad">Gelöschte oder versteckte Übertragungen lassen sich öffnen, solange Twitch ihre Videosegmente noch ausliefert.</p>
+        <div class="group">{unlisted.map(r => <button class="row recover-row" disabled={!!resolving} onClick={() => recover(r)}>
+          <div><div>{r.title || 'Nicht gelistete VOD'}</div><div class="row-sub">{new Date(r.start).toLocaleString('de-DE')}{r.game ? ` · ${r.game}` : ''}{r.duration ? ` · ${formatDuration(r.duration)}` : ''}{r.maxViews ? ` · ${formatViewers(r.maxViews)} Zuschauer` : ''}</div>
+            {gone.has(r.streamID) && <div class="row-sub error">Nicht mehr auf dem Twitch-CDN verfügbar.</div>}</div>
+          <span class="accent">{resolving === r.streamID ? 'Suche …' : gone.has(r.streamID) ? 'Erneut' : 'Öffnen'}</span>
+        </button>)}</div></section>}
+      {recovery?.unavailable && <p class="hint pad">Die Quelle für nicht gelistete VODs ist gerade nicht erreichbar.</p>}
     </>}
     {tab === 'clips' && <>
       <div class="pad"><Segmented value={period} onChange={setPeriod} options={[['LAST_DAY', '24 Std.'], ['LAST_WEEK', '7 Tage'], ['LAST_MONTH', '30 Tage'], ['ALL_TIME', 'Alle']]} /></div>

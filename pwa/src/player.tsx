@@ -11,6 +11,7 @@ import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget 
 import { Icon, Sheet, Spinner } from './ui';
 import { LiveEvents } from './events';
 import { rewards, watchChannel, channelHasDrops, accountStreamURL, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
+import { prepareUnmutedPlaylist } from './vod';
 
 const SOURCE_LABEL: Record<string, string> = { as: 'Luminous Asien', al: 'Proxy Albanien', eu: 'Luminous Europa', twitch: 'Twitch offiziell' };
 type V = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitShowPlaybackTargetPicker?: () => void;
@@ -81,6 +82,9 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   const [ad, setAd] = useState(false);
   const [tryOrder, setTryOrder] = useState<tw.LiveSource[]>();
   const liveURL = useRef('');
+  const rewriteVod = useRef(false);
+  const vodCreatedAt = useRef<string>();
+  const preparedReleases = useRef(new Set<() => void>());
   const pull = useRef<{ x: number; y: number }>();
   const isLive = target.kind === 'live';
 
@@ -88,6 +92,20 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     const v = video.current!; v.src = url;
     if (at != null) seekWhenReady(v, at);
     start(v, () => setMutedHint(true));
+  };
+  const setVodSrc = async (url: string, at?: number) => {
+    if (!rewriteVod.current) return setSrc(url, at);
+    const prepared = await prepareUnmutedPlaylist(url, vodCreatedAt.current);
+    if (!video.current) { prepared.revoke?.(); return; }
+    if (prepared.revoke) preparedReleases.current.add(prepared.revoke);
+    if (prepared.url !== url) {
+      const fallback = () => {
+        prepared.revoke?.(); if (prepared.revoke) preparedReleases.current.delete(prepared.revoke);
+        setSrc(url, at);
+      };
+      video.current?.addEventListener('error', fallback, { once: true });
+    }
+    setSrc(prepared.url, at);
   };
 
   // Resolve and start --------------------------------------------------------------------------
@@ -126,21 +144,34 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         setSrc(url);
         addHistory({ kind: 'live', id: login, title: sInfo?.title ?? '', login, name: sInfo?.name ?? login, thumb: sInfo?.thumb ?? '' });
       } else if (target.kind === 'vod') {
-        const [meta, vod] = await Promise.all([tw.vodMeta(target.id), tw.vodURL(target.id)]);
+        const [meta, vod] = await Promise.all([tw.vodMeta(target.id), tw.vodPlayback(target.id)]);
         if (!alive) return;
-        const url = vod.url;
-        if (vod.subOnly) { setError({ text: state.account ? 'Dieses VOD ist nur für Abonnenten des Kanals.' : 'Dieses VOD ist nur für Abonnenten. Mit Login laufen VODs von Kanälen, die du abonniert hast.' }); return; }
-        if (!url || meta === null) { setError({ text: 'VOD nicht gefunden.' }); return; }
+        if (vod?.subOnly) { setError({ text: state.account ? 'Dieses VOD ist nur für Abonnenten des Kanals.' : 'Dieses VOD ist nur für Abonnenten. Mit Login laufen VODs von Kanälen, die du abonniert hast.' }); return; }
+        if (!vod || !Object.keys(vod.links).length || meta === null) { setError({ text: 'VOD nicht gefunden.' }); return; }
         if (meta) {
           setInfo({ title: meta.title, sub: meta.createdAt ? new Date(meta.createdAt).toLocaleDateString('de-DE') : '', login: meta.login, name: meta.name, avatar: meta.avatar, userId: meta.ownerId, thumb: meta.thumb });
           setChapters(meta.chapters);
           addHistory({ kind: 'vod', id: target.id, title: meta.title, login: meta.login, name: meta.name, thumb: meta.thumb, length: meta.length });
         }
-        setQualities({ keys: ['auto'], links: { auto: url } });
+        const keys = sortQualities(Object.keys(vod.links), vod.variants);
+        const q = preferredQualityKey(keys, s.settings.quality, vod.variants);
+        setQualities({ keys, links: vod.links }); setQuality(q);
+        rewriteVod.current = !!vod.recovered; vodCreatedAt.current = meta?.createdAt;
         const saved = state.progress[target.id];
         const at = target.start ?? (saved && meta && saved < meta.length * 0.95 ? saved : undefined);
         setVodChat({ id: target.id, channelId: meta?.ownerId, offset: at ?? 0 });
-        setSrc(url, at);
+        await setVodSrc(vod.links[q], at);
+        if (!alive) return;
+      } else if (target.kind === 'recovered') {
+        const r = target.vod;
+        const keys = sortQualities(Object.keys(r.links), r.variants);
+        const q = preferredQualityKey(keys, s.settings.quality, r.variants);
+        if (!q || !r.links[q]) { setError({ text: 'Die wiederhergestellte VOD ist nicht mehr auf dem CDN verfügbar.' }); return; }
+        setInfo({ title: r.title, sub: new Date(r.startedAt).toLocaleDateString('de-DE'), login: r.login, name: r.login });
+        setQualities({ keys, links: r.links }); setQuality(q);
+        rewriteVod.current = true; vodCreatedAt.current = r.startedAt;
+        await setVodSrc(r.links[q]);
+        if (!alive) return;
       } else {
         const c = await tw.clipPlayback(target.slug);
         if (!alive) return;
@@ -176,7 +207,10 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     };
     v.addEventListener('timeupdate', tick);
     v.playbackRate = target.kind === 'live' ? 1 : s.settings.speed;
-    return () => { v.removeEventListener('timeupdate', tick); if (target.kind === 'vod') setProgress(target.id, v.currentTime); v.removeAttribute('src'); v.load(); };
+    return () => {
+      v.removeEventListener('timeupdate', tick); if (target.kind === 'vod') setProgress(target.id, v.currentTime);
+      v.removeAttribute('src'); v.load(); preparedReleases.current.forEach(release => release()); preparedReleases.current.clear();
+    };
   }, []);
 
   // Viewers, title and category every minute (getStreamStats), not only when opening.
@@ -262,11 +296,11 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   }, [source, rewards.account?.userId]);
 
   const v = video.current;
-  const changeQuality = (k: string) => {
+  const changeQuality = async (k: string) => {
     setQuality(k);
     if (target.kind === 'live') liveURL.current = qualities.links[k];
     const at = target.kind === 'live' ? undefined : v?.currentTime;
-    if (!inArchive) setSrc(qualities.links[k], at);
+    if (!inArchive) await setVodSrc(qualities.links[k], at);
     if (k !== 'auto' && target.kind !== 'clip') setSetting('quality', /audio/.test(k) ? 'audio' : k.toLowerCase().startsWith('source') ? 'source' : String(parseInt(k) || 'source'));
   };
   const goLive = () => { setInArchive(false); setSrc(liveURL.current); };

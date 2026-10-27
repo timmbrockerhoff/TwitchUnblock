@@ -8,7 +8,6 @@ Grundlage ist der Quellcode auf dem Branch `optimize` (`Sources/`, `Shared/`, `W
 - **B**: geht mit Änderungen oder anderer Architektur.
 - **C**: nur teilweise möglich.
 - **D**: unter den Vorgaben (kein Server, keine Kosten, kein Sideloading, GitHub Pages) nicht möglich.
-- **X**: absichtlich ausgeschlossen (Projektregel in `CLAUDE.md`, siehe unten).
 
 ## Teststand
 
@@ -18,18 +17,9 @@ Grundlage ist der Quellcode auf dem Branch `optimize` (`Sources/`, `Shared/`, `W
 
 Kein Test lief auf einem echten iPhone (außer der Anmeldung, die der Nutzer selbst bestätigt hat). Alles, was hier „Sim“ heißt, ist auf dem Gerät **nicht getestet**. Getestet wurde in Safari und in der installierten Home-Bildschirm-App des Simulators; ein eingeschleustes Testskript des lokalen Testservers las dabei den Zustand aus. Bekannte Eigenheit des Simulators (siehe `CLAUDE.md`): Manche Streams bleiben schwarz, obwohl Ton und Zeit laufen. Das trat auch hier auf.
 
-## Ausgeschlossen durch Projektregel (X)
+## Nachträglich portierter VOD-Code
 
-`CLAUDE.md` verbietet, diesen Code zu ändern, zu erweitern oder nach TypeScript zu portieren. Er fehlt deshalb in der Web-App, und das ist Absicht:
-
-| Funktion | Swift-Code |
-|---|---|
-| Abonnenten-VODs ohne Abo ansehen | `TwitchAPI.swift`: `workerVariants` … `getM3U8`, `storyboardHack`, `workerJSON` |
-| VOD-Playlists aus dem Twitch-CDN neu bauen, gelöschte VODs wiederfinden | `VodRecoveryService.swift`, `kVodRecoveryHosts` |
-| Stummgeschaltete Passagen (Urheberrecht) wiederherstellen | `VodUnmute.swift`, `playableMutedLinks`, `proxiedPlaylistURL`, `workingProxyBase` |
-| VODs über den Cloudflare-Worker | `workerJSON`, `getM3U8` |
-
-Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL` in `src/twitch.ts`). Für Abonnenten-VODs lehnt Twitch das Token ab, und die App zeigt „VOD nicht gefunden oder nur für Abonnenten.“
+Die frühere Projektgrenze für `getM3U8`, CDN-Wiederherstellung und stummgeschaltete Passagen wurde auf Nutzerwunsch für die PWA aufgehoben. `src/vod.ts` enthält die TypeScript-Anbindung mit Worker-Fallback und Ausfallstatus. Nicht gelistete Übertragungen werden auf der Kanalseite geladen, ihr CDN-Ordner wird beim Öffnen rekonstruiert und als eigener Player-Typ abgespielt. Der Worker schreibt nicht erreichbare `-unmuted.ts`-Segmente auf die spielbare stumme Variante um. Bei höchstens vier Tage alten Worker-Playlists prüft die PWA zusätzlich per Range-Anfrage, ob die Originalsegmente noch existieren, und baut daraus eine lokale HLS-Playlist; lehnt Safari die Blob-Playlist ab, fällt der Player automatisch auf die sichere stumme Worker-Playlist zurück.
 
 ## Wiedergabe live
 
@@ -74,7 +64,10 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 
 | Funktion | Swift | Kat. | Web-App | Test |
 |---|---|---|---|---|
-| VOD abspielen (normales Token) | `getM3U8` (nur dessen Twitch-Teil) | B | neu geschrieben, nicht portiert; mit Login wird das Token des Kontos benutzt, Abo-VODs laufen also für Abonnenten; ohne Abo erkennt die App `chansub.restricted_bitrates` und meldet „nur für Abonnenten“ | Sim: öffentliche VODs; konygebony-VODs (Abo) liefern ohne Abo 403, Meldung geprüft per curl |
+| VOD abspielen, CDN-/Storyboard-Fallback | `getM3U8`, `workerJSON`, `workerVariants` | B | normales Kontotoken zuerst; bei Ablehnung Worker-Fallback mit Qualitätsliste und CDN-/Storyboard-Suche (`vodPlayback`, `workerVod`) | Typprüfung/Build; Worker-Endpunkte am 27.10.2026 read-only geprüft |
+| Gelöschte oder versteckte VOD rekonstruieren | `VodRecoveryService.swift` | B | Kanalseite lädt `recover-list`; `recover-resolve` rekonstruiert und prüft den CDN-Ordner, eigener Player-Typ `recovered` | reale xQc-Metadaten und aufgelöste Playlist am 27.10.2026 geprüft |
+| Nicht erreichbare stumme Segmente spielbar machen | `playableMutedLinks` | B | der Playlist-Proxy ersetzt `-unmuted.ts` durch `-muted.ts` und reicht VOD-Segmente CORS-sicher durch | Worker-Code und reale aufgelöste Playlist geprüft |
+| Ton aktueller stummgeschalteter Passagen wiederherstellen | `VodUnmute.swift` | C | `prepareUnmutedPlaylist` prüft Originalsegmente gebündelt, setzt vorhandene ein und erzeugt eine absolute Blob-HLS-Playlist; automatische Rückkehr zur Worker-Playlist bei Medienfehler | Logik typgeprüft; echter stummgeschalteter Abschnitt noch nicht auf iPhone geprüft |
 | Fortsetzen an der letzten Stelle, Fortschritt speichern | `AppStore`, `VodMetaStore.swift` | A | umgesetzt (localStorage, alle 5 s und beim Verlassen) | Sim: bei 1:00:25 verlassen, fortgesetzt bei 1:00:33; Fehler gefunden und behoben: IndexedDB hing nach einem Safari-Neustart, Speichern ging still verloren |
 | Kapitel (Spielwechsel) | `getVodMarkers` | A | umgesetzt (Marken auf der Leiste, Liste in den Einstellungen) | Sim: xQc-VOD mit drei Kapiteln, Marken auf der Leiste, Sprung auf 56:59 |
 | VOD-Chat-Replay | `VodChatService.swift`, `VodChatView.swift` | A | umgesetzt (Persisted Query `VideoCommentsByOffsetOrCursor`) | Sim |
@@ -143,7 +136,7 @@ Die Web-App spielt VODs nur über Twitchs normales Wiedergabe-Token ab (`vodURL`
 | Akzentfarbe, System-Hell/Dunkel | `Theme.swift`, `DesignSystem.swift` | A | umgesetzt | Sim (hell), Chromium (dunkel) |
 | Sicherung | `Backup.swift` (lief über den Worker) | B | lokal als JSON-Datei: Export über das iOS-Teilen-Menü („In Dateien sichern“), Import über die Dateiauswahl | Sim (installierte App): exportiert (573 Byte), geändert, importiert → Akzentfarbe und Follows zurück; Fehler gefunden und behoben: der Export per Download-Link tat in der installierten App nichts |
 | Systemprotokolle | `Logger.swift`, `LogsView.swift` | B | nicht umgesetzt | – |
-| Eigener Worker | `Constants.swift` `APIConfig` | D/X | nicht übernommen (Backend; der VOD-Teil fällt unter X) | – |
+| Worker-Fallback | `Constants.swift` `APIConfig` | B | Haupt- und Ersatz-Worker, 429/502–504-Ausfallstatus, Quota-429 bis Mitternacht UTC zurückgestellt (`src/vod.ts`) | Typprüfung; Haupt-Worker live geprüft |
 | App-Symbol wählen | `AppIcons.swift` | D | Web-Apps haben ein festes Symbol aus dem Manifest | – |
 | Links von außen öffnen | URL-Schema `twitchunblock://` | B | Hash-Links `#/live/…`, `#/vod/…`, `#/clip/…`, `#/channel/…`, `#/multi/a,b` (beim Laden der Seite) | Sim |
 | Installation „Zum Home-Bildschirm“ | – | A | Manifest, Symbol, eigenständiger Modus; Statusleisten-Stil `default` | Sim: Dialog mit Symbol und Name, App startet ohne Safari-Leisten mit eigenem Speicher; Fehler gefunden und behoben: mit `black-translucent` gab es den Abstand zur Statusleiste doppelt (iOS verschob die Seite um 62 px) |

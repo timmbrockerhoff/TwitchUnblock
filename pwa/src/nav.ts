@@ -2,6 +2,7 @@
 // Browser history mirrors pushes so the back gesture/button pops.
 import { changed } from './store';
 import type { Clip } from './twitch';
+import type { RecoveredVod } from './vod';
 
 export type Tab = 'home' | 'browse' | 'library';
 export type Route =
@@ -13,6 +14,7 @@ export type Route =
 export type PlayerTarget =
   | { kind: 'live'; login: string }
   | { kind: 'vod'; id: string; start?: number }
+  | { kind: 'recovered'; vod: RecoveredVod }
   | { kind: 'clip'; slug: string }
   | { kind: 'clips'; clips: Clip[]; index: number }
   | { kind: 'multi'; logins: string[] };

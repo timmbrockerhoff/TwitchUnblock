@@ -1,8 +1,7 @@
-// Twitch data access, ported from Sources/Services/TwitchAPI.swift (public GQL, Helix, live sources).
-// Not ported on purpose (project rule): the sub-only VOD / CDN rebuild / muted-audio code
-// (workerVariants … getM3U8, VodRecoveryService, VodUnmute). VODs here use Twitch's normal token only.
+// Twitch data access, ported from Sources/Services/TwitchAPI.swift.
 import { parseMaster, type Master } from './logic';
 import { state } from './store';
+import { workerVod } from './vod';
 
 export const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 /** Twitch's Android client id: only for page 2+ of lists, where the web id needs an integrity token. */
@@ -18,6 +17,18 @@ export const LUMINOUS_EU = ['eu.luminous.dev', 'eu2.luminous.dev', 'eu3.luminous
 export const TTVLOL_HOSTS = ['twitch-al.nadeko.net'];
 export const LIVE_SOURCES = ['as', 'al', 'eu', 'twitch'] as const;
 export type LiveSource = typeof LIVE_SOURCES[number];
+
+/** Stable per-installation device id used by account GQL playback requests. */
+export function twitchWebDeviceId(): string {
+  const key = 'twitch_device_id';
+  const saved = localStorage.getItem(key);
+  if (saved) return saved;
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const id = Array.from(bytes, b => chars[b % chars.length]).join('');
+  localStorage.setItem(key, id);
+  return id;
+}
 
 export type Stream = { id: string; login: string; name: string; title: string; game: string; gameId: string;
   viewers: number; thumb: string; tags: string[]; avatar?: string; startedAt?: string };
@@ -208,6 +219,30 @@ export async function liveToken(login: string, playerType = 'site'): Promise<Tok
     params: {platform: "web", playerBackend: "mediaplayer", playerType: $p}) { value signature } }`, { l: login, p: playerType });
   return d?.streamPlaybackAccessToken ?? undefined;
 }
+
+export type AccountPlaybackToken = Token & { adFree: boolean; subscriber?: boolean; forbidden: boolean };
+/** A playback token in the name of the logged-in account. Its flags tell us whether Twitch
+ * will insert ads for this channel; Turbo alone is deliberately not treated as ad-free. */
+export async function accountPlaybackToken(login: string): Promise<AccountPlaybackToken | undefined> {
+  const acc = state.account;
+  if (!acc || !/^[a-z0-9_]{1,25}$/i.test(login)) return undefined;
+  const q = `query($l: String!) { streamPlaybackAccessToken(channelName: $l,
+    params: {platform: "web", playerBackend: "mediaplayer", playerType: "site"}) { value signature } }`;
+  try {
+    const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: timeout(8000),
+      headers: { 'Client-ID': TV_CLIENT_ID, Authorization: `OAuth ${acc.token}`, 'Content-Type': 'application/json',
+        'X-Device-Id': twitchWebDeviceId() },
+      body: JSON.stringify({ query: q, variables: { l: login.toLowerCase() } }) });
+    if (!r.ok) return undefined;
+    const t = (await r.json())?.data?.streamPlaybackAccessToken as Token | undefined;
+    if (!t?.value || !t.signature) return undefined;
+    const flags = JSON.parse(t.value) as { user_id?: string | number | null; hide_ads?: boolean; show_ads?: boolean;
+      subscriber?: boolean; authorization?: { forbidden?: boolean } };
+    if (flags.user_id == null) return undefined;
+    return { ...t, adFree: flags.hide_ads === true || flags.show_ads === false,
+      subscriber: flags.subscriber, forbidden: flags.authorization?.forbidden === true };
+  } catch { return undefined; }
+}
 export function usherLiveURL(login: string, t: Token, lowLatency: boolean) {
   const q = new URLSearchParams({ allow_source: 'true', allow_audio_only: 'true', allow_spectre: 'true',
     fast_bread: String(lowLatency), low_latency: String(lowLatency), player_backend: 'mediaplayer',
@@ -232,6 +267,17 @@ export async function vodURL(id: string): Promise<{ url?: string; subOnly?: bool
   const q2 = new URLSearchParams({ allow_source: 'true', allow_audio_only: 'true', player_backend: 'mediaplayer',
     playlist_include_framerate: 'true', p: String(Math.floor(Math.random() * 1e6)), sig: t.signature, token: t.value });
   return { url: `https://usher.ttvnw.net/vod/${id}.m3u8?${q2}` };
+}
+
+export type VodPlayback = { links: Record<string, string>; variants: Master['variants']; recovered?: boolean; subOnly?: boolean };
+/** Browser version of getM3U8. The normal account token remains first so a subscriber gets the
+ * account's legitimate access. If Twitch refuses it, the worker tries its CDN/storyboard paths. */
+export async function vodPlayback(id: string): Promise<VodPlayback | undefined> {
+  const official = await vodURL(id);
+  if (official.url && !official.subOnly) return { links: { auto: official.url }, variants: {} };
+  const fallback = await workerVod(id);
+  if (fallback) return { ...fallback, recovered: true };
+  return official.subOnly ? { links: {}, variants: {}, subOnly: true } : undefined;
 }
 
 async function fetchMaster(url: string, ms: number, init: RequestInit = {}): Promise<(Master & { url: string }) | undefined> {
@@ -269,7 +315,8 @@ async function attempt(src: LiveSource, login: string, lowLatency: boolean): Pro
     }
     return undefined;
   }
-  const t = await liveToken(login);
+  const account = await accountPlaybackToken(login);
+  const t = account?.adFree && !account.forbidden ? account : await liveToken(login);
   return t && { src, url: usherLiveURL(login, t, lowLatency) };
 }
 

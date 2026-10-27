@@ -27,7 +27,8 @@ pwa/
   public/                  manifest, sw.js, Symbole, poc/ (Machbarkeitstests)
   src/
     logic.ts               reine Logik aus TwitchAPI.swift/IRCParser.swift: M3U8, Qualitäten, Links, IRC, Emote-Bereiche
-    twitch.ts              GQL, Quellen-Rennen, Tokens, Kanal/VOD/Clip-Abfragen
+    twitch.ts              GQL, Quellen-Rennen, Konto-Tokens, Kanal/VOD/Clip-Abfragen
+    vod.ts                 VOD-Worker-Fallback, Worker-Status, gelöschte VODs
     account.ts             Gerätecode-Login, Token-Erneuerung, Helix
     store.ts               Einstellungen, Follows, Verlauf, Sicherung
     rewards.ts             Kanalpunkte und Drops (zweiter Login mit Twitchs TV-Client-ID)
@@ -54,6 +55,8 @@ Daraus ergibt sich der Ablauf beim Live-Stream (`raceLive` in `twitch.ts`):
 4. Die gewählte Qualität wird als einzelne Media-Playlist an `<video>` gegeben, „Automatisch“ als Master.
 
 Zurückspulen: Liegt eine laufende Aufnahme vor, wechselt der Player beim Zurückspulen auf deren VOD-Playlist (normales Token, nativ). Safari behandelt sie als Event-Playlist ohne Ende (`duration = Infinity`), der ganze bisherige Stream ist spulbar. „● Live“ lädt wieder den Live-Stream.
+
+VODs: `vodPlayback` versucht zuerst Twitchs normales Wiedergabetoken des Kontos. Wenn Twitch kein nutzbares Token liefert, fragt `vod.ts` Haupt- und Ersatz-Worker nach der CDN-/Storyboard-Wiederherstellung. Nicht gelistete Übertragungen kommen über `recover-list` auf die Kanalseite; `recover-resolve` rekonstruiert den CDN-Ordner aus Login, Stream-ID und Startzeit und gibt eine geprüfte Proxy-Playlist an den Player. 429-Quotenfehler stellen den betroffenen Worker bis Mitternacht UTC zurück, vorübergehende 502–504-Fehler für 30 Minuten.
 
 Werbepausen: Safari meldet `EXT-X-DATERANGE`-Einträge als Cues einer Metadaten-Spur. Einträge ohne Ende bleiben dabei für immer aktiv, deshalb wertet `adActive` (`logic.ts`) den zuletzt begonnenen aus: Ein Werbe-Eintrag (`X-TV-TWITCH-AD…`, Stream-Quelle `Amazon…`) nach dem letzten `live`-Eintrag heißt Werbepause. Gemessen mit echter Pre-Roll-Werbung im Simulator. Während einer Pause ist der Ton aus und ein Hinweis zu sehen. Bei „Twitch offiziell“ gibt es dazu den Knopf „Ersatz-Stream“, der Tokens mit den Player-Typen embed, popout und autoplay probiert.
 

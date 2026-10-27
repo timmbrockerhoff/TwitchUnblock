@@ -4,7 +4,7 @@ Hier steht, was die Web-App gegenüber der iOS-App nicht kann oder anders macht,
 
 ## Absichtlich weggelassen
 
-Abonnenten-VODs ohne Abo, das Neubauen von VOD-Playlists aus dem CDN (auch gelöschte VODs) und das Wiederherstellen stummgeschalteter Passagen sind nicht portiert. `CLAUDE.md` verbietet, diesen Code zu ändern, zu erweitern oder zu übertragen. VODs laufen nur mit Twitchs normalem Token; ein Abonnenten-VOD zeigt „VOD nicht gefunden oder nur für Abonnenten.“
+VOD-Fallbacks und die Rekonstruktion gelöschter oder versteckter Übertragungen sind über die TwitchUnblock-Worker portiert. Diese Wege hängen davon ab, dass mindestens einer der beiden Worker antwortet und Twitch die CDN-Segmente noch nicht gelöscht hat. Bei aktuellen VODs prüft die PWA noch vorhandene Originalsegmente und baut daraus eine lokale HLS-Playlist; Safari bietet Webseiten aber keinen eigenen AVAsset-Resource-Loader. Falls WebKit diese Blob-Playlist ablehnt, fällt der Player automatisch auf die Worker-Playlist zurück. Dort verhindert der Worker einen Wiedergabestopp, indem er nicht erreichbare `-unmuted.ts`-Segmente durch die vorhandene stumme Variante ersetzt.
 
 ## Durch Twitchs Server
 
@@ -12,7 +12,7 @@ Twitch lässt fremde Webseiten seine Playlists nicht lesen: `playlist.ttvnw.net`
 
 - Werbepausen lassen sich nicht mit einem Ersatz-Stream füllen. Die App erkennt eine Pause an den Metadaten, schaltet den Ton aus und zeigt einen Hinweis. Ob das bei einer echten Werbepause greift, ist nicht getestet.
 - Bei der Quelle „Twitch offiziell“ wählt iOS die Qualität selbst. Eine Auswahl gibt es nur bei den Proxys.
-- Bei VODs gibt es nur „Automatisch“ als Qualität.
+- Reguläre VODs über das Kontotoken haben nur „Automatisch“; über den Worker-Fallback werden die gefundenen Einzelqualitäten angeboten.
 - Zurückspulen im Live springt auf die laufende Aufnahme statt auf eine gemeinsame Zeitleiste. Kanäle ohne Aufnahme lassen sich nur innerhalb des kleinen Puffers des Players zurückspulen.
 - Downloads und Offline-Wiedergabe gibt es nicht.
 

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
   clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, formatClock } from '../src/logic.ts';
+import { workerVariants } from '../src/vod.ts';
 
 const master = `#EXTM3U
 #EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID="chunked",NAME="1080p60 (source)",AUTOSELECT=YES,DEFAULT=YES
@@ -24,6 +25,9 @@ assert.equal(preferredQualityKey(Object.keys(m.links), 'audio', m.variants), 'au
 assert.equal(preferredQualityKey(Object.keys(m.links), 'source', m.variants), 'Source');
 assert.equal(qualityText('720p30'), '720p');
 assert.equal(qualityText('audio_only'), 'Nur Audio');
+assert.deepEqual(workerVariants({ Source: { h: 1080, fps: 60, bw: 8000000 }, audio_only: { h: 0 } }), {
+  Source: { height: 1080, fps: 60, bandwidth: 8000000 }, audio_only: { height: 0, fps: 0, bandwidth: 0 },
+});
 
 assert.equal(loginFromInput('https://www.twitch.tv/xQc/clips'), 'xqc');
 assert.equal(loginFromInput('@Gotaga'), 'gotaga');
