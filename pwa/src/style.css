@@ -146,6 +146,7 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .callout p { margin: 0 0 12px; color: var(--muted); font-size: 15px; }
 .empty { text-align: center; padding: 50px 30px; color: var(--muted); }
 .empty h3 { color: var(--text); margin: 0 0 6px; font-size: 20px; }
+.spinner-wrap.pull { padding: 8px 0 0; }
 .spinner-wrap { display: grid; place-items: center; padding: 30px; color: var(--muted); font-size: 14px; text-align: center; }
 .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--fill); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

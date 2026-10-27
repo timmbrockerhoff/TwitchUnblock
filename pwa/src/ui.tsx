@@ -28,7 +28,6 @@ const paths: Record<string, string> = {
   grid: 'M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z',
   send: 'M3 20.5 21 12 3 3.5 3 10l12 2-12 2z',
   smile: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-3.5 7a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM7 14a5.5 5.5 0 0 0 10 0z',
-  refresh: 'M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4z',
   check: 'M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z',
   gift: 'M3 8h18v4H3zm1 5h7v8H4zm9 0h7v8h-7zM12 8C10 4 6 4 7 7l5 1zm0 0c2-4 6-4 5-1l-5 1z',
   link: 'M9.2 13.4 13.4 9.2l1.4 1.4-4.2 4.2zM8.5 11l1.4 1.4-2.1 2.1a2 2 0 0 0 2.8 2.8l2.1-2.1 1.4 1.4-2.1 2.1a4 4 0 0 1-5.6-5.6zm7-7a4 4 0 0 1 5.6 5.6L19 11.7l-1.4-1.4 2.1-2.1a2 2 0 0 0-2.8-2.8l-2.1 2.1-1.4-1.4z',
@@ -38,10 +37,26 @@ export function Icon({ n, size = 22 }: { n: keyof typeof paths | string; size?: 
 }
 
 /** Large-title page with optional back button and trailing items (navigation bar of a NavigationStack). */
-export function Page({ title, back, trailing, children, large = true }: { title: string; back?: boolean; trailing?: ComponentChildren; children: ComponentChildren; large?: boolean }) {
+export function Page({ title, back, trailing, children, large = true, onRefresh }: {
+  title: string; back?: boolean; trailing?: ComponentChildren; children: ComponentChildren; large?: boolean; onRefresh?: () => Promise<unknown>;
+}) {
   const [scrolled, setScrolled] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   useEffect(() => { const f = () => setScrolled(scrollY > 40); addEventListener('scroll', f, { passive: true }); return () => removeEventListener('scroll', f); }, []);
+  // Pull to refresh: a finger dragged down 80px from the top of the page, like the iOS app's lists.
+  useEffect(() => {
+    if (!onRefresh) return;
+    let startY: number | undefined;
+    const start = (e: TouchEvent) => { startY = scrollY <= 0 ? e.touches[0].clientY : undefined; };
+    const end = (e: TouchEvent) => {
+      if (startY === undefined || scrollY > 0 || e.changedTouches[0].clientY - startY < 80) return;
+      setRefreshing(true); onRefresh().finally(() => setRefreshing(false));
+    };
+    addEventListener('touchstart', start, { passive: true }); addEventListener('touchend', end, { passive: true });
+    return () => { removeEventListener('touchstart', start); removeEventListener('touchend', end); };
+  }, [onRefresh]);
   return <div class="page">
+    {refreshing && <div class="spinner-wrap pull"><div class="spinner" /></div>}
     <header class={'navbar' + (scrolled || !large ? ' solid' : '')}>
       <div class="nav-leading">{back && <button class="nav-btn" onClick={pop} aria-label="Zurück"><Icon n="back" /></button>}</div>
       <div class="nav-title">{(scrolled || !large) && title}</div>

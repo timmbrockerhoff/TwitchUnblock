@@ -57,10 +57,10 @@ export function Home() {
   const [top, setTop] = useState<Stream[]>();
   const [clips, setClips] = useState<Clip[]>();
   const key = [...s.follows, ...s.accountFollows].join(',') + s.hiddenChannels.join(',');
-  const load = () => {
-    refreshFollows().then(setFollows);
-    tw.topStreams(s.settings.topLang || undefined).then(r => r && setTop(r.streams));
-  };
+  const load = () => Promise.all([
+    refreshFollows().then(setFollows),
+    tw.topStreams(s.settings.topLang || undefined).then(r => r && setTop(r.streams)),
+  ]);
   useEffect(() => { if (s.account) loadAccountFollows(); }, [s.account?.userId]);
   useEffect(() => { load(); const t = setInterval(load, 120000); return () => clearInterval(t); }, [key, s.settings.topLang]);
   // "Clips deiner Kanäle": every clip of the last 24 h of followed channels, newest first, 8 channels at a time.
@@ -74,7 +74,7 @@ export function Home() {
   const offline = (follows ?? []).filter(c => !c.stream);
   const resume = continueWatching();
   const topVisible = (top ?? []).filter(t => !s.hiddenChannels.includes(t.login) && !s.hiddenCategories.some(c => c.id === t.gameId));
-  return <Page title="Startseite" trailing={<><button class="nav-btn" onClick={load} aria-label="Aktualisieren"><Icon n="refresh" /></button><AccountButton /></>}>
+  return <Page title="Startseite" onRefresh={load} trailing={<AccountButton />}>
     {!s.follows.length && !s.account && <div class="callout">
       <p>Folge Kanälen über das Herz auf ihrer Seite oder melde dich mit Twitch an, um deine Kanäle hier zu sehen.</p>
       <button class="btn prominent" onClick={() => push({ name: 'settings' })}>Mit Twitch anmelden</button></div>}
