@@ -4,7 +4,7 @@
 // loads them without an Origin header.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
-import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive } from './logic';
+import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive, chatSync } from './logic';
 import { ChatClient, VodChat, botCommands, type BotCommandSet, loadGlobalEmotes, loadChannelEmotes, translate, wantsTranslation, isBotLine, emoteList, type ChatMsg, type RoomState } from './chat';
 import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow, recordAdStats, rankByAds } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
@@ -12,6 +12,7 @@ import { Icon, Sheet, Spinner } from './ui';
 import { LiveEvents } from './events';
 import { rewards, watchChannel, channelHasDrops, accountStreamURL, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 import { prepareUnmutedPlaylist } from './vod';
+import { addLog } from './log';
 
 const SOURCE_LABEL: Record<string, string> = { as: 'Luminous Asien', al: 'Proxy Albanien', eu: 'Luminous Europa', twitch: 'Twitch offiziell' };
 type V = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitShowPlaybackTargetPicker?: () => void;
@@ -52,7 +53,7 @@ export function PlayerHost() {
   const t = nav.player;
   if (!t) return null;
   const key = JSON.stringify(t.kind === 'clips' ? { k: 'clips', i: t.index, n: t.clips.length } : t);
-  const cls = 'player' + (nav.playerMin ? ' mini' : '') + (s.settings.chatHidden ? ' no-chat' : '');
+  const cls = 'player' + (nav.playerMin ? ' mini' : '') + (s.settings.chatHidden ? ' no-chat' : '') + ' lc-' + s.settings.landscapeChat;
   const open = () => nav.playerMin && minimizePlayer(false);
   if (t.kind === 'clips') return <div class={cls} onClick={open}><ClipFeed key={key} clips={t.clips} index={t.index} /></div>;
   if (t.kind === 'multi') return <div class={cls} onClick={open}><MultiLive key={key} initial={t.logins} /></div>;
@@ -133,6 +134,7 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         if (!alive) return;
         if (!hit) { setError({ text: st ? 'Keine Quelle hat für diesen Livestream geantwortet.' : 'Netzwerkfehler.' }); return; }
         setSource(hit.src);
+        addLog('Player', `Live ${login} über ${SOURCE_LABEL[hit.src]}`, true);
         let url = hit.url, q = 'auto';
         if (hit.master) {
           const keys = sortQualities(Object.keys(hit.master.links), hit.master.variants);
@@ -369,7 +371,8 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         }}><Icon n="heart" /></button>}
       </div>
       {target.kind === 'clip' && (window as any).__clipVod && <button class="btn bordered small pad-x" onClick={() => play({ kind: 'vod', id: (window as any).__clipVod.id, start: (window as any).__clipVod.at })}>Zur VOD</button>}
-      {!s.settings.chatHidden && target.kind === 'live' && info.login && <ChatPanel login={info.login} channelId={info.userId} />}
+      {!s.settings.chatHidden && target.kind === 'live' && info.login && <ChatPanel login={info.login} channelId={info.userId} video={video}
+        archive={inArchive && archiveId ? { id: archiveId, startedAt: info.startedAt } : undefined} />}
       {!s.settings.chatHidden && target.kind === 'vod' && vodChat && <ChatPanel vod={vodChat} video={video} />}
     </div>
     {settingsOpen && <PlayerSettings onClose={() => setSettingsOpen(false)} video={video} kind={target.kind} qualities={qualities.keys} quality={quality}
@@ -459,6 +462,9 @@ function PlayerSettings({ onClose, video, kind, qualities, quality, onQuality, s
       {kind !== 'live' && v && <label class="row"><span>Geschwindigkeit</span><select value={String(v.playbackRate)} onChange={e => { const r = Number((e.target as HTMLSelectElement).value); v.playbackRate = r; setSetting('speed', r); }}>
         {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(r => <option value={String(r)}>{r === 1 ? 'Normal' : r + '×'}</option>)}</select></label>}
       {kind !== 'clip' && <label class="row"><span>Chat</span><input type="checkbox" class="switch" checked={!s.settings.chatHidden} onChange={e => setSetting('chatHidden', !(e.target as HTMLInputElement).checked)} /></label>}
+      {kind !== 'clip' && !s.settings.chatHidden && <label class="row"><span>Chat im Querformat</span>
+        <select value={s.settings.landscapeChat} onChange={e => setSetting('landscapeChat', (e.target as HTMLSelectElement).value as 'column' | 'overlay' | 'hidden')}>
+          <option value="column">Daneben</option><option value="overlay">Über dem Video</option><option value="hidden">Aus</option></select></label>}
       <label class="row"><span>Schlaf-Timer{sleepRemaining() ? ` (noch ${Math.ceil(sleepRemaining() / 60000)} min)` : ''}</span>
         <select value="" onChange={e => setSleep(Number((e.target as HTMLSelectElement).value))}>
           <option value="">{sleepRemaining() ? 'Aktiv' : 'Aus'}</option>{[0, 15, 30, 45, 60, 90, 120].map(m => <option value={m}>{m ? `${m} min` : 'Aus'}</option>)}</select></label>
@@ -474,7 +480,8 @@ function PlayerSettings({ onClose, video, kind, qualities, quality, onQuality, s
 }
 
 // Chat panel ------------------------------------------------------------------------------------
-function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId?: string; vod?: { id: string; channelId?: string; offset: number }; video?: { current: V | null } }) {
+function ChatPanel({ login, channelId, vod, video, archive }: { login?: string; channelId?: string; vod?: { id: string; channelId?: string; offset: number };
+  video?: { current: V | null }; archive?: { id: string; startedAt?: string } }) {
   const s = useStore();
   const list = useRef<HTMLDivElement>(null);
   const msgs = useRef<ChatMsg[]>([]);
@@ -488,6 +495,10 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
   const [sheet, setSheet] = useState<'chatters' | 'commands'>();
   const [card, setCard] = useState<{ login: string } | { emote: string; url: string }>();
   const client = useRef<ChatClient>();
+  // Live chat held back to match the picture; over 5 min behind in the recording → its chat replay.
+  const [sync, setSync] = useState({ delay: 0, replay: false });
+  const replayRef = useRef(false);
+  replayRef.current = sync.replay;
   const cid = channelId ?? vod?.channelId;
   const add = (batch: ChatMsg[]) => {
     msgs.current = [...msgs.current, ...batch].slice(-250);
@@ -499,7 +510,7 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
   useEffect(() => { if (cid && (login || vod)) loadChannelEmotes(cid, login ?? '').then(() => render(x => x + 1)); }, [cid]);
   useEffect(() => {
     if (!login) return;
-    const c = new ChatClient(login, channelId, add, e => {
+    const c = new ChatClient(login, channelId, b => { if (!replayRef.current) add(b); }, e => {
       if (e.type === 'clear') { msgs.current.forEach(m => { if ((e.id && m.id === e.id) || (e.login && m.login === e.login) || (!e.id && !e.login)) m.deleted = true; }); render(x => x + 1); }
       else if (e.type === 'notice') setNotice(e.text);
       else { setRoom({ ...c.room }); setConn(c.connected); }
@@ -508,20 +519,47 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
     return () => c.close();
   }, [login, channelId, s.account?.token]);
   useEffect(() => {
-    if (!vod || !video) return;
-    const chat = new VodChat(vod.id, vod.channelId);
+    if (!login || !video) return;
+    const t = setInterval(() => {
+      const v = video.current, c = client.current; if (!v || !c) return;
+      // Safari's getStartDate = PROGRAM-DATE-TIME of media time 0 (NaN without one).
+      const pdt0 = (v as V & { getStartDate?: () => Date }).getStartDate?.().getTime();
+      const r = archive && !archive.startedAt ? { delay: 0, replay: false } : chatSync({ now: Date.now(), t: v.currentTime, pdt0,
+        edge: v.seekable.length ? v.seekable.end(v.seekable.length - 1) : undefined, archiveStart: archive && Date.parse(archive.startedAt!) });
+      c.delay = r.delay;
+      setSync(o => Math.round(o.delay) === Math.round(r.delay) && o.replay === r.replay ? o : r);
+    }, 1000);
+    return () => { clearInterval(t); if (client.current) client.current.delay = 0; };
+  }, [login, archive?.id, archive?.startedAt]);
+  const replay = vod ?? (sync.replay && archive ? { id: archive.id, channelId, offset: 0 } : undefined);
+  useEffect(() => {
+    if (!replay || !video) return;
+    // Live ↔ recording replay: start from an empty list both ways.
+    if (!vod) { msgs.current = []; render(x => x + 1); }
+    const chat = new VodChat(replay.id, replay.channelId);
     const t = setInterval(async () => {
       const v = video.current; if (!v) return;
       const { msgs: due, reset } = await chat.tick(v.currentTime);
       if (reset) msgs.current = [];
       if (due.length || reset) add(due);
     }, 1000);
-    return () => clearInterval(t);
-  }, [vod?.id]);
+    return () => { clearInterval(t); if (!vod) { msgs.current = []; render(x => x + 1); } };
+  }, [replay?.id]);
   useEffect(() => { if (follow && list.current) list.current.scrollTop = list.current.scrollHeight; });
+  // Rotation or a layout switch resizes the list; its scroll event then read as "scrolled up"
+  // and the chat stopped following. Pin to the bottom first when following.
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  useEffect(() => {
+    const el = list.current; if (!el) return;
+    const ro = new ResizeObserver(() => { if (followRef.current) el.scrollTop = el.scrollHeight; });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const shown = msgs.current.filter(m => (s.settings.chatShowDeleted || !m.deleted) && !(s.settings.chatHideBots && isBotLine(m)));
   const modes = [room.slow ? `Slow-Modus ${room.slow} s` : '', room.followers != null && room.followers >= 0 ? 'Nur Follower' : '', room.subs ? 'Nur Abonnenten' : '',
-    room.emoteOnly ? 'Nur Emotes' : '', login && !conn ? 'Verbinde …' : ''].filter(Boolean).join(' · ');
+    room.emoteOnly ? 'Nur Emotes' : '', login && !conn ? 'Verbinde …' : '',
+    sync.replay ? 'Chat der Aufzeichnung' : sync.delay >= 1 ? `Chat ${Math.round(sync.delay)} s verzögert` : ''].filter(Boolean).join(' · ');
   const send = (e: Event) => { e.preventDefault(); if (text.trim() && client.current?.send(text.trim())) setText(''); };
   return <div class="chat" style={{ fontSize: s.settings.chatFont + 'px' }}>
     {login && <LiveEvents login={login} channelId={cid} onRaid={r => play({ kind: 'live', login: r.login })} />}
@@ -543,7 +581,7 @@ function ChatPanel({ login, channelId, vod, video }: { login?: string; channelId
         <button class="link" onClick={() => setSheet('commands')}>Befehle</button></span>}</div>}
     {sheet === 'chatters' && client.current && <ChattersSheet logins={[...client.current.present]} onPick={l => { setSheet(undefined); setCard({ login: l }); }} onClose={() => setSheet(undefined)} />}
     {sheet === 'commands' && login && <CommandsSheet login={login} onUse={c => { setSheet(undefined); setText(c + ' '); }} onClose={() => setSheet(undefined)} />}
-    {login && (client.current?.canSend || s.account ? <form class="chat-input" onSubmit={send}>
+    {login && !sync.replay && (client.current?.canSend || s.account ? <form class="chat-input" onSubmit={send}>
       <button type="button" class="nav-btn" onClick={() => setPicker(!picker)} aria-label="Emotes"><Icon n="smile" /></button>
       <input value={text} onInput={e => setText((e.target as HTMLInputElement).value)} placeholder="Chatten …" maxLength={500} enterkeyhint="send" />
       {text && <button class="nav-btn accent" aria-label="Senden"><Icon n="send" /></button>}

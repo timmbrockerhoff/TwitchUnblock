@@ -6,6 +6,7 @@ import { nav, current, setTab, play, openChannel, type Tab } from './nav';
 import { Home, Browse, Library, RoutePage } from './pages';
 import { PlayerHost } from './player';
 import { Icon } from './ui';
+import { NoticeHost } from './notices';
 import { checkDrops } from './rewards';
 import { helix } from './account';
 import { TV_CLIENT_ID } from './twitch';
@@ -21,6 +22,7 @@ function App() {
   return <>
     <main class={nav.player && !nav.playerMin ? 'behind' : ''}>{r.name === 'root' ? root : <RoutePage r={r} />}</main>
     <PlayerHost />
+    <NoticeHost />
     <nav class="tabbar">{tabs.map(([t, icon, label]) =>
       <button class={nav.tab === t ? 'on' : ''} onClick={() => setTab(t)}><Icon n={icon} size={24} /><span>{label}</span></button>)}</nav>
   </>;

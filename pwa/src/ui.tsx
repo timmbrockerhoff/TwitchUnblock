@@ -30,6 +30,8 @@ const paths: Record<string, string> = {
   smile: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-3.5 7a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM7 14a5.5 5.5 0 0 0 10 0z',
   refresh: 'M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4z',
   check: 'M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z',
+  gift: 'M3 8h18v4H3zm1 5h7v8H4zm9 0h7v8h-7zM12 8C10 4 6 4 7 7l5 1zm0 0c2-4 6-4 5-1l-5 1z',
+  link: 'M9.2 13.4 13.4 9.2l1.4 1.4-4.2 4.2zM8.5 11l1.4 1.4-2.1 2.1a2 2 0 0 0 2.8 2.8l2.1-2.1 1.4 1.4-2.1 2.1a4 4 0 0 1-5.6-5.6zm7-7a4 4 0 0 1 5.6 5.6L19 11.7l-1.4-1.4 2.1-2.1a2 2 0 0 0-2.8-2.8l-2.1 2.1-1.4-1.4z',
 };
 export function Icon({ n, size = 22 }: { n: keyof typeof paths | string; size?: number }) {
   return <svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[n]} fill="currentColor" /></svg>;

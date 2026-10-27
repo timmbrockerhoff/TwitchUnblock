@@ -5,27 +5,25 @@
 import { changed, state, setAccount } from './store';
 import { refreshToken } from './account';
 import { TV_CLIENT_ID } from './twitch';
+import { addLog } from './log';
+import { notice, noticeDropLink } from './notices';
 
 const CLAIM_POINTS_HASH = '46aaeebe02c99afdf4fc97c7c0cba964124bf6b0af229395f1f6d1feed05b3d0';
 const CLAIM_DROP_HASH = 'a455deea71bdc9015b78eb49f4acfbce8baa7ccbedd28e549bb025bd0f751930';
 /** Twitch's analytics endpoint ("spade_url" in twitch.tv's settings.js); CORS `*`. */
 const SPADE_URL = 'https://spade.twitch.tv/track';
 
-export type RewardLog = { at: number; text: string; ok?: boolean };
 export const rewards = {
   /** The one login (store.account), TV client. */
   get account() { return state.account; },
-  log: [] as RewardLog[],
   balance: {} as Record<string, number>,        // channel login → points
   drops: [] as DropCampaign[],
 };
 export type TimedDrop = { id: string; name: string; required: number; current: number; claimed: boolean; instance?: string; image?: string };
 export type DropCampaign = { id: string; name: string; game: string; endAt: string; linked: boolean; linkURL?: string; drops: TimedDrop[] };
 
-export function log(text: string, ok?: boolean) {
-  rewards.log = [{ at: Date.now(), text, ok }, ...rewards.log].slice(0, 60);
-  changed();
-}
+/** Rewards lines go to the app log (log.ts). */
+export const log = (text: string, ok?: boolean) => addLog('Belohnungen', text, ok);
 
 /** GQL as the TV client with the rewards token; one token refresh on 401. */
 export async function gql(body: unknown, retried = false): Promise<any> {
@@ -101,6 +99,7 @@ export async function accountStreamURL(login: string): Promise<string | undefine
 }
 
 let claiming = new Set<string>();
+const readyNoticed = new Set<string>();
 /** Reads the inventory and claims finished drops (every 5 min while watching, on app start/foreground). */
 export async function checkDrops(manual = false) {
   if (!rewards.account) return;
@@ -117,9 +116,15 @@ export async function checkDrops(manual = false) {
       image: d.benefitEdges?.[0]?.benefit?.imageAssetURL })) }));
   changed();
   if (manual) log(`Drops geprüft: ${rewards.drops.length} Kampagnen`);
-  if (!state.settings.autoDrops) return;
+  for (const c of rewards.drops) if (!c.linked && c.linkURL && c.drops.some(d => !d.claimed))
+    noticeDropLink(c.id, { kind: 'dropLink', title: 'Spielkonto verknüpfen', body: `${c.game}: Drops brauchen ein verknüpftes Konto. Tippen zum Verknüpfen.`, url: c.linkURL });
   for (const c of rewards.drops) for (const d of c.drops) {
     if (d.claimed || !d.instance || d.current < d.required || claiming.has(d.instance)) continue;
+    // Without auto-claim the drop only gets announced, once per drop.
+    if (!state.settings.autoDrops) {
+      if (!readyNoticed.has(d.instance)) { readyNoticed.add(d.instance); notice({ kind: 'dropReady', title: `Drop bereit: ${d.name}`, body: c.game }); }
+      continue;
+    }
     claiming.add(d.instance);
     const res = await gql([{ operationName: 'DropsPage_ClaimDropRewards', variables: { input: { dropInstanceID: d.instance } },
       extensions: { persistedQuery: { version: 1, sha256Hash: CLAIM_DROP_HASH } } }]);
@@ -128,8 +133,14 @@ export async function checkDrops(manual = false) {
     if (err) { log(`Drop „${d.name}“ nicht eingelöst: ${err}`, false); claiming.delete(d.instance); }
     // Measured: with an unlinked game account Twitch answers ELIGIBLE_FOR_ALL but keeps the drop
     // unclaimed; it can only be claimed after linking.
-    else if (payload?.isUserAccountConnected === false) log(`Drop „${d.name}“ (${c.game}) wartet: Spielkonto nicht verknüpft`, false);
-    else { log(`Drop „${d.name}“ (${c.game}) eingelöst (${payload?.status ?? 'ok'})`, true); d.claimed = true; changed(); }
+    else if (payload?.isUserAccountConnected === false) {
+      log(`Drop „${d.name}“ (${c.game}) wartet: Spielkonto nicht verknüpft`, false);
+      if (c.linkURL) noticeDropLink(c.id, { kind: 'dropLink', title: 'Spielkonto verknüpfen', body: `Drop „${d.name}“ (${c.game}) wartet. Tippen zum Verknüpfen.`, url: c.linkURL });
+    }
+    else {
+      log(`Drop „${d.name}“ (${c.game}) eingelöst (${payload?.status ?? 'ok'})`, true); d.claimed = true; changed();
+      notice({ kind: 'dropClaimed', title: `Drop eingelöst: ${d.name}`, body: c.game });
+    }
   }
 }
 

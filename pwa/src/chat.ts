@@ -3,6 +3,7 @@
 import { parseIRC, parseEmoteRanges, readableColor, type IRCMessage } from './logic';
 import { gql, gqlPersisted, recentMessages } from './twitch';
 import { state } from './store';
+import { addLog } from './log';
 
 export type Part = { t: 'text'; v: string } | { t: 'emote'; v: string; url: string } | { t: 'link'; v: string } | { t: 'mention'; v: string };
 export type ChatMsg = {
@@ -172,9 +173,14 @@ function nickColor(login: string) { let h = 0; for (const c of login) h = (h * 3
 
 // Live chat over IRC -----------------------------------------------------------------------------
 export type RoomState = { slow?: number; followers?: number; subs?: boolean; emoteOnly?: boolean; r9k?: boolean };
+type ClearEvent = { type: 'clear'; login?: string; id?: string };
 export class ChatClient {
   private ws?: WebSocket;
-  private queue: ChatMsg[] = [];
+  /** Live messages and moderation clears in arrival order, held `delay` seconds (clears too,
+   *  so they still find the message they target). */
+  private held: { at: number; msg?: ChatMsg; clear?: ClearEvent }[] = [];
+  /** Seconds to hold live messages so they match the picture (set by the player; 0 = at once). */
+  delay = 0;
   private flushTimer?: ReturnType<typeof setTimeout>;
   private closed = false;
   private retry = 0;
@@ -187,7 +193,7 @@ export class ChatClient {
   connected = false;
   constructor(private login: string, private channelId: string | undefined,
               private onBatch: (msgs: ChatMsg[]) => void,
-              private onEvent: (e: { type: 'clear'; login?: string; id?: string } | { type: 'notice'; text: string } | { type: 'state' }) => void) {
+              private onEvent: (e: ClearEvent | { type: 'notice'; text: string } | { type: 'state' }) => void) {
     this.connect(true);
     if (channelId) this.stopEmotes = liveEmotes(channelId, login);
   }
@@ -205,6 +211,7 @@ export class ChatClient {
     };
     ws.onmessage = e => String(e.data).split('\r\n').forEach(l => l && this.handle(l));
     ws.onclose = () => {
+      if (!this.closed) addLog('Chat', `#${this.login}: Verbindung getrennt, neuer Versuch`, false);
       this.connected = false; this.onEvent({ type: 'state' });
       if (!this.closed) setTimeout(() => this.connect(false), Math.min(30000, 1000 * 2 ** this.retry++));
     };
@@ -222,14 +229,14 @@ export class ChatClient {
       case 'RECONNECT': this.ws?.close(); break;
       case 'PRIVMSG': case 'USERNOTICE': {
         const msg = fromIRC(m, this.channelId, state.account?.login);
-        if (msg) { this.present.add(msg.login); this.push(msg); }
+        if (msg) { this.present.add(msg.login); this.hold({ msg }); }
         break;
       }
       case '353': (m.params[m.params.length - 1] ?? '').split(' ').forEach(n => n && this.present.add(n.toLowerCase())); break;
       case 'JOIN': { const who = m.prefix?.split('!')[0]; if (who) this.present.add(who); break; }
       case 'PART': { const who = m.prefix?.split('!')[0]; if (who) this.present.delete(who); break; }
-      case 'CLEARCHAT': this.onEvent({ type: 'clear', login: m.params[1] }); break;
-      case 'CLEARMSG': this.onEvent({ type: 'clear', id: m.tags['target-msg-id'] }); break;
+      case 'CLEARCHAT': this.hold({ clear: { type: 'clear', login: m.params[1] } }); break;
+      case 'CLEARMSG': this.hold({ clear: { type: 'clear', id: m.tags['target-msg-id'] } }); break;
       case 'NOTICE': this.onEvent({ type: 'notice', text: m.params[1] ?? '' }); break;
       case 'USERSTATE': this.userState = m.tags; break;
       case 'ROOMSTATE': {
@@ -244,19 +251,35 @@ export class ChatClient {
       }
     }
   }
-  private push(msg: ChatMsg) {
-    this.queue.push(msg);
-    // Batched like the Swift ChatService (~200 ms): one render for a burst of messages.
-    this.flushTimer ??= setTimeout(() => { this.flushTimer = undefined; const q = this.queue; this.queue = []; this.onBatch(q); }, 200);
+  private hold(item: { msg?: ChatMsg; clear?: ClearEvent }) {
+    this.held.push({ at: Date.now(), ...item });
+    // ponytail: oldest dropped past 2000 (a 5-min delay on a huge chat); the panel keeps 250 anyway.
+    if (this.held.length > 2000) this.held.shift();
+    this.schedule();
+  }
+  // Batched like the Swift ChatService (~200 ms): one render for a burst of messages.
+  private schedule() { this.flushTimer ??= setTimeout(() => this.flush(), 200); }
+  private flush() {
+    this.flushTimer = undefined;
+    const due = Date.now() - this.delay * 1000;
+    let batch: ChatMsg[] = [];
+    while (this.held.length && this.held[0].at <= due) {
+      const h = this.held.shift()!;
+      if (h.msg) batch.push(h.msg);
+      else { if (batch.length) this.onBatch(batch); batch = []; this.onEvent(h.clear!); }
+    }
+    if (batch.length) this.onBatch(batch);
+    if (this.held.length) this.schedule();
   }
   get canSend() { return !!state.account && this.connected; }
   send(text: string) {
     const acc = state.account; if (!acc || !this.ws || !this.connected) return false;
     this.ws.send(`PRIVMSG #${this.login} :${text.replace(/[\r\n]/g, ' ')}`);
     // Twitch doesn't echo our own message: show it locally with our USERSTATE (color, badges).
+    // Shown at once, never delayed (ChatService.sendMessage).
     const t = this.userState;
-    this.push({ id: `me-${Date.now()}`, login: acc.login, name: t['display-name'] || acc.name, color: readableColor(t.color || nickColor(acc.login)),
-      badges: badgesFor((t.badges || '').split(',').filter(Boolean), this.channelId), parts: buildParts(text, '', this.channelId), text, ts: Date.now() });
+    this.onBatch([{ id: `me-${Date.now()}`, login: acc.login, name: t['display-name'] || acc.name, color: readableColor(t.color || nickColor(acc.login)),
+      badges: badgesFor((t.badges || '').split(',').filter(Boolean), this.channelId), parts: buildParts(text, '', this.channelId), text, ts: Date.now() }]);
     return true;
   }
   close() { this.closed = true; clearTimeout(this.flushTimer); this.ws?.close(); this.stopEmotes?.(); }

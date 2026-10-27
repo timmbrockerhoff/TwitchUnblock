@@ -1,7 +1,7 @@
 // Self-check of the pure logic: `npm test` (Node 22+, no test framework).
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
-  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, formatClock } from '../src/logic.ts';
+  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, formatClock, chatSync } from '../src/logic.ts';
 import { workerVariants } from '../src/vod.ts';
 
 const master = `#EXTM3U
@@ -63,4 +63,13 @@ assert.ok(adActive([live, { ...adKey, start: 90 }]));   // mid-roll after live
 assert.ok(!adActive([live]));
 assert.deepEqual(rankSources(['as', 'al', 'eu'], { as: [6, 3600], al: [1, 3600] }), ['al', 'as', 'eu']);
 assert.deepEqual(rankSources(['as', 'al', 'eu'], { as: [6, 3600], al: [1, 600] }), ['as', 'al', 'eu']); // only one ≥ 20 min
+
+// Chat sync: PDT lag − 6 s, edge distance without PDT (or with a late clock), replay > 5 min in the recording.
+const now = 1_000_000_000;
+assert.deepEqual(chatSync({ now, t: 100, pdt0: now - 120_000, edge: 105 }), { delay: 14, replay: false });
+assert.deepEqual(chatSync({ now, t: 100, edge: 108 }), { delay: 8, replay: false });
+assert.deepEqual(chatSync({ now, t: 100, pdt0: now - 102_000, edge: 108 }), { delay: 8, replay: false });
+assert.deepEqual(chatSync({ now, t: 100 }), { delay: 0, replay: false });
+assert.deepEqual(chatSync({ now, t: 3500, archiveStart: now - 3600_000 }), { delay: 94, replay: false });
+assert.equal(chatSync({ now, t: 3000, archiveStart: now - 3600_000 }).replay, true);
 console.log('logic: all checks passed');

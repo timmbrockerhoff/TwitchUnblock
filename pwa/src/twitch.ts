@@ -1,6 +1,7 @@
 // Twitch data access, ported from Sources/Services/TwitchAPI.swift.
 import { parseMaster, type Master } from './logic';
 import { state } from './store';
+import { addLog } from './log';
 import { workerVod } from './vod';
 
 export const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
@@ -334,6 +335,7 @@ export function raceLive(steps: LiveSource[], login: string, lowLatency: boolean
       if (next < steps.length && steps[next] !== 'twitch' && !(firstAlone && next === 1)) timer = setTimeout(start, 1500);
       attempt(src, login, lowLatency).then(hit => {
         running--;
+        if (!hit) addLog('Player', `Quelle ${src} für ${login}: keine Antwort`, false);
         if (done) return;
         if (hit) { done = true; clearTimeout(timer); resolve(hit); return; }
         if (running === 0) { if (next >= steps.length) { done = true; resolve(undefined); } else start(); }

@@ -9,6 +9,7 @@ import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, accountFollowsEr
 import { play, push, openChannel, type Route } from './nav';
 import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
 import { Page, AccountButton, Shelf, Empty, Spinner, StreamCard, VodCard, ClipCard, CategoryTile, Icon, Sheet, Segmented, Toggle, Select, relDate } from './ui';
+import { logs, clearLogs, logLine } from './log';
 import { loadRecoverableStreams, resolveRecoverableStream, type RecoverableStream } from './vod';
 
 const LANGS: [string, string][] = [['', 'Weltweit'], ['de', 'Deutsch'], ['en', 'Englisch'], ['fr', 'Französisch'], ['es', 'Spanisch'],
@@ -402,8 +403,6 @@ export function Settings() {
       {c.drops.map(d => <div class="row-sub">{d.claimed ? '✓' : `${Math.min(d.current, d.required)}/${d.required} min`} · {d.name}
         <div class="progress inline"><div style={{ width: `${Math.min(100, d.current / Math.max(1, d.required) * 100)}%` }} /></div></div>)}
     </div></div>)}</div>}
-    {rewards.log.length > 0 && <><h2 class="section-title">Protokoll</h2><div class="group">{rewards.log.slice(0, 20).map(l =>
-      <div class={'row log-row' + (l.ok === true ? ' ok' : l.ok === false ? ' fail' : '')}><span>{l.text}</span><span class="row-sub">{new Date(l.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span></div>)}</div></>}
 
     <h2 class="section-title">Videoplayer</h2>
     <div class="group">
@@ -455,6 +454,7 @@ export function Settings() {
     {importMsg && <p class="hint pad">{importMsg}</p>}
 
     <h2 class="section-title">Info</h2>
+    <div class="group"><button class="row" onClick={() => push({ name: 'logs' })}><span>Systemprotokoll</span><span class="row-sub">{logs.length} Einträge ›</span></button></div>
     <div class="group about">
       <div class="row"><span>Version</span><span class="row-sub">Web {__APP_VERSION__}</span></div>
       <a class="row" href="https://github.com/timmbrockerhoff/TwitchUnblock" target="_blank" rel="noopener">Quellcode (GitHub)</a>
@@ -490,12 +490,36 @@ function LoginSheet({ onClose }: { onClose: () => void }) {
   </Sheet>;
 }
 
+/** System log (LogsView.swift): filter by category, copy as text. */
+function LogsPage() {
+  useStore();
+  const [cat, setCat] = useState('');
+  const [msg, setMsg] = useState('');
+  const cats = [...new Set(logs.map(l => l.cat))].sort();
+  const shown = cat ? logs.filter(l => l.cat === cat) : logs;
+  // Clipboard first; the share sheet when Safari refuses it.
+  const copy = () => {
+    const text = shown.map(logLine).join('\n');
+    const share = () => { navigator.share?.({ text }).catch(() => {}); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => setMsg('Kopiert'), share); else share();
+  };
+  return <Page title="Systemprotokoll" back trailing={<button class="nav-btn" onClick={copy} disabled={!shown.length}>{msg || 'Kopieren'}</button>}>
+    {cats.length > 1 && <div class="chips pad">{[['', `Alle (${logs.length})`], ...cats.map(c => [c, c])].map(([v, l]) =>
+      <button class={'chip' + (cat === v ? ' on' : '')} onClick={() => setCat(v)}>{l}</button>)}</div>}
+    {!shown.length ? <Empty title="Keine Einträge" text="Kanalpunkte, Drops, Player-Quellen und Chat-Verbindungen erscheinen hier." />
+      : <div class="group">{shown.map(l => <div class={'row log-row' + (l.ok === true ? ' ok' : l.ok === false ? ' fail' : '')}>
+        <div><div>{l.text}</div><div class="row-sub">{l.cat} · {new Date(l.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div></div>)}</div>}
+    {logs.length > 0 && <div class="group" style={{ marginTop: 20 }}><button class="row danger" onClick={() => confirm('Protokoll löschen?') && clearLogs()}>Protokoll löschen</button></div>}
+  </Page>;
+}
+
 export function RoutePage({ r }: { r: Route }) {
   switch (r.name) {
     case 'channel': return <ChannelPage login={r.login} />;
     case 'category': return <CategoryPage id={r.id} title={r.title} />;
     case 'list': return <FullList kind={r.kind} />;
     case 'settings': return <Settings />;
+    case 'logs': return <LogsPage />;
     default: return null;
   }
 }

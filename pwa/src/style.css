@@ -21,7 +21,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 img { display: block; }
 a { color: var(--accent); text-decoration: none; }
 input, select { font: inherit; color: inherit; }
-main { padding-bottom: calc(84px + var(--safe-b)); min-height: 100vh; }
+/* Side insets: in landscape the Dynamic Island cut off titles and cards on the left. */
+main { padding: 0 env(safe-area-inset-right) calc(84px + var(--safe-b)) env(safe-area-inset-left); min-height: 100vh; }
 main.behind { visibility: hidden; height: 0; overflow: hidden; }
 
 .icon { display: block; flex: none; }
@@ -165,6 +166,8 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .sheet { width: 100%; max-width: 600px; max-height: 88vh; background: var(--grouped); color: var(--text); border-radius: 14px 14px 0 0; display: flex; flex-direction: column;
   padding-bottom: var(--safe-b); animation: up .25s ease-out; }
 @media (prefers-color-scheme: light) { .sheet .group { background: #fff; } }
+/* The player stays dark: its sheets keep dark groups, or white text sat on white in light mode. */
+.player .sheet .group { background: var(--card); }
 @keyframes up { from { transform: translateY(40px); opacity: 0; } }
 .sheet-bar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; padding: 12px 12px 8px; }
 .sheet-bar h3 { margin: 0; text-align: center; font-size: 17px; }
@@ -249,6 +252,20 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
   .player:not(.mini) .stage { min-width: 0; }
   .player.no-chat:not(.mini) .below { display: none; }
   .player:not(.mini) ~ .tabbar { display: none; }
+  /* Scoped with :has(.chat): clips, chat switched off or a VOD without replay keep the plain layout. */
+  /* "Aus": chat only hidden (not unmounted), so IRC stays connected like the app's opacity 0. */
+  .player.lc-hidden:not(.mini):has(.below .chat) .below { display: none; }
+  /* "Über dem Video": translucent chat over the right side, video keeps the full width
+     (iOS: 32 % of the width, ≥ 220 pt, black 45 %, shadowed text, no header). */
+  .player.lc-overlay:not(.mini):has(.below .chat) .below { position: absolute; top: 0; right: 0; bottom: 0; z-index: 2; width: max(32%, 220px);
+    background: rgba(0, 0, 0, .45); border-left: 0; }
+  .player.lc-overlay:not(.mini):has(.below .chat) .below .info-row { display: none; }
+  .player.lc-overlay:not(.mini):has(.below .chat) .msg { text-shadow: 0 1px 2px #000; }
+  /* Narrow column: room modes get the full line, Chatter/Befehle wrap below. */
+  .player.lc-overlay:not(.mini):has(.below .chat) .info-line { flex-wrap: wrap; }
+  /* Controls fold to the free part (as in the app), so the chat never covers gear or scrub bar
+     and taps on the visible video still reach the tap zones. */
+  .player.lc-overlay:not(.mini):has(.below .chat) .controls { right: max(32%, 220px); }
 }
 
 /* Multi-live */
@@ -316,3 +333,19 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .event .bet button:disabled, .event .vote:disabled { opacity: .4; }
 .event.err { color: var(--danger); }
 .streak { font-size: 12px; color: var(--muted); padding: 0 2px; }
+
+/* In-app notices (notices.tsx): above the player and sheets. */
+.notice-wrap { position: fixed; z-index: 90; top: calc(6px + var(--safe-t)); left: 12px; right: 12px; display: flex; justify-content: center; pointer-events: none; }
+.notice { pointer-events: auto; width: 100%; max-width: 440px; display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 16px;
+  background: var(--card); color: var(--text); border: .5px solid var(--sep); box-shadow: 0 6px 24px rgba(0, 0, 0, .35); animation: notice-in .35s cubic-bezier(.2, .9, .3, 1.1); }
+.notice-icon { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.notice.dropLink .notice-icon { color: #ff9f0a; background: rgba(255, 159, 10, .15); }
+.notice-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.notice-text b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notice-text span { color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@keyframes notice-in { from { transform: translateY(-120%); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .notice { animation: none; } }
+
+/* System log page */
+.chip.on { background: var(--accent); color: #fff; }
+.log-row > div { min-width: 0; overflow-wrap: anywhere; }

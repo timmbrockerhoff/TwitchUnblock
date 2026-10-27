@@ -10,7 +10,8 @@ export type Route =
   | { name: 'channel'; login: string }
   | { name: 'category'; id: string; title: string }
   | { name: 'list'; kind: 'live' | 'offline' | 'top' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'logs' };
 export type PlayerTarget =
   | { kind: 'live'; login: string }
   | { kind: 'vod'; id: string; start?: number }

@@ -215,3 +215,21 @@ export function rankSources<T extends string>(sources: T[], stats: Record<string
   const first = [...rated].sort((a, b) => a[1] - b[1]).map(r => r[0]);
   return [...first, ...sources.filter(s => !first.includes(s))];
 }
+
+/** Live chat sync (MainTabView.chatDelay): seconds to hold live chat so it matches the picture,
+ *  or `replay` when the picture is over 5 min behind and the recording plays (VOD chat instead).
+ *  `t`: currentTime; `pdt0`: date (ms) of media time 0 from the playlist's PROGRAM-DATE-TIME
+ *  (Safari's getStartDate); `edge`: seekable end; `archiveStart`: broadcast start while the
+ *  recording plays (its offset 0). Other viewers run ~6 s behind real time themselves. */
+export function chatSync(p: { now: number; t: number; pdt0?: number; edge?: number; archiveStart?: number }): { delay: number; replay: boolean } {
+  const ok = (x?: number): x is number => x != null && Number.isFinite(x);
+  if (ok(p.archiveStart)) {
+    const lag = (p.now - p.archiveStart) / 1000 - p.t;
+    return lag > 300 ? { delay: 0, replay: true } : { delay: Math.max(0, lag - 6), replay: false };
+  }
+  const behind = ok(p.edge) ? Math.max(0, p.edge - p.t) : 0;
+  const lag = ok(p.pdt0) ? (p.now - p.pdt0) / 1000 - p.t : NaN;
+  // Less than the distance to the edge is impossible (device clock running late): use the edge.
+  const delay = ok(lag) && lag >= behind - 0.5 ? lag - 6 : behind;
+  return { delay: Math.min(300, Math.max(0, delay)), replay: false };
+}

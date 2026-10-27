@@ -19,6 +19,7 @@ export type Settings = {
   chatHideBots: boolean;
   chatTranslate: boolean;
   chatHidden: boolean;
+  landscapeChat: 'column' | 'overlay' | 'hidden'; // landscape: beside the video, over it (translucent), or closed
   topLang: string;                    // "" = world
   notifyLive: boolean;
   speed: number;
@@ -30,7 +31,7 @@ export type Settings = {
 };
 const defaults: Settings = {
   accent: '#9146ff', sourceOrder: ['as', 'al', 'eu', 'twitch'], quality: 'source', lowLatency: true, adSwitch: true,
-  chatFont: 15, chatTimestamps: false, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false,
+  chatFont: 15, chatTimestamps: false, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false, landscapeChat: 'column',
   topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true, adRanking: true, fillScreen: false,
 };
 export type Account = { token: string; refresh?: string; login: string; userId: string; name: string; avatar: string; scopes: string[] };

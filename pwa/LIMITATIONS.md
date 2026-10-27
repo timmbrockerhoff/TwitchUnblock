@@ -45,8 +45,8 @@ Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). D
 
 ## Noch nicht umgesetzt, aber möglich
 
-Diese Funktionen gehen im Browser, fehlen aber noch: Chat-Verzögerung passend zur Latenz, Systemprotokolle, Hinweise in der App, immersiver Player mit Chat über dem Video.
+Vom immersiven Player gibt es nur den Chat über dem Video im Querformat; Breiten-Griff und Schnellumschalter fehlen noch.
 
 ## Nicht getestet
 
-Fast alles ist inzwischen im iOS-Simulator geprüft (Safari und installierte Home-Bildschirm-App), siehe `FEATURE_AUDIT.md`. Auf einem echten iPhone ist nur die Anmeldung bestätigt. **Nicht getestet** sind: Chatten, Erwähnungen, Emote-Auswahl, Namensfarbe, Twitch-Follows des Kontos, Kanalpunkte und Drops (alle brauchen einen echten Login), AirPlay und Bild in Bild (im Simulator nicht verfügbar).
+Fast alles ist inzwischen im iOS-Simulator geprüft (Safari und installierte Home-Bildschirm-App), siehe `FEATURE_AUDIT.md`. Auf einem echten iPhone ist nur die Anmeldung bestätigt. **Nicht getestet** sind: Chatten, Erwähnungen, Emote-Auswahl, Namensfarbe, Twitch-Follows des Kontos, Kanalpunkte und Drops (im Simulator mit echtem Konto geprüft, auf dem iPhone nicht), AirPlay und Bild in Bild (im Simulator nicht verfügbar).
