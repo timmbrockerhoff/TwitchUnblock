@@ -13,6 +13,10 @@ import { TV_CLIENT_ID } from './twitch';
 import { state, setAccount } from './store';
 import { clipSlugFromInput, extractVodId, isVodInput, loginFromInput, isValidLogin, vodStartFromInput } from './logic';
 
+// Safari ignores user-scalable=no; cancelling gesturestart stops page pinch-zoom. The player's
+// pinch-to-fill still gets gestureend.
+document.addEventListener('gesturestart', e => e.preventDefault());
+
 function App() {
   useStore();
   useEffect(openFromURL, []); // after the store listener is registered
