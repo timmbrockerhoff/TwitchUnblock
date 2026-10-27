@@ -50,6 +50,7 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .nav-btn.accent { color: var(--accent); }
 .nav-btn:disabled { opacity: .3; }
 .avatar-btn img { width: 32px; height: 32px; border-radius: 50%; }
+.avatar-placeholder { color: var(--muted); display: grid; }
 .large-title { font-size: 34px; font-weight: 700; letter-spacing: .37px; margin: 0 16px 10px; }
 .section-title { font-size: 22px; font-weight: 700; margin: 22px 16px 8px; }
 

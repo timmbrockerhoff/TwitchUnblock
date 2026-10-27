@@ -15,7 +15,9 @@ const paths: Record<string, string> = {
   pause: 'M6 4h4.5v16H6zm7.5 0H18v16h-4.5z',
   close: 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z',
   down: 'M4.9 8.5 12 15.6l7.1-7.1 1.4 1.4L12 18.4 3.5 9.9z',
-  gear: 'M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM10.3 2h3.4l.5 2.6 1.6.9 2.5-.9 1.7 2.9-2 1.8v1.8l2 1.8-1.7 2.9-2.5-.9-1.6.9-.5 2.6h-3.4l-.5-2.6-1.6-.9-2.5.9-1.7-2.9 2-1.8v-1.8l-2-1.8 1.7-2.9 2.5.9 1.6-.9z',
+  // person.crop.circle.fill: head and shoulders wound against the circle, so they cut out.
+  person: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm6.9 11.3c-1.6-2.4-4-3.8-6.9-3.8s-5.3 1.4-6.9 3.8a9.3 9.3 0 0 0 13.8 0z',
+  gear: 'M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM10.3 2h3.4l.5 2.6 1.6.9 2.5-.9 1.7 2.9-2 1.8v1.8l2 1.8-1.7 2.9-2.5-.9-1.6.9-.5 2.6h-3.4l-.5-2.6-1.6-.9-2.5.9-1.7-2.9 2-1.8v-1.8l-2-1.8 1.7-2.9 2.5.9 1.6-.9z',
   chat: 'M4 4h16v12H8l-4 4z',
   airplay: 'M3 4h18v12h-4l-1.5-2H19V6H5v8h3.5L7 16H3zm9 9 6 7H6z',
   full: 'M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z',
@@ -70,7 +72,7 @@ export function Page({ title, back, trailing, children, large = true, onRefresh 
 export function AccountButton() {
   const s = useStore();
   return <button class="nav-btn avatar-btn" onClick={() => push({ name: 'settings' })} aria-label="Einstellungen">
-    {s.account?.avatar ? <img src={s.account.avatar} alt="" /> : <Icon n="gear" />}
+    {s.account?.avatar ? <img src={s.account.avatar} alt="" /> : <span class="avatar-placeholder"><Icon n="person" size={32} /></span>}
   </button>;
 }
 
