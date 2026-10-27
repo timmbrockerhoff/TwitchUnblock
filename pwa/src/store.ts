@@ -28,11 +28,12 @@ export type Settings = {
   autoPoints: boolean;                // claim channel point chests (rewards.ts)
   autoDrops: boolean;                 // claim finished drops
   dropsStream: boolean;               // hidden account stream so drop minutes count
+  appIcon: string;                    // Home Screen icon variant, '' = default (ICONS)
 };
 const defaults: Settings = {
   accent: '#9146ff', sourceOrder: ['as', 'al', 'eu', 'twitch'], quality: 'source', lowLatency: true, adSwitch: true,
   chatFont: 15, chatTimestamps: false, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false, landscapeChat: 'column',
-  topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true, adRanking: true, fillScreen: false,
+  topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true, adRanking: true, fillScreen: false, appIcon: '',
 };
 export type Account = { token: string; refresh?: string; login: string; userId: string; name: string; avatar: string; scopes: string[] };
 export type HistoryEntry = { kind: 'vod' | 'live' | 'clip'; id: string; title: string; login: string; name: string; thumb: string; length?: number; at: number };
@@ -62,6 +63,7 @@ export const state = {
     } catch { return null; }
   })(),
   accountFollows: [] as string[],
+  accountCategories: [] as { id: string; name: string; boxArt: string }[], // followed on Twitch (rewards.ts)
   history: loadArr<HistoryEntry>('history'),
   progress: (() => { try { return JSON.parse(localStorage.getItem('progress') || '{}') as Record<string, number>; } catch { return {}; } })(), // vod id → seconds
 };
@@ -84,8 +86,17 @@ export function setSetting<K extends keyof Settings>(k: K, v: Settings[K]) {
   state.settings = { ...state.settings, [k]: v };
   persist('settings');
   if (k === 'accent') applyAccent();
+  if (k === 'appIcon') applyIcon();
 }
 export function applyAccent() { document.documentElement.style.setProperty('--accent', state.settings.accent); }
+// Same variants as the iOS app (assets/icons). A web app can't change its installed icon: iOS reads
+// the apple-touch-icon only when "Zum Home-Bildschirm" is tapped, so the link must be right by then.
+export const ICONS: [string, string][] = [['', 'Klassisch'], ['purple', 'Lila'], ['night', 'Nacht'], ['light', 'Hell'], ['contrast', 'Kontrast'], ['neon', 'Neon']];
+export const iconURL = (id: string) => `./icons/${id || 'icon'}-180.png`;
+export function applyIcon() {
+  const link = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+  if (link) link.href = iconURL(state.settings.appIcon);
+}
 
 export const isFollowed = (login: string) => state.follows.includes(login) || state.accountFollows.includes(login);
 export function toggleFollow(login: string) {
@@ -125,7 +136,7 @@ export function addSearch(q: string) {
 export function clearSearchHistory() { state.searchHistory = []; persist('searchHistory'); }
 export function setAccount(a: Account | null) {
   state.account = a;
-  if (a) localStorage.setItem('account', JSON.stringify(a)); else { localStorage.removeItem('account'); state.accountFollows = []; }
+  if (a) localStorage.setItem('account', JSON.stringify(a)); else { localStorage.removeItem('account'); state.accountFollows = []; state.accountCategories = []; }
   changed();
 }
 
@@ -175,7 +186,7 @@ export function importBackup(text: string): boolean {
     state.follows = b.follows ?? []; state.hiddenChannels = b.hiddenChannels ?? []; state.hiddenCategories = b.hiddenCategories ?? [];
     state.history = b.history ?? []; state.progress = b.progress ?? {};
     (['settings', 'follows', 'hiddenChannels', 'hiddenCategories'] as const).forEach(k => localStorage.setItem(k, JSON.stringify(state[k])));
-    saveNow(); applyAccent(); changed();
+    saveNow(); applyAccent(); applyIcon(); changed();
     return true;
   } catch { return false; }
 }

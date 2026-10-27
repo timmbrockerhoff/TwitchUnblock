@@ -1,7 +1,7 @@
 import { render } from 'preact';
 import { useEffect } from 'preact/hooks';
 import './style.css';
-import { useStore, loadDB, applyAccent } from './store';
+import { useStore, loadDB, applyAccent, applyIcon } from './store';
 import { nav, current, setTab, play, openChannel, type Tab } from './nav';
 import { Home, Browse, Library, RoutePage } from './pages';
 import { PlayerHost } from './player';
@@ -48,6 +48,7 @@ function openFromURL() {
 }
 
 applyAccent();
+applyIcon();
 loadDB();
 render(<App />, document.getElementById('app')!);
 // Logins from before the one-login version used another client: their token can't follow,

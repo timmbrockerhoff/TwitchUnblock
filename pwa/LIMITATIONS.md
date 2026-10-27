@@ -10,7 +10,7 @@ VOD-Fallbacks und die Rekonstruktion gelöschter oder versteckter Übertragungen
 
 Twitch lässt fremde Webseiten seine Playlists nicht lesen: `playlist.ttvnw.net` antwortet mit 403, `usher.ttvnw.net` schickt keinen CORS-Header, die VOD-Playlists auf CloudFront erlauben nur `www.twitch.tv`. Der native Player von iOS darf sie trotzdem abspielen, JavaScript kommt aber nicht an den Inhalt. Daraus folgt:
 
-- Werbepausen lassen sich nicht mit einem Ersatz-Stream füllen. Die App erkennt eine Pause an den Metadaten, schaltet den Ton aus und zeigt einen Hinweis. Ob das bei einer echten Werbepause greift, ist nicht getestet.
+- Werbepausen lassen sich nicht in der Playlist ersetzen. Stattdessen wechselt der Player bei Beginn einer Pause automatisch auf einen Ersatz-Stream (andere Player-Typen, dann andere Proxys). Mit einer echten Werbepause ist das nicht getestet.
 - Bei der Quelle „Twitch offiziell“ wählt iOS die Qualität selbst. Eine Auswahl gibt es nur bei den Proxys.
 - Reguläre VODs über das Kontotoken haben nur „Automatisch“; über den Worker-Fallback werden die gefundenen Einzelqualitäten angeboten.
 - Zurückspulen im Live springt auf die laufende Aufnahme statt auf eine gemeinsame Zeitleiste. Kanäle ohne Aufnahme lassen sich nur innerhalb des kleinen Puffers des Players zurückspulen.
@@ -20,9 +20,8 @@ Twitch lässt fremde Webseiten seine Playlists nicht lesen: `playlist.ttvnw.net`
 
 Die iOS-App meldet sich zusätzlich im eingebetteten twitch.tv an und liest das Cookie `auth-token`. Eine fremde Webseite kann Cookies von twitch.tv nicht lesen, und das Integritäts-Token, das Twitch für Schreibaktionen verlangt, entsteht nur auf twitch.tv selbst. Deshalb fehlen:
 
-- gefolgte Kategorien des Kontos
 - Watch Streak und das Einlösen von Kanalpunkte-Belohnungen
-- werbefreie Wiedergabe über das eigene Abo oder Turbo
+- werbefreie Wiedergabe über das eigene Abo oder Turbo (gemessen: Twitch stellt dem TV-Login trotz aktiver Abos nur Token mit Werbung aus; die Proxys sind ohnehin werbefrei)
 
 Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). Damit gehen Chatten, Folgen auf Twitch, Kanalpunkte und Drops, im Simulator mit echtem Konto geprüft. Drops werden nur gutgeschrieben, wenn das Spielkonto beim Hersteller mit Twitch verknüpft ist. Die Namensfarbe braucht einen Helix-Scope, den Twitch dem TV-Zugang nicht gibt; sie lässt sich in der Web-App nicht ändern. Die Liste der gefolgten Kanäle kommt über eine twitch.tv-Abfrage. Grenzen: Punkte und Drops sammeln sich nur, solange ein Live-Stream in der App offen ist. Für Drops lädt die App einen unsichtbaren zweiten Stream, das kostet zusätzliche Daten.
 
@@ -31,15 +30,15 @@ Die Web-App meldet sich deshalb mit Twitchs TV-Zugang an (ein einziger Login). D
 - Ton startet nur nach einem Tippen. Ohne Tippen beginnt die Wiedergabe stumm mit „Ton an“.
 - Multi-Live: iOS spielt nur einen Stream mit Ton, die anderen laufen stumm.
 - Vollbild ist der native Player von iOS; eigene Steuerung und Chat fehlen dort.
-- Querformat lässt sich nicht per Knopf erzwingen, nur durch Drehen des Geräts.
-- Live Activity, Dynamic Island, Widgets, Raumklang, App-Symbol-Wahl und die Apple-TV-App gibt es für Web-Apps nicht.
+- Querformat per Knopf dreht nur den Player per CSS; iOS-Safari kann die Ausrichtung nicht sperren. Die Tastatur erscheint dabei im Hochformat.
+- Live Activity, Widgets und die Apple-TV-App gibt es für Web-Apps nicht. Sperrbildschirm und Dynamic Island zeigen „Now Playing“ über die Media Session. Raumklang schaltet iOS selbst im Kontrollzentrum zu. Das App-Symbol wirkt erst beim nächsten Hinzufügen zum Home-Bildschirm.
 - Im Hintergrund (Home-Bildschirm, andere App) pausiert iOS das Video und setzt es bei Rückkehr fort. Wer weiterhören will, wählt die Qualität „Nur Audio“, die lief im Test im Hintergrund weiter (nur bei Proxy-Quellen wählbar).
 - Bild in Bild meldet die Simulator-Safari als nicht verfügbar; auf dem iPhone ist es nicht getestet. Der Knopf erscheint nur, wenn das Gerät es anbietet.
 - Apples Übersetzung auf dem Gerät hat keine Web-Schnittstelle. Die App nutzt nur Googles freien Endpunkt; die Chat-Texte gehen dabei an Google.
 
 ## Durch die Vorgabe „kein Server“
 
-- Mitteilungen bei Live-Start: Im Test in der installierten App erschien die Erlaubnis-Abfrage, aber keine Mitteilung kam an. iOS zeigt Mitteilungen von Web-Apps offenbar nur über Web Push, und das braucht einen Push-Server.
+- Mitteilungen bei Live-Start bei geschlossener App gehen nur über Web Push. Statt eines eigenen Servers schickt sie ein geplanter GitHub-Actions-Workflow (alle 5 min, GitHub startet ihn oft später). Das braucht eine einmalige Einrichtung mit Schlüsseln und Secrets und läuft nur vom Standard-Branch des Repos. Echter Versand an ein iPhone ist nicht getestet.
 - Die Sicherung ist eine lokale JSON-Datei statt einer Synchronisierung über den Worker.
 - Der Cloudflare-Worker des Upstream-Projekts ist als Live-Notfallquelle nicht eingebaut.
 

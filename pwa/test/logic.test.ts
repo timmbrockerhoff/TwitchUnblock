@@ -1,7 +1,7 @@
 // Self-check of the pure logic: `npm test` (Node 22+, no test framework).
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
-  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, formatClock, chatSync } from '../src/logic.ts';
+  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, adBridgePlan, formatClock, chatSync } from '../src/logic.ts';
 import { workerVariants } from '../src/vod.ts';
 
 const master = `#EXTM3U
@@ -63,6 +63,17 @@ assert.ok(adActive([live, { ...adKey, start: 90 }]));   // mid-roll after live
 assert.ok(!adActive([live]));
 assert.deepEqual(rankSources(['as', 'al', 'eu'], { as: [6, 3600], al: [1, 3600] }), ['al', 'as', 'eu']);
 assert.deepEqual(rankSources(['as', 'al', 'eu'], { as: [6, 3600], al: [1, 600] }), ['as', 'al', 'eu']); // only one ≥ 20 min
+
+// Ad bridge: never the source playing now; same break (< 5 min) keeps walking, never back.
+const cands = ['embed', 'popout', 'autoplay', 'al', 'eu', 'as'];
+const p1 = adBridgePlan(undefined, 'as', 0, cands);
+assert.deepEqual(p1.next, ['embed', 'popout', 'autoplay', 'al', 'eu']);
+p1.tried.push('embed');                                       // switched to embed, it got a pre-roll too
+const p2 = adBridgePlan(p1, 'embed', 30_000, cands);
+assert.deepEqual(p2.next, ['popout', 'autoplay', 'al', 'eu']);
+assert.equal(p2.at, 0);
+assert.deepEqual(adBridgePlan({ tried: cands, at: 0 }, 'eu', 60_000, cands).next, []); // all tried: stay
+assert.deepEqual(adBridgePlan(p2, 'popout', 400_000, cands).next, ['embed', 'autoplay', 'al', 'eu', 'as']); // a new break later
 
 // Chat sync: PDT lag − 6 s, edge distance without PDT (or with a late clock), replay > 5 min in the recording.
 const now = 1_000_000_000;

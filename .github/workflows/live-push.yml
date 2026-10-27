@@ -1,0 +1,41 @@
+# Live-start Web Push for the web app (pwa/), no server of our own: GitHub runs this every ~5 min
+# (often later, sometimes skipped). Scheduled runs only fire from the DEFAULT branch, so this file
+# must be there; the script itself is checked out from `pwa`.
+# Setup steps: in the app, Einstellungen → Mitteilungen im Hintergrund.
+# Logs are public (public repo): the script prints counts only, never subscriptions or channels.
+name: Live push
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # last successful run → SINCE
+
+concurrency:
+  group: live-push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pwa
+          sparse-checkout: pwa/push
+      - run: npm install --prefix pwa/push --no-save --no-audit --no-fund web-push@3.6.7
+      # Stateless "went live": streams that started after the last successful run began.
+      - id: since
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "since=$(gh run list -R "$GITHUB_REPOSITORY" -w live-push.yml -s success -L 1 --json startedAt -q '.[0].startedAt // ""' || true)" >> "$GITHUB_OUTPUT" # none yet → script looks 15 min back
+      - run: node pwa/push/live-push.mjs
+        env:
+          SINCE: ${{ steps.since.outputs.since }}
+          VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY || secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTIONS: ${{ secrets.PUSH_SUBSCRIPTIONS }}

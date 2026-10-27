@@ -24,6 +24,14 @@ self.addEventListener('notificationclick', e => {
   const login = e.notification.data && e.notification.data.login;
   e.waitUntil(self.clients.matchAll({ type: 'window' }).then(list => {
     if (list[0]) { list[0].focus(); list[0].postMessage({ login }); return; }
-    return self.clients.openWindow('./#/live/' + login);
+    return self.clients.openWindow(login ? './#/live/' + login : './');
+  }));
+});
+// Web Push from .github/workflows/live-push.yml. iOS revokes the subscription if a push shows no notification.
+self.addEventListener('push', e => {
+  let p = {};
+  try { p = e.data ? e.data.json() : {}; } catch { /* not ours */ }
+  e.waitUntil(self.registration.showNotification(p.title || 'TwitchUnblock', {
+    body: p.body || '', icon: p.icon || './icons/icon-192.png', tag: p.login, data: { login: p.login },
   }));
 });

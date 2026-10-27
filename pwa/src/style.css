@@ -247,29 +247,38 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .emote-picker { max-height: 200px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; padding: 8px; border-top: .5px solid var(--sep); }
 .emote-picker img { height: 28px; margin: auto; }
 
-/* Landscape: video beside the chat (landscape layout of the app) */
-@media (orientation: landscape) and (max-height: 600px) {
-  .player:not(.mini) { flex-direction: row; }
-  .player:not(.mini) .stage { flex: 1; height: 100%; aspect-ratio: auto; margin: 0; }
-  .player:not(.mini) .below { flex: 0 0 34%; min-width: 0; border-left: .5px solid var(--sep); padding-right: env(safe-area-inset-right); }
-  .player:not(.mini) .stage { min-width: 0; }
-  .player.no-chat:not(.mini) .below { display: none; }
-  .player:not(.mini) ~ .tabbar { display: none; }
-  /* Scoped with :has(.chat): clips, chat switched off or a VOD without replay keep the plain layout. */
-  /* "Aus": chat only hidden (not unmounted), so IRC stays connected like the app's opacity 0. */
-  .player.lc-hidden:not(.mini):has(.below .chat) .below { display: none; }
-  /* "Über dem Video": translucent chat over the right side, video keeps the full width
-     (iOS: 32 % of the width, ≥ 220 pt, black 45 %, shadowed text, no header). */
-  .player.lc-overlay:not(.mini):has(.below .chat) .below { position: absolute; top: 0; right: 0; bottom: 0; z-index: 2; width: max(32%, 220px);
-    background: rgba(0, 0, 0, .45); border-left: 0; }
-  .player.lc-overlay:not(.mini):has(.below .chat) .below .info-row { display: none; }
-  .player.lc-overlay:not(.mini):has(.below .chat) .msg { text-shadow: 0 1px 2px #000; }
-  /* Narrow column: room modes get the full line, Chatter/Befehle wrap below. */
-  .player.lc-overlay:not(.mini):has(.below .chat) .info-line { flex-wrap: wrap; }
-  /* Controls fold to the free part (as in the app), so the chat never covers gear or scrub bar
-     and taps on the visible video still reach the tap zones. */
-  .player.lc-overlay:not(.mini):has(.below .chat) .controls { right: max(32%, 220px); }
-}
+/* Landscape: video beside the chat (landscape layout of the app). `.land` is set by PlayerHost for a
+   landscape phone (orientation: landscape, height <= 600 px) and for the "Querformat" button
+   (.pseudo-land), so both share one set of rules. */
+.player.land:not(.mini) { flex-direction: row; }
+.player.land:not(.mini) .stage { flex: 1; height: 100%; aspect-ratio: auto; margin: 0; }
+.player.land:not(.mini) .below { flex: 0 0 34%; min-width: 0; border-left: .5px solid var(--sep); padding-right: var(--land-r, env(safe-area-inset-right)); }
+.player.land:not(.mini) .stage { min-width: 0; }
+.player.land.no-chat:not(.mini) .below { display: none; }
+.player.land:not(.mini) ~ .tabbar { display: none; }
+/* Scoped with :has(.chat): clips, chat switched off or a VOD without replay keep the plain layout. */
+/* "Aus": chat only hidden (not unmounted), so IRC stays connected like the app's opacity 0. */
+.player.land.lc-hidden:not(.mini):has(.below .chat) .below { display: none; }
+/* "Über dem Video": translucent chat over the right side, video keeps the full width
+   (iOS: 32 % of the width, ≥ 220 pt, black 45 %, shadowed text, no header). */
+.player.land.lc-overlay:not(.mini):has(.below .chat) .below { position: absolute; top: 0; right: 0; bottom: 0; z-index: 2; width: max(32%, 220px);
+  background: rgba(0, 0, 0, .45); border-left: 0; }
+.player.land.lc-overlay:not(.mini):has(.below .chat) .below .info-row { display: none; }
+.player.land.lc-overlay:not(.mini):has(.below .chat) .msg { text-shadow: 0 1px 2px #000; }
+/* Narrow column: room modes get the full line, Chatter/Befehle wrap below. */
+.player.land.lc-overlay:not(.mini):has(.below .chat) .info-line { flex-wrap: wrap; }
+/* Controls fold to the free part (as in the app), so the chat never covers gear or scrub bar
+   and taps on the visible video still reach the tap zones. */
+.player.land.lc-overlay:not(.mini):has(.below .chat) .controls { right: max(32%, 220px); }
+/* "Querformat" button: iOS Safari can't lock the orientation, so the portrait page turns the player
+   90° clockwise. Content left = screen top (notch), content right = screen bottom (home indicator);
+   the safe-area variables follow. Transforms rotate hit-testing too, so taps land where they show. */
+.player.pseudo-land:not(.mini) { inset: 0 auto auto 100vw; width: 100vh; width: 100dvh; height: 100vw;
+  transform-origin: top left; transform: rotate(90deg); padding-left: env(safe-area-inset-top);
+  --safe-t: 0px; --safe-b: 0px; --land-r: env(safe-area-inset-bottom); }
+/* Sheets inside the rotated player: its height is the screen width. */
+.player.pseudo-land:not(.mini) .sheet { max-height: 88vw; }
+.player.pseudo-land .stage.fill video { object-fit: cover; }
 
 /* Multi-live */
 .multi { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-t); }

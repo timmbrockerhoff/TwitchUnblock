@@ -216,6 +216,17 @@ export function rankSources<T extends string>(sources: T[], stats: Record<string
   return [...first, ...sources.filter(s => !first.includes(s))];
 }
 
+/** Backups for a live ad break, in `candidates` order, minus what this break already tried.
+ *  A break that starts within `window` s of the last switch counts as the same one (the backup's
+ *  own pre-roll, or a break 1–3 min long): its tried list carries over, so the player walks on
+ *  and never flips back to where it came from. `current`: what plays now (source or player type). */
+export type AdBridge = { tried: string[]; at: number };
+export function adBridgePlan(prev: AdBridge | undefined, current: string, now: number, candidates: string[], window = 300): AdBridge & { next: string[] } {
+  const same = prev && now - prev.at < window * 1000;
+  const tried = same ? [...new Set([...prev.tried, current])] : [current];
+  return { tried, at: same ? prev.at : now, next: candidates.filter(c => !tried.includes(c)) };
+}
+
 /** Live chat sync (MainTabView.chatDelay): seconds to hold live chat so it matches the picture,
  *  or `replay` when the picture is over 5 min behind and the recording plays (VOD chat instead).
  *  `t`: currentTime; `pdt0`: date (ms) of media time 0 from the playlist's PROGRAM-DATE-TIME

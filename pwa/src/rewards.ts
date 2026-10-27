@@ -169,3 +169,31 @@ export async function setTwitchFollow(channelId: string, login: string, follow: 
   changed();
   return undefined;
 }
+
+// Followed categories on Twitch -------------------------------------------------------------------
+// currentUser.followedGames reads with the TV token (measured 2026-10-27). followGame/unfollowGame
+// answered an invalid id with "service error", not "unauthenticated", so they likely work too.
+type FavCat = { id: string; name: string; boxArt: string };
+/** Loads the account's followed categories into state.accountCategories; false on error. */
+export async function loadFollowedGames(): Promise<boolean> {
+  if (!rewards.account) return false;
+  const j = await gql({ query: '{ currentUser { followedGames(first: 100, type: ALL) { nodes { id displayName boxArtURL(width: 285, height: 380) } } } }' });
+  const nodes = j?.data?.currentUser?.followedGames?.nodes;
+  if (!Array.isArray(nodes)) { log(`Gefolgte Kategorien: ${errors(j) ?? 'keine Antwort'}`, false); return false; }
+  state.accountCategories = nodes.filter(Boolean).map((n: any): FavCat => ({ id: n.id, name: n.displayName, boxArt: n.boxArtURL ?? '' }));
+  changed();
+  return true;
+}
+/** Follows or unfollows a category on Twitch. Returns an error text, or undefined on success. */
+export async function setTwitchGameFollow(c: FavCat, follow: boolean): Promise<string | undefined> {
+  const j = await gql(follow
+    ? { query: 'mutation($i: FollowGameInput!) { followGame(input: $i) { game { id } } }', variables: { i: { gameID: c.id } } }
+    : { query: 'mutation($i: UnfollowGameInput!) { unfollowGame(input: $i) { game { id } } }', variables: { i: { gameID: c.id } } });
+  if (!j) return 'Keine Antwort von Twitch';
+  const err = errors(j);
+  if (err) { log(`Kategorie ${follow ? 'folgen' : 'entfolgen'} ${c.name}: ${err}`, false); return err; }
+  log(`${follow ? 'Folgst jetzt Kategorie' : 'Kategorie entfolgt'}: ${c.name}`, true);
+  state.accountCategories = follow ? [...state.accountCategories.filter(x => x.id !== c.id), c] : state.accountCategories.filter(x => x.id !== c.id);
+  changed();
+  return undefined;
+}

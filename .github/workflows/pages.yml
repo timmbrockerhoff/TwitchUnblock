@@ -38,6 +38,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }} # public half only; Settings → Mitteilungen im Hintergrund
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

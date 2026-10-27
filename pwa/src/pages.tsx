@@ -4,13 +4,14 @@ import * as tw from './twitch';
 import type { ChannelBrief, Stream, Category, Vod, Clip, ChannelInfo } from './twitch';
 import { formatViewers, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
 import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, addSearch, clearSearchHistory, toggleFavCategory, adStatsFor,
-  setAccount, removeHistory, clearHistory, exportBackup, importBackup, type HistoryEntry } from './store';
+  setAccount, removeHistory, clearHistory, exportBackup, importBackup, ICONS, iconURL, type HistoryEntry } from './store';
 import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, accountFollowsError, setChatColor, type DeviceCode } from './account';
 import { play, push, openChannel, type Route } from './nav';
-import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow } from './rewards';
+import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow, loadFollowedGames, setTwitchGameFollow } from './rewards';
 import { Page, AccountButton, Shelf, Empty, Spinner, StreamCard, VodCard, ClipCard, CategoryTile, Icon, Sheet, Segmented, Toggle, Select, relDate } from './ui';
 import { logs, clearLogs, logLine } from './log';
 import { loadRecoverableStreams, resolveRecoverableStream, type RecoverableStream } from './vod';
+import { PushSettings } from './push';
 
 const LANGS: [string, string][] = [['', 'Weltweit'], ['de', 'Deutsch'], ['en', 'Englisch'], ['fr', 'Französisch'], ['es', 'Spanisch'],
   ['pt', 'Portugiesisch'], ['it', 'Italienisch'], ['ru', 'Russisch'], ['ja', 'Japanisch'], ['ko', 'Koreanisch'], ['tr', 'Türkisch'], ['pl', 'Polnisch']];
@@ -134,6 +135,8 @@ export function Browse() {
   const [top, setTop] = useState<Category[]>();
   const [next, setNext] = useState<string>();
   useEffect(() => { tw.topCategories().then(r => { if (r) { setTop(r.categories); setNext(r.next); } }); }, []);
+  useEffect(() => { if (s.account) loadFollowedGames(); }, [s.account?.userId]);
+  const myCats = [...s.favCategories, ...s.accountCategories.filter(a => !s.favCategories.some(f => f.id === a.id))];
   useEffect(() => {
     const t = q.trim();
     if (!t || isVodInput(t) || clipSlugFromInput(t)) { setUsers([]); setCats([]); return; }
@@ -168,7 +171,7 @@ export function Browse() {
     </> : <>
       {s.searchHistory.length > 0 && <div class="chips pad">{s.searchHistory.map(h => <button class="chip" onClick={() => setQ(h)}>{h}</button>)}
         <button class="chip ghost" onClick={clearSearchHistory}>Verlauf löschen</button></div>}
-      {s.favCategories.length > 0 && <Shelf title="Deine Kategorien">{s.favCategories.map(c => <CategoryTile c={c} />)}</Shelf>}
+      {myCats.length > 0 && <Shelf title="Deine Kategorien">{myCats.map(c => <CategoryTile c={c} />)}</Shelf>}
       <h2 class="section-title">Top-Kategorien</h2>
       {top ? <div class="cat-grid">{visibleTop.map(c => <CategoryTile c={c} />)}</div> : <Spinner />}
       {next && <button class="btn wide" onClick={more}>Mehr laden</button>}
@@ -182,15 +185,31 @@ export function CategoryPage({ id, title }: { id: string; title: string }) {
   const [data, setData] = useState<{ category: Category; streams: Stream[]; next?: string }>();
   useEffect(() => { setData(undefined); tw.categoryStreams(id, lang || undefined).then(setData); }, [id, lang]);
   const more = () => data?.next && tw.categoryStreams(id, lang || undefined, data.next).then(r => r && setData({ ...r, streams: [...data.streams, ...r.streams] }));
+  // Logged in, the heart follows on Twitch (like channels); without login or when Twitch's list can't
+  // be read it stays local, a failed follow falls back to local with a hint.
+  const [twc, setTwc] = useState<{ failed?: boolean; busy?: boolean; err?: string }>({});
+  useEffect(() => { setTwc({}); if (s.account) loadFollowedGames().then(ok => !ok && setTwc({ failed: true })); }, [id, s.account?.userId]);
   const hidden = s.hiddenCategories.some(c => c.id === id);
-  const fav = s.favCategories.some(c => c.id === id);
+  const local = s.favCategories.some(c => c.id === id), onTwitch = s.accountCategories.some(c => c.id === id);
+  const fav = local || onTwitch;
+  const toggleFav = async () => {
+    const c = { id, name: data?.category.name ?? title, boxArt: data?.category.boxArt ?? '' };
+    if (local) toggleFavCategory(c);
+    if (!s.account || twc.failed || twc.busy || (local && !onTwitch)) { if (!local) toggleFavCategory(c); return; }
+    setTwc({ busy: true });
+    const err = await setTwitchGameFollow(c, !onTwitch);
+    if (err && !onTwitch) toggleFavCategory(c);
+    setTwc({ err });
+  };
   return <Page title={title} back trailing={<>
-    <button class={'nav-btn' + (fav ? '' : ' muted')} aria-label={fav ? 'Nicht mehr folgen' : 'Folgen'}
-      onClick={() => toggleFavCategory({ id, name: title, boxArt: data?.category.boxArt ?? '' })}><Icon n="heart" /></button>
+    <button class={'nav-btn' + (fav ? '' : ' muted')} aria-label={fav ? 'Nicht mehr folgen' : 'Folgen'} disabled={twc.busy}
+      onClick={toggleFav}><Icon n="heart" /></button>
     <button class="nav-btn text" onClick={() => hideCategory({ id, name: title }, !hidden)}>{hidden ? 'Einblenden' : 'Ausblenden'}</button></>}>
     {data && <div class="cat-head pad"><img src={data.category.boxArt.replace('{width}', '285').replace('{height}', '380')} alt="" />
       <div><div class="row-sub">{formatViewers(data.category.viewers ?? 0)} Zuschauer</div>
         <select class="inline-select" value={lang} onChange={e => setLang((e.target as HTMLSelectElement).value)}>{LANGS.map(([v, l]) => <option value={v}>{l}</option>)}</select></div></div>}
+    {twc.err && <p class="hint pad error">Twitch hat abgelehnt ({twc.err}), {onTwitch ? 'du folgst der Kategorie dort weiter' : 'die Kategorie ist nur in dieser App gemerkt'}.</p>}
+    {twc.failed && <p class="hint pad error">Gefolgte Kategorien von Twitch nicht lesbar, das Herz merkt die Kategorie deshalb nur in dieser App.</p>}
     {!data ? <Spinner /> : <div class="grid">{data.streams.filter(x => !s.hiddenChannels.includes(x.login)).map(x => <StreamCard s={x} wide />)}</div>}
     {data?.next && <button class="btn wide" onClick={more}>Mehr laden</button>}
   </Page>;
@@ -328,12 +347,12 @@ export function ChannelPage({ login }: { login: string }) {
     {tab === 'vods' && <>
       <form class="search" onSubmit={e => e.preventDefault()}><input type="search" placeholder="VODs filtern" value={filter} onInput={e => setFilter((e.target as HTMLInputElement).value)} /></form>
       <div class="grid">{shownVods.map(v => <VodCard v={v} wide />)}</div>
-      {!vods ? <Spinner /> : !vods.vods.length && !unlisted.length && <Empty title="Keine VODs gefunden." />}
+      {!vods ? <Spinner /> : !vods.vods.length && <Empty title="Keine VODs gefunden." />}
       {vods?.next && !filter && <button class="btn wide" onClick={moreVods}>Mehr laden</button>}
       {unlisted.length > 0 && <section><h2 class="section-title">Nicht gelistete VODs</h2>
         <p class="hint pad">Gelöschte oder versteckte Übertragungen lassen sich öffnen, solange Twitch ihre Videosegmente noch ausliefert.</p>
         <div class="grid">{unlisted.map(r => <VodCard wide v={{
-          id: r.streamID, title: r.title || 'Nicht gelistete VOD', thumb: info.banner || info.avatar, publishedAt: r.start,
+          id: r.streamID, title: r.title || 'Nicht gelistete VOD', thumb: '', publishedAt: r.start,
           length: r.duration, views: r.maxViews, login: r.login, name: info.name,
         }} onClick={() => recover(r)} disabled={!!resolving}
           status={resolving === r.streamID ? 'Suche …' : gone.has(r.streamID) ? 'Nicht verfügbar' : undefined}
@@ -410,7 +429,7 @@ export function Settings() {
         options={[['auto', 'Automatisch'], ['source', 'Source'], ['1080', '1080p'], ['720', '720p'], ['480', '480p'], ['360', '360p'], ['160', '160p'], ['audio', 'Nur Audio']]} />
       <Toggle label="Niedrige Latenz" value={st.lowLatency} onChange={v => setSetting('lowLatency', v)} />
       <Toggle label="Bildschirm füllen" sub="Im Querformat: Bild füllt die Fläche (Ränder abgeschnitten); auch per Auseinanderziehen" value={st.fillScreen} onChange={v => setSetting('fillScreen', v)} />
-      <Toggle label="Werbepausen erkennen" sub="Ton aus und Hinweis, sobald Twitch eine Werbepause meldet" value={st.adSwitch} onChange={v => setSetting('adSwitch', v)} />
+      <Toggle label="Werbepausen überbrücken" sub="Ton aus und automatisch auf einen Ersatz-Stream ohne Werbung wechseln" value={st.adSwitch} onChange={v => setSetting('adSwitch', v)} />
     </div>
     <h2 class="section-title">Reihenfolge der Live-Quellen</h2>
     <div class="group">{st.sourceOrder.map((src, i) => <div class="row"><div><div>{i + 1}. {SOURCE_NAMES[src]}</div>{adStatsFor(src) && <div class="row-sub">{adStatsLabel(adStatsFor(src)!)}</div>}</div>
@@ -432,10 +451,15 @@ export function Settings() {
 
     <h2 class="section-title">Darstellung</h2>
     <div class="group"><div class="row"><span>Akzentfarbe</span><span class="swatches">{['#9146ff', '#0a84ff', '#30d158', '#ff9f0a', '#ff375f', '#64d2ff'].map(c =>
-      <button class={'swatch' + (st.accent === c ? ' on' : '')} style={{ background: c }} onClick={() => setSetting('accent', c)} aria-label={c} />)}</span></div></div>
+      <button class={'swatch' + (st.accent === c ? ' on' : '')} style={{ background: c }} onClick={() => setSetting('accent', c)} aria-label={c} />)}</span></div>
+      <div class="row"><div style={{ flex: 1 }}><div>App-Symbol</div><div class="swatches" style={{ flexWrap: 'wrap', marginTop: 10 }}>{ICONS.map(([id, label]) =>
+        <button class={'swatch' + (st.appIcon === id ? ' on' : '')} style={{ width: 48, height: 48, borderRadius: 11, background: `center / cover url(${iconURL(id)})` }}
+          onClick={() => setSetting('appIcon', id)} aria-label={label} title={label} />)}</div></div></div></div>
+    <p class="hint pad">Wirkt beim nächsten Hinzufügen zum Home-Bildschirm: altes Symbol löschen, in Safari neu hinzufügen.</p>
 
     <h2 class="section-title">Mitteilungen</h2>
-    <div class="group"><Toggle label="Live-Mitteilungen" sub="Nur solange die App offen ist. Auf dem iPhone kam im Test keine Mitteilung an: iOS zeigt Web-App-Mitteilungen wohl nur über Web Push, und das bräuchte einen Server." value={st.notifyLive} onChange={notify} /></div>
+    <div class="group"><Toggle label="Live-Mitteilungen" sub="Solange die App offen ist. Bei geschlossener App: „Mitteilungen im Hintergrund“ unten." value={st.notifyLive} onChange={notify} /></div>
+    <PushSettings />
 
     {(s.hiddenChannels.length > 0 || s.hiddenCategories.length > 0) && <><h2 class="section-title">Ausgeblendet</h2>
       <div class="group">{s.hiddenChannels.map(l => <div class="row"><span>{l}</span><button class="link" onClick={() => hideChannel(l, false)}>Einblenden</button></div>)}

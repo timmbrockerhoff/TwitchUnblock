@@ -4,9 +4,9 @@
 // loads them without an Origin header.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
-import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive, chatSync } from './logic';
+import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive, adBridgePlan, type AdBridge, chatSync } from './logic';
 import { ChatClient, VodChat, botCommands, type BotCommandSet, loadGlobalEmotes, loadChannelEmotes, translate, wantsTranslation, isBotLine, emoteList, type ChatMsg, type RoomState } from './chat';
-import { useStore, state, setSetting, addHistory, setProgress, isFollowed, toggleFollow, recordAdStats, rankByAds } from './store';
+import { useStore, state, changed, setSetting, addHistory, setProgress, isFollowed, toggleFollow, recordAdStats, rankByAds } from './store';
 import { nav, closePlayer, minimizePlayer, openChannel, play, type PlayerTarget } from './nav';
 import { Icon, Sheet, Spinner } from './ui';
 import { LiveEvents } from './events';
@@ -48,12 +48,24 @@ function seekWhenReady(v: HTMLVideoElement, at: number) {
 let sleepAt = 0;
 export const sleepRemaining = () => sleepAt ? Math.max(0, sleepAt - Date.now()) : 0;
 
+// "Querformat" button: iOS Safari has no screen.orientation.lock, so the player is turned by CSS
+// (.pseudo-land). Session only; a physical rotation ends it (the real layout takes over).
+let pseudoLand = false;
+const landMQ = matchMedia('(orientation: landscape) and (max-height: 600px)');
+landMQ.addEventListener('change', () => { pseudoLand = false; changed(); });
+const togglePseudoLand = () => { pseudoLand = !pseudoLand; changed(); };
+/** Landscape for gestures (pinch to fill, no pull-down): the real one or the rotated player. */
+const landscapeNow = () => pseudoLand || matchMedia('(orientation: landscape)').matches;
+
 export function PlayerHost() {
   const s = useStore();
   const t = nav.player;
   if (!t) return null;
   const key = JSON.stringify(t.kind === 'clips' ? { k: 'clips', i: t.index, n: t.clips.length } : t);
-  const cls = 'player' + (nav.playerMin ? ' mini' : '') + (s.settings.chatHidden ? ' no-chat' : '') + ' lc-' + s.settings.landscapeChat;
+  const single = t.kind !== 'clips' && t.kind !== 'multi';
+  // .land carries the landscape layout for both: one set of CSS rules instead of a media query copy.
+  const cls = 'player' + (nav.playerMin ? ' mini' : '') + (s.settings.chatHidden ? ' no-chat' : '') + ' lc-' + s.settings.landscapeChat
+    + (landMQ.matches || (single && pseudoLand) ? ' land' : '') + (single && pseudoLand ? ' pseudo-land' : '');
   const open = () => nav.playerMin && minimizePlayer(false);
   if (t.kind === 'clips') return <div class={cls} onClick={open}><ClipFeed key={key} clips={t.clips} index={t.index} /></div>;
   if (t.kind === 'multi') return <div class={cls} onClick={open}><MultiLive key={key} initial={t.logins} /></div>;
@@ -88,6 +100,21 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
   const preparedReleases = useRef(new Set<() => void>());
   const pull = useRef<{ x: number; y: number }>();
   const isLive = target.kind === 'live';
+  const playing = useRef('');            // live: the source or backup player type playing now (ad bridge)
+
+  /** Starts a live source at the live edge, with its quality list when the master is readable. */
+  const playHit = (hit: tw.LiveHit, label: string = hit.src) => {
+    setSource(hit.src); playing.current = label;
+    let url = hit.url, q = 'auto';
+    if (hit.master) {
+      const keys = sortQualities(Object.keys(hit.master.links), hit.master.variants);
+      setQualities({ keys: ['auto', ...keys], links: { auto: hit.url, ...hit.master.links } });
+      q = s.settings.quality === 'auto' ? 'auto' : preferredQualityKey(keys, s.settings.quality, hit.master.variants);
+      url = q === 'auto' ? hit.url : hit.master.links[q];
+    } else setQualities({ keys: ['auto'], links: { auto: hit.url } });
+    setQuality(q); liveURL.current = url; setInArchive(false);
+    setSrc(url);
+  };
 
   const setSrc = (url: string, at?: number) => {
     const v = video.current!; v.src = url;
@@ -133,17 +160,8 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         const hit = await tw.raceLive(order, login, s.settings.lowLatency, src => alive && setStatus(`Quelle: ${SOURCE_LABEL[src]} …`), !!tryOrder);
         if (!alive) return;
         if (!hit) { setError({ text: st ? 'Keine Quelle hat für diesen Livestream geantwortet.' : 'Netzwerkfehler.' }); return; }
-        setSource(hit.src);
         addLog('Player', `Live ${login} über ${SOURCE_LABEL[hit.src]}`, true);
-        let url = hit.url, q = 'auto';
-        if (hit.master) {
-          const keys = sortQualities(Object.keys(hit.master.links), hit.master.variants);
-          setQualities({ keys: ['auto', ...keys], links: { auto: hit.url, ...hit.master.links } });
-          q = s.settings.quality === 'auto' ? 'auto' : preferredQualityKey(keys, s.settings.quality, hit.master.variants);
-          url = q === 'auto' ? hit.url : hit.master.links[q];
-        } else setQualities({ keys: ['auto'], links: { auto: hit.url } });
-        setQuality(q); liveURL.current = url; setInArchive(false);
-        setSrc(url);
+        playHit(hit);
         addHistory({ kind: 'live', id: login, title: sInfo?.title ?? '', login, name: sInfo?.name ?? login, thumb: sInfo?.thumb ?? '' });
       } else if (target.kind === 'vod') {
         const [meta, vod] = await Promise.all([tw.vodMeta(target.id), tw.vodPlayback(target.id)]);
@@ -192,12 +210,46 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     return () => { alive = false; };
   }, [tryOrder]);
 
-  // Lock screen / Control Center metadata
+  // Lock screen / Dynamic Island "Now Playing" (Media Session: what iOS shows for web media).
   useEffect(() => {
     if (!('mediaSession' in navigator) || !info.title) return;
-    navigator.mediaSession.metadata = new MediaMetadata({ title: info.title, artist: info.name ?? info.sub,
-      artwork: info.avatar ? [{ src: info.avatar, sizes: '150x150' }] : [] });
-  }, [info.title]);
+    // Twitch avatars come in fixed sizes (…-70x70.png); live thumbnails are {width}x{height} templates.
+    const avatar = (w: number) => ({ src: info.avatar!.replace(/\d+x\d+(?=\.\w+$)/, `${w}x${w}`), sizes: `${w}x${w}` });
+    const thumb = (w: number, h: number) => ({ src: info.thumb!.replace('{width}', String(w)).replace('{height}', String(h)), sizes: `${w}x${h}` });
+    const fixedThumb = info.thumb && !info.thumb.includes('{width}') && info.thumb.match(/(\d+x\d+)(?=\.\w+$)/);
+    navigator.mediaSession.metadata = new MediaMetadata({ title: info.title, artist: info.name ?? info.login ?? '', album: info.sub,
+      // Square avatar first (lock screen tile), the stream picture after it.
+      artwork: [...(info.avatar ? [150, 300, 600].map(avatar) : []),
+        ...(!info.thumb ? [] : fixedThumb ? [{ src: info.thumb, sizes: fixedThumb[1] }] : [[320, 180], [640, 360], [1280, 720]].map(([w, h]) => thumb(w, h)))] });
+  }, [info.title, info.name, info.sub, info.avatar, info.thumb]);
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession, v = video.current!;
+    const seek = (t: number) => { v.currentTime = Math.max(0, isFinite(v.duration) ? Math.min(v.duration, t) : t); };
+    // Live: no skip buttons and no position, so iOS shows it as live. VODs/clips: ±10 s and the bar.
+    const handlers: [MediaSessionAction, MediaSessionActionHandler | null][] = [
+      ['play', () => { v.play().catch(() => {}); }], ['pause', () => v.pause()],
+      ['seekbackward', isLive ? null : d => seek(v.currentTime - (d.seekOffset ?? 10))],
+      ['seekforward', isLive ? null : d => seek(v.currentTime + (d.seekOffset ?? 10))],
+      ['seekto', isLive ? null : d => { if (d.seekTime != null) seek(d.seekTime); }],
+    ];
+    for (const [a, h] of handlers) try { ms.setActionHandler(a, h); } catch { /* action not supported */ }
+    const pos = () => {
+      try {
+        if (isLive || !isFinite(v.duration) || v.duration <= 0) ms.setPositionState();
+        else ms.setPositionState({ duration: v.duration, position: Math.min(v.currentTime, v.duration), playbackRate: v.playbackRate || 1 });
+      } catch { /* old WebKit */ }
+    };
+    // iOS extrapolates the position while playing; these are the moments it jumps.
+    const evs = ['loadedmetadata', 'durationchange', 'seeked', 'ratechange', 'play', 'pause'];
+    evs.forEach(e => v.addEventListener(e, pos));
+    pos();
+    return () => {
+      evs.forEach(e => v.removeEventListener(e, pos));
+      for (const [a] of handlers) try { ms.setActionHandler(a, null); } catch { /* not supported */ }
+      ms.metadata = null;
+    };
+  }, []);
 
   // VOD progress (saved, not rendered app-wide), sleep timer
   useEffect(() => {
@@ -315,22 +367,53 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
     setInArchive(true); setSrc(url, t);
   };
   const liveTotal = () => info.startedAt ? (Date.now() - Date.parse(info.startedAt)) / 1000 : 0;
-  const backupSource = async () => {
-    // Ad-free attempt: tokens of other player types (embed/popout/autoplay) often carry no ad break.
-    for (const p of tw.BACKUP_PLAYER_TYPES) {
-      const t = await tw.liveToken(info.login!, p);
-      if (t) { const url = tw.usherLiveURL(info.login!, t, s.settings.lowLatency); liveURL.current = url; setSource('twitch'); setQualities({ keys: ['auto'], links: { auto: url } }); setQuality('auto'); setSrc(url); return; }
-    }
+  // Ad bridge (adFreeBackupPlaylist): on a break, switch to a backup that likely has none. First
+  // tokens of other player types (embed/popout/autoplay, one GQL call each), then the other
+  // proxies by measured breaks. Their playlists can't be read here (no CORS), so a backup with a
+  // break of its own is only noticed by its cue: the next break edge walks on (adBridgePlan).
+  // Stays on the backup afterwards; the source can be changed in the gear. Mute is untouched:
+  // the [ad] effect above restores it when the new stream shows no break.
+  const bridge = useRef<AdBridge>();
+  const bridging = useRef(false);
+  const [bridged, setBridged] = useState<string>();
+  const bridgeAd = async () => {
+    if (target.kind !== 'live' || bridging.current || inArchiveRef.current || !playing.current) return;
+    const login = target.login.toLowerCase(), types = tw.BACKUP_PLAYER_TYPES;
+    const plan = adBridgePlan(bridge.current, playing.current, Date.now(), [...types, ...rankByAds(s.settings.sourceOrder.filter(x => x !== 'twitch'))]);
+    bridge.current = { tried: plan.tried, at: plan.at };
+    if (!plan.next.length) return;
+    bridging.current = true;
+    const done = (hit: tw.LiveHit, label: string, name: string) => {
+      plan.tried.push(label); bridge.current = { tried: plan.tried, at: Date.now() };
+      playHit(hit, label);
+      addLog('Player', `Werbepause ${login}: weiter über ${name}`, true);
+      setBridged(name); setTimeout(() => setBridged(b => b === name ? undefined : b), 6000);
+    };
+    try {
+      for (const p of plan.next.filter(x => types.includes(x))) {
+        plan.tried.push(p);
+        const t = await tw.liveToken(login, p);
+        if (!video.current) return;
+        if (t) return done({ src: 'twitch', url: tw.usherLiveURL(login, t, s.settings.lowLatency) }, p, `Twitch (${p})`);
+      }
+      const proxies = plan.next.filter(x => !types.includes(x)) as tw.LiveSource[];
+      const hit = proxies.length ? await tw.raceLive(proxies, login, s.settings.lowLatency) : undefined;
+      if (!video.current) return;
+      if (hit) return done(hit, hit.src, SOURCE_LABEL[hit.src]);
+      plan.tried.push(...proxies);
+      addLog('Player', `Werbepause ${login}: kein Ersatz-Stream erreichbar`, false);
+    } finally { bridging.current = false; }
   };
+  useEffect(() => { if (ad && s.settings.adSwitch) bridgeAd(); }, [ad]);
 
   return <>
     <div class={'stage' + (s.settings.fillScreen ? ' fill' : '')}
       // Pinch out fills the screen in landscape, pinch in shows the whole picture (fillScreen).
-      {...{ ongestureend: (e: any) => { if (matchMedia('(orientation: landscape)').matches && Math.abs(e.scale - 1) > 0.1) setSetting('fillScreen', e.scale > 1); } }}
+      {...{ ongestureend: (e: any) => { if (landscapeNow() && Math.abs(e.scale - 1) > 0.1) setSetting('fillScreen', e.scale > 1); } }}
       onTouchStart={e => { pull.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
       onTouchEnd={e => {
         const p = pull.current; pull.current = undefined;
-        if (!p || matchMedia('(orientation: landscape)').matches) return;
+        if (!p || landscapeNow()) return;
         const dx = e.changedTouches[0].clientX - p.x, dy = e.changedTouches[0].clientY - p.y;
         if (dy > 90 && Math.abs(dx) < 60) minimizePlayer();
       }}>
@@ -349,7 +432,8 @@ function SinglePlayer({ target }: { target: Exclude<PlayerTarget, { kind: 'clips
         if (ad && s.settings.adSwitch) { mutedBeforeAd.current = false; v.muted = false; v.muted = true; }
         else v.muted = false;
       }}>🔇 Ton an</button>}
-      {ad && <div class="ad-banner">Werbepause · Ton aus{source !== 'twitch' || <button class="link" onClick={backupSource}>Ersatz-Stream</button>}</div>}
+      {ad ? <div class="ad-banner">{s.settings.adSwitch ? 'Werbepause · Ton aus' : <>Werbepause<button class="link" onClick={bridgeAd}>Ersatz-Stream</button></>}</div>
+        : bridged && <div class="ad-banner">Werbepause übersprungen · über {bridged}</div>}
     </div>
     <div class="mini-bar" onClick={() => minimizePlayer(false)}>
       <div class="mini-text"><div class="card-title">{info.name ?? info.title}</div><div class="card-sub">{info.title}</div></div>
@@ -433,6 +517,10 @@ function Controls({ video, kind, info, inArchive, archive, liveTotal, onSeekLive
         <span class="time">{live ? (atEdge ? <button class="live-dot on" onClick={onGoLive}>● Live</button>
           : <>{formatClock(pos)} / {formatClock(total)} · <button class="live-dot" onClick={onGoLive}>● Live</button></>)
           : `${formatClock(pos)} / ${formatClock(total)}`}</span>
+        {/* Only offered in portrait: in a real landscape the layout is already there. */}
+        {(pseudoLand || !landMQ.matches) && <button class="glass" onClick={() => { togglePseudoLand(); show(); }} aria-label={pseudoLand ? 'Hochformat' : 'Querformat'}>
+          <svg class="icon" width={22} height={22} viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d={pseudoLand ? 'M7 2h10v20H7zm2 2v16h6V4z' : 'M2 7h20v10H2zm2 2v6h16V9z'} /></svg></button>}
         <button class="glass" onClick={() => v?.webkitEnterFullscreen ? v.webkitEnterFullscreen() : v?.requestFullscreen?.()} aria-label="Vollbild"><Icon n="full" /></button>
       </div>
     </>}
