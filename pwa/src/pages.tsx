@@ -347,12 +347,12 @@ export function ChannelPage({ login }: { login: string }) {
     {tab === 'vods' && <>
       <form class="search" onSubmit={e => e.preventDefault()}><input type="search" placeholder="VODs filtern" value={filter} onInput={e => setFilter((e.target as HTMLInputElement).value)} /></form>
       <div class="grid">{shownVods.map(v => <VodCard v={v} wide />)}</div>
-      {!vods ? <Spinner /> : !vods.vods.length && <Empty title="Keine VODs gefunden." />}
+      {!vods ? <Spinner /> : !vods.vods.length && !unlisted.length && <Empty title="Keine VODs gefunden." />}
       {vods?.next && !filter && <button class="btn wide" onClick={moreVods}>Mehr laden</button>}
       {unlisted.length > 0 && <section><h2 class="section-title">Nicht gelistete VODs</h2>
         <p class="hint pad">Gelöschte oder versteckte Übertragungen lassen sich öffnen, solange Twitch ihre Videosegmente noch ausliefert.</p>
         <div class="grid">{unlisted.map(r => <VodCard wide v={{
-          id: r.streamID, title: r.title || 'Nicht gelistete VOD', thumb: '', publishedAt: r.start,
+          id: r.streamID, title: r.title || 'Nicht gelistete VOD', thumb: info.banner || info.avatar, publishedAt: r.start,
           length: r.duration, views: r.maxViews, login: r.login, name: info.name,
         }} onClick={() => recover(r)} disabled={!!resolving}
           status={resolving === r.streamID ? 'Suche …' : gone.has(r.streamID) ? 'Nicht verfügbar' : undefined}
