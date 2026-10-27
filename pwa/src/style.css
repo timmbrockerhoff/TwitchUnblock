@@ -6,12 +6,14 @@
   --text: #000000; --muted: rgba(60, 60, 67, .6); --sep: rgba(60, 60, 67, .29);
   --live: #e91916; --danger: #ff3b30;
   --bar: rgba(249, 249, 249, .82);
+  --glass: rgba(255, 255, 255, .55); --glass-edge: rgba(255, 255, 255, .7); --glass-shadow: rgba(0, 0, 0, .1);
   --safe-b: env(safe-area-inset-bottom); --safe-t: env(safe-area-inset-top);
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #000000; --grouped: #000000; --card: #1c1c1e; --fill: rgba(118, 118, 128, .24);
-    --text: #ffffff; --muted: rgba(235, 235, 245, .6); --sep: rgba(84, 84, 88, .6); --bar: rgba(22, 22, 23, .82); --danger: #ff453a; }
+    --text: #ffffff; --muted: rgba(235, 235, 245, .6); --sep: rgba(84, 84, 88, .6); --bar: rgba(22, 22, 23, .82); --danger: #ff453a;
+    --glass: rgba(70, 70, 74, .45); --glass-edge: rgba(255, 255, 255, .18); --glass-shadow: rgba(0, 0, 0, .35); }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; background: var(--bg); color: var(--text); touch-action: manipulation; }
@@ -126,19 +128,25 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .swatch { width: 26px; height: 26px; border-radius: 50%; }
 .swatch.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px currentColor; color: var(--text); }
 .inline-select { border: 0; background: var(--fill); border-radius: 8px; padding: 4px 8px; font-size: 15px; color: var(--accent); }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 18px; border-radius: 999px; font-weight: 600; font-size: 15px; }
-.btn.prominent { background: var(--accent); color: #fff; }
-.btn.bordered { background: var(--fill); color: var(--accent); }
-.btn.small { padding: 6px 12px; font-size: 14px; }
-.btn.wide { display: flex; width: calc(100% - 32px); margin: 16px; background: var(--fill); color: var(--accent); }
-.btn.prominent.wide { background: var(--accent); color: #fff; }
+/* Liquid Glass look of the iOS app's system buttons (DesignSystem.swift: controlSize .large = 50 px,
+   .small = 34 px, TRadius.control 10): blur behind, translucent fill, light edge, soft shadow, press scale. */
+.btn, .chip, .nav-btn, .close-btn, .segmented {
+  background: var(--glass); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  box-shadow: inset 0 0 0 .5px var(--glass-edge), inset 0 1px 0 var(--glass-edge), 0 4px 14px var(--glass-shadow);
+  transition: transform .15s, opacity .2s; }
+.btn:active, .chip:active, .nav-btn:active, .close-btn:active { transform: scale(.96); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 50px; padding: 0 20px; border-radius: 999px;
+  font-weight: 600; font-size: 17px; color: var(--accent); }
+.btn.prominent { background: color-mix(in srgb, var(--accent) 88%, transparent); color: #fff; }
+.btn.small { height: 34px; padding: 0 14px; font-size: 15px; }
+.btn.wide { display: flex; width: calc(100% - 32px); margin: 16px; }
 .btn:disabled { opacity: .5; }
-.segmented { display: flex; background: var(--fill); border-radius: 9px; padding: 2px; }
-.segmented button { flex: 1; text-align: center; padding: 6px 4px; font-size: 13px; font-weight: 500; border-radius: 7px; }
+.segmented { display: flex; border-radius: 10px; padding: 2px; }
+.segmented button { flex: 1; text-align: center; padding: 6px 4px; font-size: 13px; font-weight: 500; border-radius: 8px; }
 .segmented button.on { background: var(--card); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.chip { padding: 6px 12px; border-radius: 999px; background: var(--fill); font-size: 14px; }
-.chip.ghost { background: none; color: var(--accent); }
+.chip { height: 34px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 999px; font-size: 15px; font-weight: 500; }
+.chip.ghost { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; color: var(--accent); }
 .search { padding: 0 16px 10px; }
 .search input { width: 100%; border: 0; border-radius: 10px; background: var(--fill); padding: 9px 12px; font-size: 17px; outline: none; -webkit-appearance: none; }
 .callout { margin: 0 16px 20px; padding: 16px; border-radius: 14px; background: var(--card); }
@@ -174,7 +182,7 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 @keyframes up { from { transform: translateY(40px); opacity: 0; } }
 .sheet-bar { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; padding: 12px 12px 8px; }
 .sheet-bar h3 { margin: 0; text-align: center; font-size: 17px; }
-.close-btn { width: 30px; height: 30px; border-radius: 50%; background: var(--fill); display: grid; place-items: center; color: var(--muted); justify-self: end; }
+.close-btn { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); justify-self: end; }
 .sheet-body { overflow-y: auto; padding: 4px 0 16px; }
 .sheet-body .section-title { font-size: 17px; }
 .login { padding: 0 20px; text-align: center; }
