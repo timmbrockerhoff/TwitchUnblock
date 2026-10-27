@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
 import type { ChannelBrief, Stream, Category, Vod, Clip, ChannelInfo } from './twitch';
-import { formatViewers, formatDuration, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
+import { formatViewers, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
 import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, addSearch, clearSearchHistory, toggleFavCategory, adStatsFor,
   setAccount, removeHistory, clearHistory, exportBackup, importBackup, type HistoryEntry } from './store';
 import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, accountFollowsError, setChatColor, type DeviceCode } from './account';
@@ -331,11 +331,12 @@ export function ChannelPage({ login }: { login: string }) {
       {vods?.next && !filter && <button class="btn wide" onClick={moreVods}>Mehr laden</button>}
       {unlisted.length > 0 && <section><h2 class="section-title">Nicht gelistete VODs</h2>
         <p class="hint pad">Gelöschte oder versteckte Übertragungen lassen sich öffnen, solange Twitch ihre Videosegmente noch ausliefert.</p>
-        <div class="group">{unlisted.map(r => <button class="row recover-row" disabled={!!resolving} onClick={() => recover(r)}>
-          <div><div>{r.title || 'Nicht gelistete VOD'}</div><div class="row-sub">{new Date(r.start).toLocaleString('de-DE')}{r.game ? ` · ${r.game}` : ''}{r.duration ? ` · ${formatDuration(r.duration)}` : ''}{r.maxViews ? ` · ${formatViewers(r.maxViews)} Zuschauer` : ''}</div>
-            {gone.has(r.streamID) && <div class="row-sub error">Nicht mehr auf dem Twitch-CDN verfügbar.</div>}</div>
-          <span class="accent">{resolving === r.streamID ? 'Suche …' : gone.has(r.streamID) ? 'Erneut' : 'Öffnen'}</span>
-        </button>)}</div></section>}
+        <div class="grid">{unlisted.map(r => <VodCard wide v={{
+          id: r.streamID, title: r.title || 'Nicht gelistete VOD', thumb: '', publishedAt: r.start,
+          length: r.duration, views: r.maxViews, login: r.login, name: info.name,
+        }} onClick={() => recover(r)} disabled={!!resolving}
+          status={resolving === r.streamID ? 'Suche …' : gone.has(r.streamID) ? 'Nicht verfügbar' : undefined}
+          statusError={gone.has(r.streamID)} />)}</div></section>}
       {recovery?.unavailable && <p class="hint pad">Die Quelle für nicht gelistete VODs ist gerade nicht erreichbar.</p>}
     </>}
     {tab === 'clips' && <>

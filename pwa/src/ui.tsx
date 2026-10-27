@@ -89,11 +89,15 @@ export function StreamCard({ s, wide }: { s: Stream; wide?: boolean }) {
     </div>
   </button>;
 }
-export function VodCard({ v, wide }: { v: Vod; wide?: boolean }) {
+export function VodCard({ v, wide, onClick, status, statusError, disabled }: {
+  v: Vod; wide?: boolean; onClick?: () => void; status?: string; statusError?: boolean; disabled?: boolean;
+}) {
   const p = state.progress[v.id];
-  return <button class={'card' + (wide ? ' wide' : '')} onClick={() => play({ kind: 'vod', id: v.id })}>
+  return <button class={'card' + (wide ? ' wide' : '')} disabled={disabled} aria-busy={status === 'Suche …'}
+    onClick={onClick ?? (() => play({ kind: 'vod', id: v.id }))}>
     <div class="thumb"><img loading="lazy" src={v.thumb.includes('404_processing') || !v.thumb ? '' : thumb(v.thumb, 320, 180)} alt="" />
       <span class="badge br">{formatDuration(v.length)}</span>
+      {status && <span class={'badge bl' + (statusError ? ' problem' : '')}>{status}</span>}
       {p && v.length ? <div class="progress"><div style={{ width: `${Math.min(100, p / v.length * 100)}%` }} /></div> : null}</div>
     <div class="card-info"><div><div class="card-title">{v.title}</div>
       <div class="card-sub">{v.name ? v.name + ' · ' : ''}{relDate(v.publishedAt)}{v.views ? ` · ${formatViewers(v.views)} Aufrufe` : ''}</div></div></div>

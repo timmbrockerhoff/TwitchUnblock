@@ -71,6 +71,7 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .badge.live { top: 8px; left: 8px; background: var(--live); }
 .badge.br { bottom: 8px; right: 8px; }
 .badge.bl { bottom: 8px; left: 8px; }
+.badge.problem { background: var(--danger); }
 .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, .3); }
 .progress div { height: 100%; background: var(--accent); }
 .progress.inline { position: static; margin-top: 6px; border-radius: 2px; background: var(--fill); }
@@ -287,10 +288,6 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 /* Long subtitles wrap instead of pushing the switch off screen (seen on a 402 px iPhone). */
 .group .row > div:first-child { flex: 1; min-width: 0; }
 .group .row-sub { white-space: normal; }
-.recover-row { text-align: left; }
-.recover-row:disabled { opacity: .65; }
-.recover-row .accent { flex: none; color: var(--accent); font-weight: 600; }
-
 /* Pinch to fill (landscape only, like the app's "Bildschirm füllen") */
 @media (orientation: landscape) { .stage.fill video { object-fit: cover; } }
 
