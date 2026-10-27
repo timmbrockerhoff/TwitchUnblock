@@ -72,10 +72,12 @@ export function watchChannel(login: string): () => void {
     const payload = [{ event: 'minute-watched', properties: { channel_id: channelId, broadcast_id: broadcastId,
       channel: login, user_id: Number(a.userId), player: 'site', live: true } }];
     // A "simple" CORS request (form encoded, no custom header): no preflight needed.
-    fetch(SPADE_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    // Measured: about 2 in 7 posts fail with "Load failed" (no response); one retry after 5 s.
+    const send = (retry: boolean) => fetch(SPADE_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'data=' + encodeURIComponent(btoa(JSON.stringify(payload))) })
       .then(r => { if (!r.ok) log(`Zuschau-Meldung ${login}: HTTP ${r.status}`, false); })
-      .catch(() => log(`Zuschau-Meldung ${login} fehlgeschlagen`, false));
+      .catch(() => retry ? setTimeout(() => send(false), 5000) : log(`Zuschau-Meldung ${login} fehlgeschlagen`, false));
+    send(true);
   };
   info().then(() => { if (!stopped) { minuteWatched(); log(`Kanalpunkte: zuschauen bei ${login} wird gemeldet`); } });
   const t1 = setInterval(info, 30000), t2 = setInterval(minuteWatched, 60000);
