@@ -29,11 +29,38 @@ export type Settings = {
   autoDrops: boolean;                 // claim finished drops
   dropsStream: boolean;               // hidden account stream so drop minutes count
   appIcon: string;                    // Home Screen icon variant, '' = default (ICONS)
+  // Shared contract for the iOS parity work (AppStore.swift names): chat behaviour, chat sizes,
+  // notice toggles, home/browse options. Owned here so every screen uses the same keys.
+  chatLoadRecent: boolean;            // load recent messages (robotty) on open
+  chatAutocomplete: boolean;          // emote / @mention completion chips
+  chatHideCommands: boolean;          // "!commands" separate from bots, like iOS
+  chatMutedWords: string[];
+  chatBlockedUsers: string[];         // logins hidden in chat (≤ 500)
+  chatHighlightWords: string[];
+  chatSyncNudge: number;              // manual ±20 s trim on the chat delay
+  chatSpacing: number;                // row spacing 0–8 px
+  chatBadgeScale: number;             // 0.7–1.5
+  chatEmoteScale: number;             // 0.7–1.5
+  chatWidth: number;                  // landscape chat column 0.20–0.60
+  chatOnly: boolean;                  // "Nur Chat": video hidden, chat full height
+  showPinned: boolean;
+  showDropsNotice: boolean;
+  showStreak: boolean;
+  showEvents: boolean;                // polls + predictions
+  enableRaids: boolean;
+  multiLiveChat: boolean;
+  homeListLayout: 'grid' | 'list';    // "Alle" lists on Home
+  showRecentChannels: boolean;        // "Zuletzt angesehen" chips in search
+  categoryLang: string;               // language filter on category pages, '' = all
 };
 const defaults: Settings = {
   accent: '#9146ff', sourceOrder: ['as', 'al', 'eu', 'twitch'], quality: 'source', lowLatency: true, adSwitch: true,
-  chatFont: 15, chatTimestamps: false, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false, landscapeChat: 'column',
+  chatFont: 13, chatTimestamps: true, chatShowDeleted: false, chatHideBots: false, chatTranslate: true, chatHidden: false, landscapeChat: 'column',
   topLang: (navigator.language || 'de').slice(0, 2), notifyLive: false, speed: 1, autoPoints: true, autoDrops: true, dropsStream: true, adRanking: true, fillScreen: false, appIcon: '',
+  chatLoadRecent: true, chatAutocomplete: true, chatHideCommands: false, chatMutedWords: [], chatBlockedUsers: [], chatHighlightWords: [],
+  chatSyncNudge: 0, chatSpacing: 4, chatBadgeScale: 1, chatEmoteScale: 1, chatWidth: 0.32, chatOnly: false,
+  showPinned: true, showDropsNotice: true, showStreak: true, showEvents: true, enableRaids: true, multiLiveChat: false,
+  homeListLayout: 'grid', showRecentChannels: true, categoryLang: '',
 };
 export type Account = { token: string; refresh?: string; login: string; userId: string; name: string; avatar: string; scopes: string[] };
 export type HistoryEntry = { kind: 'vod' | 'live' | 'clip'; id: string; title: string; login: string; name: string; thumb: string; length?: number; at: number };
@@ -50,6 +77,8 @@ export const state = {
   hiddenCategories: loadArr<{ id: string; name: string }>('hiddenCategories'),
   favCategories: loadArr<{ id: string; name: string; boxArt: string }>('favCategories'), // "Deine Kategorien", local
   searchHistory: loadArr<string>('searchHistory'),
+  pinned: loadArr<string>('pinned'),                  // streamers pinned to the front of follow lists
+  recentChannels: loadArr<string>('recentChannels'),  // last opened channel pages (≤ 10), "Zuletzt angesehen"
   account: (() => {
     try {
       // The earlier second login (TV client, "rewardsAccount") becomes the one login.
@@ -134,6 +163,17 @@ export function addSearch(q: string) {
   persist('searchHistory');
 }
 export function clearSearchHistory() { state.searchHistory = []; persist('searchHistory'); }
+export const isPinned = (login: string) => state.pinned.includes(login);
+export function togglePin(login: string) {
+  state.pinned = isPinned(login) ? state.pinned.filter(l => l !== login) : [login, ...state.pinned];
+  persist('pinned');
+}
+export function addRecentChannel(login: string) {
+  state.recentChannels = [login, ...state.recentChannels.filter(l => l !== login)].slice(0, 10);
+  persist('recentChannels');
+}
+export function removeRecentChannel(login: string) { state.recentChannels = state.recentChannels.filter(l => l !== login); persist('recentChannels'); }
+export function clearRecentChannels() { state.recentChannels = []; persist('recentChannels'); }
 export function setAccount(a: Account | null) {
   state.account = a;
   if (a) localStorage.setItem('account', JSON.stringify(a)); else { localStorage.removeItem('account'); state.accountFollows = []; state.accountCategories = []; }
