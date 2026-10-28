@@ -344,6 +344,16 @@ export function replayHistory(lines: IRCMessage[]): { irc: IRCMessage; deleted: 
   return out.sort((a, b) => Number(a.irc.tags['tmi-sent-ts'] ?? 0) - Number(b.irc.tags['tmi-sent-ts'] ?? 0));
 }
 
+/** Dedupe by id and cap (ChatService: 200 lines, 600 while the reader scrolled up). Returns the
+ *  new list and the lines that were really new. */
+export function mergeMessages<T extends { id: string }>(list: T[], batch: T[], paused = false): { list: T[]; fresh: T[] } {
+  const ids = new Set(list.map(m => m.id));
+  const fresh = batch.filter(m => !ids.has(m.id) && (ids.add(m.id), true));
+  const cap = paused ? 600 : 200;
+  const all = fresh.length ? [...list, ...fresh] : list;
+  return { list: all.length > cap ? all.slice(-cap) : all, fresh };
+}
+
 // Hype train (LiveEventsService.swift): what Twitch's GQL says, then the transitions between
 // two reads (kickoff after an approach, departed, level done, ended) as timed flashes.
 export type HypeFlash = { k: 'kickoff' } | { k: 'departed' } | { k: 'levelDone'; n: number } | { k: 'ended'; level: number; percent: number };

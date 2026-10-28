@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
   clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, adBridgePlan, formatClock, chatSync,
-  LiveSyncEstimator, rejectionText, followerDuration, chatHidden, chatMentions, replayHistory, readHype, applyHype, endHypeFlash, type LiveHype } from '../src/logic.ts';
+  LiveSyncEstimator, rejectionText, followerDuration, chatHidden, chatMentions, replayHistory, readHype, applyHype, endHypeFlash, mergeMessages, type LiveHype } from '../src/logic.ts';
 import { workerVariants } from '../src/vod.ts';
 
 const master = `#EXTM3U
@@ -133,6 +133,13 @@ const hist = [
   '@id=d;tmi-sent-ts=2300 :cat!cat@cat.tmi.twitch.tv PRIVMSG #c :after the ban',
 ].map(parseIRC).filter(Boolean) as any[];
 assert.deepEqual(replayHistory(hist).map(h => [h.irc.tags.id, h.deleted]), [['a', true], ['c', true], ['b', true], ['d', false]]);
+
+// Messages: duplicates (history + live) dropped by id; 200 kept, 600 while scrolled up.
+const many = Array.from({ length: 700 }, (_, i) => ({ id: 'm' + i }));
+assert.deepEqual(mergeMessages([{ id: 'a' }], [{ id: 'a' }, { id: 'b' }]).fresh, [{ id: 'b' }]);
+assert.equal(mergeMessages([], many).list.length, 200);
+assert.equal(mergeMessages([], many, true).list.length, 600);
+assert.equal(mergeMessages([], many, true).list[0].id, 'm100');
 
 // Hype train: approach → kickoff (1.5 s) → departed (10 s) → level done (4 s) → ended (15 s).
 const t0 = 1_000_000;
