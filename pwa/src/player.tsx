@@ -997,13 +997,19 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const [cur, setCur] = useState(index);
   const root = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
-  // Two <video>s: one plays, the other preloads a neighbour; each sits on the page of its clip,
-  // so a swipe drags the next clip's first frame in instead of a still thumbnail.
-  const vids = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
-  const [vidAt, setVidAt] = useState<[number, number]>([-1, -1]);
-  const [frame, setFrame] = useState<[boolean, boolean]>([false, false]);
-  const slot = cur % 2;
+  // Four <video>s for clips cur-1 … cur+2 (element = index % 4), like ClipFeedPlayers keeping
+  // players for the neighbours: arriving on a clip, the next one is already buffered. Each sits
+  // on its clip's page, so a swipe drags in a real first frame instead of the thumbnail.
+  const vids = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
+  const N = vids.length;
+  const [vidAt, setVidAt] = useState<number[]>([-1, -1, -1, -1]);
+  const [frame, setFrame] = useState<boolean[]>([false, false, false, false]);
+  const slot = cur % N;
+  const curRef = useRef(cur); curRef.current = cur;
+  const loaded = useRef<string[]>(['', '', '', '']); // url per element
+  const at = useRef<number[]>([-1, -1, -1, -1]);      // clip index per element (vidAt without the render lag)
   const [muted, setMuted] = useState(false);
+  const mutedRef = useRef(false); mutedRef.current = muted;
   const [paused, setPaused] = useState(false);
   const [fast, setFast] = useState(false);
   const [chrome, setChrome] = useState(true);
@@ -1052,37 +1058,66 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   };
   useLayoutEffect(() => place(0, true), [cur]);
   useLayoutEffect(() => place(0, false), []);
-  const go = (i: number) => { if (clips[i] && i !== cur) setCur(i); else place(0, true); };
+  /** Puts clip i into its element. `warm`: iOS ignores preload, so a muted play() that pauses
+   *  at the first frame makes it really buffer (and shows that frame on its page). */
+  const assign = (i: number, warm: boolean) => {
+    const c = clips[i]; if (!c) return Promise.resolve();
+    const si = i % N;
+    return resolve(c).then(p => {
+      const el = vids[si].current;
+      if (!p || !el || Math.abs(i - curRef.current) > 2) return;
+      at.current[si] = i;
+      setVidAt(a => a[si] === i ? a : (a = [...a], a[si] = i, a));
+      if (loaded.current[si] !== p.url) {
+        loaded.current[si] = p.url;
+        setFrame(f => (f = [...f], f[si] = false, f));
+        el.preload = 'auto'; el.src = p.url; el.load();
+        if (warm && i !== curRef.current) {
+          el.muted = true;
+          el.play().then(() => { if (curRef.current !== i) { el.pause(); el.currentTime = 0; } }).catch(() => {});
+        }
+      }
+    });
+  };
+  /** Starts clip i; called inside the swipe's touchend, so iOS allows sound and nothing waits
+   *  for a render. Every other element stops. */
+  const activate = (i: number) => {
+    vids.forEach((r, si) => { const v = r.current; if (v && si !== i % N && !v.paused) { v.pause(); v.playbackRate = 1; } });
+    const el = vids[i % N].current; if (!el || !loaded.current[i % N] || at.current[i % N] !== i) return false;
+    el.muted = mutedRef.current; el.playbackRate = 1;
+    if (el.currentTime > 0.3) el.currentTime = 0;
+    start(el, () => setMuted(true));
+    return true;
+  };
+  const go = (i: number) => {
+    if (!clips[i] || i === cur) { place(0, true); return; }
+    activate(i); setCur(i);
+  };
 
   useEffect(() => {
     let alive = true; setPaused(false); setFast(false); if (fill.current) fill.current.style.width = '0%';
-    const c = clips[cur], el = vids[slot].current!, other = vids[1 - slot].current!;
-    other.pause(); other.playbackRate = 1;
-    resolve(c).then(p => {
-      if (!alive || !p) return;
-      if (el.src !== p.url) { setFrame(f => (f[slot] = false, [...f] as [boolean, boolean])); el.src = p.url; }
-      setVidAt(a => (a[slot] = cur, [...a] as [number, number]));
-      el.playbackRate = 1; el.currentTime = 0; el.muted = muted;
-      start(el, () => setMuted(true));
-      setVod(p.vod);
+    const c = clips[cur];
+    // Playback links (a GQL round trip each) for the next three clips right away: cheap, no decoder.
+    for (let k = 1; k <= 3; k++) if (clips[cur + k]) resolve(clips[cur + k]);
+    // The clip itself: usually buffered already and started by go(); else load and start now.
+    assign(cur, false).then(() => {
+      if (!alive) return;
+      const el = vids[slot].current;
+      if (el && el.paused) activate(cur);
     });
-    // After the 0.35 s page animation: the history write re-renders the whole app, and loading
-    // the next neighbour competes with the animation for the decoder.
+    resolve(c).then(p => alive && setVod(p?.vod));
+    // The next clip first; it is the likeliest swipe and often warm already.
+    assign(cur + 1, true);
+    // After the 0.35 s page animation: the clip after next and the previous one, and the history
+    // write (it re-renders the whole app).
     const later = setTimeout(() => {
       if (!alive) return;
+      assign(cur + 2, true); assign(cur - 1, true);
       addHistory({ kind: 'clip', id: c.slug, title: c.title, login: c.login ?? '', name: c.name ?? '', thumb: c.thumb });
-      preload();
     }, 450);
-    // The neighbour the next swipe most likely goes to: the following clip, else the previous one.
-    const ni = clips[cur + 1] ? cur + 1 : cur - 1;
-    const preload = () => clips[ni] && resolve(clips[ni]).then(p => {
-      if (!alive || !p) return;
-      if (other.src !== p.url) { setFrame(f => (f[1 - slot] = false, [...f] as [boolean, boolean])); other.src = p.url; other.load(); }
-      setVidAt(a => (a[1 - slot] = ni, [...a] as [number, number]));
-    });
-    return () => { alive = false; clearTimeout(later); el.pause(); };
+    return () => { alive = false; clearTimeout(later); };
   }, [cur]);
-  useEffect(() => () => vids.forEach(r => { r.current?.removeAttribute('src'); r.current?.load(); }), []);
+  useEffect(() => () => vids.forEach(r => { r.current?.pause(); r.current?.removeAttribute('src'); r.current?.load(); }), []);
 
   /** End of a clip: the next one, or this one again when it was the last. */
   const ended = () => { const el = vids[slot].current!; if (clips[cur + 1]) go(cur + 1); else { el.currentTime = 0; el.play().catch(() => {}); } };
@@ -1093,8 +1128,9 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const setMute = (m: boolean) => { vids.forEach(r => { if (r.current) r.current.muted = m; }); setMuted(m); };
   const unmute = () => {
     setMute(false);
-    // The other element plays from this tap too, so the next clip may start with sound.
-    const o = vids[1 - slot].current; o?.play().then(() => o.pause()).catch(() => {});
+    // The other elements play from this tap too (and pause at once), so later clips may start
+    // with sound even when they begin on their own (end of a clip).
+    vids.forEach((r, si) => { const o = r.current; if (o && si !== slot && o.src) o.play().then(() => { if (curRef.current % N !== si) o.pause(); }).catch(() => {}); });
   };
   // The line follows the playhead every frame; timeupdate only fires ~4×/s and made it step.
   useEffect(() => {
@@ -1219,7 +1255,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       </div>)}
       {vids.map((r, si) => <video key={si} ref={r} class={'feed-video' + (frame[si] && vidAt[si] >= 0 ? ' on' : '')} playsInline preload="auto"
         style={{ top: `${Math.max(0, vidAt[si]) * 100}%` }} disablePictureInPicture {...{ 'x-webkit-airplay': 'deny' }}
-        onLoadedData={() => setFrame(f => (f[si] = true, [...f] as [boolean, boolean]))}
+        onLoadedData={() => setFrame(f => (f = [...f], f[si] = true, f))}
         onEnded={() => si === slot && ended()} />)}
     </div>
     {paused && <div class="feed-pause"><Icon n="play" size={60} /></div>}
