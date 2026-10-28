@@ -1,7 +1,7 @@
 // Self-check of the pure logic: `npm test` (Node 22+, no test framework).
 import assert from 'node:assert/strict';
 import { parseMaster, sortQualities, preferredQualityKey, qualityText, loginFromInput, vodStartFromInput,
-  clipSlugFromInput, isVodInput, formatViewers, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, adBridgePlan, formatClock, chatSync } from '../src/logic.ts';
+  clipSlugFromInput, isVodInput, formatViewers, formatDuration, formatClipDuration, formatShortDate, formatOfflineSince, parseIRC, parseEmoteRanges, readableColor, isAdCue, adActive, rankSources, adBridgePlan, formatClock, chatSync } from '../src/logic.ts';
 import { workerVariants } from '../src/vod.ts';
 
 const master = `#EXTM3U
@@ -52,7 +52,20 @@ assert.equal(readableColor('#000000') !== '#000000', true);
 assert.ok(isAdCue('stitched-ad-123', {}));
 assert.ok(isAdCue('', { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'Amazon' }));
 assert.ok(!isAdCue('', { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'live' }));
-assert.equal(formatViewers(3811600), '3,8 Mio.');
+assert.equal(formatViewers(12800), '12.8k');
+assert.equal(formatViewers(3811600), '3811.6k');
+assert.equal(formatViewers(999), '999');
+assert.equal(formatDuration(4980), '1h 23min');
+assert.equal(formatDuration(1380), '23min');
+assert.equal(formatClipDuration(28), '0:28');
+assert.equal(formatClipDuration(61.7), '1:01');
+assert.equal(formatShortDate('2026-10-21T12:00:00Z'), '21.10.26');
+const nowMs = Date.parse('2026-10-27T12:00:00Z');
+assert.equal(formatOfflineSince('2026-10-14T12:00:00Z', nowMs), '13 T · 14. Okt.');
+assert.equal(formatOfflineSince('2026-10-27T09:30:00Z', nowMs), '2 h · 27. Okt.');
+assert.equal(formatOfflineSince('2025-12-30T12:00:00Z', nowMs), '301 T · 30. Dez. 2025');
+assert.equal(formatOfflineSince(undefined, nowMs), '');
+assert.equal(formatOfflineSince('2026-10-28T12:00:00Z', nowMs), '');
 // Measured in the Simulator: both cues stay active after a pre-roll.
 const amazon = { id: '', start: 3, value: { key: 'X-TV-TWITCH-STREAM-SOURCE', data: 'Amazon|2474283100494' } };
 const adKey = { id: '', start: 3, value: { key: 'X-TV-TWITCH-AD-AD-FORMAT', data: 'standard_video_ad' } };
