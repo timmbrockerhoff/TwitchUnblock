@@ -1003,7 +1003,6 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const vids = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
   const N = vids.length;
   const slot = cur % N;
-  const curRef = useRef(cur); curRef.current = cur;
   const loaded = useRef<string[]>(['', '', '', '']); // url per element
   // Clip index per element. Position, visibility and "first frame ready" are set on the elements
   // directly: preloading must never re-render the feed while a page moves.
@@ -1050,13 +1049,16 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     if (on) root.current?.classList.add('moving');
     else movingT.current = setTimeout(() => root.current?.classList.remove('moving'), ms);
   };
+  // `pos`: the page the track shows. It leads `cur` during a page animation: the track starts
+  // moving the instant the finger lifts, `cur` (re-render, video swap) follows when it has landed.
+  const pos = useRef(index);
   const place = (dy = 0, animate = false) => {
     const el = track.current; if (!el) return;
     if (animate) { moving(true); moving(false, 380); }
     el.style.transition = animate ? 'transform .35s cubic-bezier(.25, .8, .25, 1)' : 'none';
-    el.style.transform = `translate3d(0, calc(${-cur * 100}% + ${dy}px), 0)`;
+    el.style.transform = `translate3d(0, calc(${-pos.current * 100}% + ${dy}px), 0)`;
   };
-  useLayoutEffect(() => { place(0, true); showNear(); }, [cur]);
+  useLayoutEffect(() => { showNear(); }, [cur]);
   useLayoutEffect(() => place(0, false), []);
   /** Puts clip i into its element. `warm`: iOS ignores preload, so a muted play() that pauses
    *  at the first frame makes it really buffer (and shows that frame on its page). */
@@ -1065,7 +1067,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     const si = i % N;
     return resolve(c).then(p => {
       const el = vids[si].current;
-      if (!p || !el || Math.abs(i - curRef.current) > 2) return;
+      if (!p || !el || Math.abs(i - pos.current) > 2) return;
       at.current[si] = i;
       el.style.top = `${i * 100}%`;
       showNear();
@@ -1073,16 +1075,16 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
         loaded.current[si] = p.url;
         el.classList.remove('on');
         el.preload = 'auto'; el.src = p.url; el.load();
-        if (warm && i !== curRef.current) {
+        if (warm && i !== pos.current) {
           el.muted = true;
-          el.play().then(() => { if (curRef.current !== i) { el.pause(); el.currentTime = 0; } }).catch(() => {});
+          el.play().then(() => { if (pos.current !== i) { el.pause(); el.currentTime = 0; } }).catch(() => {});
         }
       }
     });
   };
   /** Only the clip on screen and its direct neighbours are drawn: every visible <video> is a
    *  layer the GPU moves with the page, and only these can come into view during a swipe. */
-  const showNear = () => vids.forEach((r, si) => { const v = r.current; if (v) v.style.visibility = Math.abs(at.current[si] - curRef.current) <= 1 ? '' : 'hidden'; });
+  const showNear = () => vids.forEach((r, si) => { const v = r.current; if (v) v.style.visibility = Math.abs(at.current[si] - pos.current) <= 1 ? '' : 'hidden'; });
   /** Runs `fn` once nothing moves: no finger on the feed, no page animation. Buffering a clip
    *  starts the decoder and the network; during a swipe that cost frames. */
   const idleT = useRef<ReturnType<typeof setTimeout>>();
@@ -1101,10 +1103,20 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     start(el, () => setMuted(true));
     return true;
   };
+  const playT = useRef<ReturnType<typeof setTimeout>>();
+  const landT = useRef<ReturnType<typeof setTimeout>>();
+  /** Page change: the track starts moving the instant the finger lifts, and nothing else runs
+   *  until it has landed (0.35 s). Then the clip starts and `cur` follows (re-render, neighbours).
+   *  play() with sound blocks iOS's main thread while it sets up the audio session; started
+   *  during the animation it held the page still. The timer is set inside the gesture and fires
+   *  within WebKit's 1 s gesture window, so iOS still allows sound. */
   const go = (i: number) => {
-    if (!clips[i] || i === cur) { place(0, true); return; }
-    activate(i); setCur(i);
+    if (!clips[i] || i === pos.current) { place(0, true); return; }
+    pos.current = i; place(0, true); showNear();
+    clearTimeout(playT.current); clearTimeout(landT.current);
+    landT.current = setTimeout(() => { if (pos.current !== i) return; activate(i); setCur(i); }, 360);
   };
+  useEffect(() => () => { clearTimeout(playT.current); clearTimeout(landT.current); }, []);
 
   useEffect(() => {
     let alive = true; setPaused(false); setFast(false); if (fill.current) fill.current.style.width = '0%';
@@ -1131,7 +1143,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   useEffect(() => () => vids.forEach(r => { r.current?.pause(); r.current?.removeAttribute('src'); r.current?.load(); }), []);
 
   /** End of a clip: the next one, or this one again when it was the last. */
-  const ended = () => { const el = vids[slot].current!; if (clips[cur + 1]) go(cur + 1); else { el.currentTime = 0; el.play().catch(() => {}); } };
+  const ended = () => { const el = vids[slot].current!; if (clips[pos.current + 1]) go(pos.current + 1); else { el.currentTime = 0; el.play().catch(() => {}); } };
   const cv = () => vids[slot].current!;
   const toggle = () => { const el = cv(); if (el.paused) { el.play().catch(() => {}); setPaused(false); } else { el.pause(); setPaused(true); } };
   const tap = () => { if (landMQ.matches && !chrome) { showChrome(); return; } toggle(); showChrome(); };
@@ -1141,7 +1153,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     setMute(false);
     // The other elements play from this tap too (and pause at once), so later clips may start
     // with sound even when they begin on their own (end of a clip).
-    vids.forEach((r, si) => { const o = r.current; if (o && si !== slot && o.src) o.play().then(() => { if (curRef.current % N !== si) o.pause(); }).catch(() => {}); });
+    vids.forEach((r, si) => { const o = r.current; if (o && si !== slot && o.src) o.play().then(() => { if (pos.current % N !== si) o.pause(); }).catch(() => {}); });
   };
   // The line follows the playhead every frame; timeupdate only fires ~4×/s and made it step.
   useEffect(() => {
@@ -1207,7 +1219,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     if (s.mode === 'page') {
       s.vy = (dy - s.dy) / Math.max(1, now - s.t); s.dy = dy; s.t = now;
       // Rubber band past the first and last clip.
-      const end = (dy > 0 && !clips[cur - 1]) || (dy < 0 && !clips[cur + 1]);
+      const p0 = pos.current, end = (dy > 0 && !clips[p0 - 1]) || (dy < 0 && !clips[p0 + 1]);
       moving(true);
       place(end ? dy / 3 : dy);
     } else if (s.mode === 'edge') {
@@ -1222,8 +1234,8 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     if (s.fast) { setFastOn(false); return; }
     if (s.mode === 'page') {
       const h = root.current?.clientHeight ?? innerHeight;
-      if (s.dy < -h * 0.2 || s.vy < -0.5) go(cur + 1);
-      else if (s.dy > h * 0.2 || s.vy > 0.5) go(cur - 1);
+      if (s.dy < -h * 0.2 || s.vy < -0.5) go(pos.current + 1);
+      else if (s.dy > h * 0.2 || s.vy > 0.5) go(pos.current - 1);
       else place(0, true);
     } else if (s.mode === 'edge') {
       const w = root.current?.clientWidth ?? innerWidth;
@@ -1235,10 +1247,10 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     if (Math.abs(e.deltaY) < 20 || Date.now() - wheelAt.current < 500) return;
-    wheelAt.current = Date.now(); go(cur + (e.deltaY > 0 ? 1 : -1));
+    wheelAt.current = Date.now(); go(pos.current + (e.deltaY > 0 ? 1 : -1));
   };
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'ArrowDown') go(cur + 1); else if (e.key === 'ArrowUp') go(cur - 1); else if (e.key === ' ') { e.preventDefault(); toggle(); } };
+    const k = (e: KeyboardEvent) => { if (e.key === 'ArrowDown') go(pos.current + 1); else if (e.key === 'ArrowUp') go(pos.current - 1); else if (e.key === ' ') { e.preventDefault(); toggle(); } };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, [cur]);
 
@@ -1250,18 +1262,18 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     <div class="feed-track" ref={track}>
       {pages.map(({ k, i }) => <div class="feed-page" key={k.slug} style={{ top: `${i * 100}%` }}>
         <img src={k.thumb} alt="" draggable={false} decoding="async" />
-        {i === cur && <div class="feed-bottom">
+        {<div class="feed-bottom">
           <div class="feed-row">
             <div class="feed-info">
               <button class="feed-name" onClick={() => k.login && openChannel(k.login)}>{k.name}</button>
               <div class="feed-title">{k.title}</div>
               <div class="feed-meta">{[relTime(k.createdAt), k.curator && `von ${k.curator}`, k.views ? `${formatViewers(k.views)} Aufrufe` : ''].filter(Boolean).join(' · ')}</div>
-              {vod && <button class="feed-vod" onClick={() => play({ kind: 'vod', id: vod.id, start: vod.at })}><Icon n="play" size={13} />Ganzes VOD ab hier</button>}
+              {i === cur && vod && <button class="feed-vod" onClick={() => play({ kind: 'vod', id: vod.id, start: vod.at })}><Icon n="play" size={13} />Ganzes VOD ab hier</button>}
             </div>
             <button class="feed-share" onClick={() => navigator.share?.({ url: `https://clips.twitch.tv/${k.slug}` }).catch(() => {})} aria-label="Teilen"><Icon n="share" size={18} /></button>
           </div>
-          <div class={'clip-line' + (drag ? ' drag' : '')} onPointerDown={scrubStart} onPointerMove={scrubMove} onPointerUp={scrubEnd} onPointerCancel={scrubEnd}>
-            <div ref={fill} /></div>
+          {i === cur ? <div class={'clip-line' + (drag ? ' drag' : '')} onPointerDown={scrubStart} onPointerMove={scrubMove} onPointerUp={scrubEnd} onPointerCancel={scrubEnd}>
+            <div ref={fill} /></div> : <div class="clip-line idle"><div /></div>}
         </div>}
       </div>)}
       {vids.map((r, si) => <video key={si} ref={r} class="feed-video" playsInline preload="auto" disablePictureInPicture {...{ 'x-webkit-airplay': 'deny' }}
