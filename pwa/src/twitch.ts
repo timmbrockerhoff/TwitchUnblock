@@ -425,11 +425,3 @@ export function raceLive(order: LiveStep[], login: string, lowLatency: boolean, 
 
 /** Player types whose tokens often carry no stitched ad while "site" shows a break. */
 export const BACKUP_PLAYER_TYPES = ['embed', 'popout', 'autoplay'];
-
-/** Recent chat lines (robotty, public), shown when joining like on the iPhone. */
-export async function recentMessages(login: string): Promise<string[]> {
-  try {
-    const r = await fetch(`https://recent-messages.robotty.de/api/v2/recent-messages/${login}?limit=100`, { signal: timeout(8000) });
-    return (await r.json()).messages ?? [];
-  } catch { return []; }
-}
