@@ -1,0 +1,93 @@
+/* Channel page (ChannelView.swift): banner card 96 px, avatar 76 with red ring, underlined tabs,
+   VodCardView-style cards with a card surface. */
+.ch-banner { display: block; width: calc(100% - 32px); height: 96px; margin: 0 16px 12px; border-radius: 14px; object-fit: cover; background: var(--fill); }
+.ch-head { display: flex; gap: 12px; align-items: center; padding: 0 16px; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.ch-head-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ch-avatar { width: 76px; height: 76px; border-radius: 50%; object-fit: cover; background: var(--fill); flex: none; }
+/* Ring 2.5 px red, 3 px outside the picture (stroke with -3 padding). */
+.ch-avatar.live { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5.5px var(--live); }
+.ch-name { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 5px; margin: 0; min-width: 0; }
+.ch-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-name .icon { color: var(--accent); }
+.ch-login { font-size: 15px; color: var(--muted); }
+.ch-status { font-size: 13px; color: var(--muted); display: flex; gap: 5px; align-items: center; white-space: nowrap; overflow: hidden; }
+.ch-status .live { color: var(--live); font-weight: 700; }
+.ch-status .dot { width: 7px; height: 7px; }
+/* Description, folded: 80 characters grey + " …mehr" bold, then the link row. Whole block is a button. */
+.ch-about { display: block; width: 100%; padding: 0 16px; margin-top: 12px; font-size: 15px; }
+.ch-desc-short { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ch-desc-short b { color: var(--text); }
+.ch-links { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-top: 8px; color: var(--text); }
+.ch-open { padding: 0 16px; margin-top: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 15px; }
+.ch-open .text { white-space: pre-line; overflow-wrap: anywhere; }
+.ch-open .text a { color: var(--accent); }
+.ch-social { display: flex; gap: 6px; align-items: center; color: var(--accent); font-weight: 600; }
+.ch-panel { background: var(--card); border-radius: 14px; overflow: hidden; }
+.ch-panel img { width: 100%; }
+.ch-panel h4 { margin: 12px 12px 4px; font-size: 15px; }
+.ch-panel p { margin: 0 12px 12px; color: var(--muted); font-size: 14px; white-space: pre-line; overflow-wrap: anywhere; }
+.ch-panel p a { color: var(--accent); }
+.ch-less { font-weight: 700; font-size: 15px; align-self: flex-start; }
+/* Floating "⌃ Weniger anzeigen": above the tab bar (iOS puts it on the minimized bar's row). */
+.ch-less-float { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); bottom: calc(72px + var(--safe-b));
+  display: flex; gap: 6px; align-items: center; padding: 10px 16px; border-radius: 999px; font-size: 15px; font-weight: 600; color: var(--text);
+  background: var(--bar); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .15); white-space: nowrap; }
+.ch-less-float .icon { transform: rotate(180deg); }
+.ch-actions { display: flex; gap: 8px; padding: 0 16px; margin-top: 12px; }
+.ch-actions .btn.grey { color: var(--text); background: var(--fill); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* Tabs: 2.5 px capsule underline in text colour, active semibold, inactive regular grey. */
+.ch-tabs { display: flex; gap: 16px; overflow-x: auto; padding: 0 16px; margin-top: 16px; border-bottom: .5px solid var(--sep); scrollbar-width: none; }
+.ch-tabs::-webkit-scrollbar { display: none; }
+.ch-tabs button { padding: 10px 0 0; color: var(--muted); font-size: 15px; white-space: nowrap; display: flex; flex-direction: column; gap: 8px; }
+.ch-tabs button::after { content: ''; height: 2.5px; border-radius: 2px; }
+.ch-tabs button.on { color: var(--text); font-weight: 600; }
+.ch-tabs button.on::after { background: var(--text); }
+.ch-body { padding-top: 16px; display: flex; flex-direction: column; gap: 16px; }
+.ch-body .shelf { margin-bottom: 0; }
+/* Overview live card: 16:9, radius 14, "JETZT LIVE" badge, headline + "viewers · game". */
+.ch-live { display: block; margin: 0 16px; }
+.ch-live-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: var(--fill); }
+.ch-live-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.live-on { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 4px;
+  background: var(--live); color: #fff; font-size: 11px; font-weight: 700; }
+.live-on::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+.ch-live-title { font-size: 17px; font-weight: 600; margin-top: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ch-live-meta { font-size: 13px; color: var(--muted); margin-top: 3px; }
+/* VodCardView / ClipCardView / UnlistedVodCardView */
+.vtile { display: block; width: 100%; flex: none; background: var(--card); border-radius: 14px; overflow: hidden; text-align: left; }
+.vtile.gone { opacity: .6; }
+.vtile:disabled { cursor: default; }
+.vtile-thumb { position: relative; aspect-ratio: 16 / 9; background: var(--fill); }
+.vtile-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.vtile-thumb.unlisted img { opacity: .35; }
+.vtile-thumb.unlisted::before { content: ''; position: absolute; inset: 0; background: linear-gradient(var(--fill), var(--card)); opacity: .7; }
+.vtile-thumb.unlisted > .icon, .vtile-thumb.unlisted > .spinner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--muted); }
+.vbadge { position: absolute; font-size: 11px; font-weight: 700; color: #fff; padding: 2px 5px; border-radius: 4px; background: rgba(0, 0, 0, .65);
+  display: inline-flex; gap: 3px; align-items: center; }
+.vbadge.tr { top: 8px; right: 8px; }
+.vbadge.tl { top: 8px; left: 8px; }
+.vbadge.br { bottom: 8px; right: 8px; }
+.vbadge.accent { background: color-mix(in srgb, var(--accent) 90%, transparent); }
+.vbadge.danger { background: color-mix(in srgb, var(--danger) 85%, transparent); }
+.vbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, .5); }
+.vbar div { height: 100%; background: var(--accent); }
+.vtile-info { padding: 12px; }
+.vtile-title { font-size: 15px; font-weight: 600; line-height: 1.3; height: 2.6em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.vtile-meta { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-col { display: flex; flex-direction: column; gap: 12px; padding: 0 16px; }
+.ch-chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 16px; scrollbar-width: none; }
+.ch-chips::-webkit-scrollbar { display: none; }
+.ch-clipgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 16px; }
+.ch-pl-head { display: flex; align-items: flex-start; gap: 8px; padding: 0 16px; margin-bottom: 8px; }
+.ch-pl-head > div { flex: 1; min-width: 0; }
+.ch-pl-head .chip { flex: none; gap: 4px; }
+.ch-pl-title { font-size: 16px; font-weight: 700; }
+.ch-pl-meta { font-size: 12px; color: var(--muted); }
+/* Context menu (iOS .contextMenu stand-in): blurred backdrop, centred card with rows. */
+.cmenu-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .25); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: grid; place-items: center; }
+.cmenu { min-width: 250px; max-width: 90vw; background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); animation: cmenu-in .15s ease-out; }
+.cmenu-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; font-size: 17px; border-bottom: .5px solid var(--sep); }
+.cmenu-item:last-child { border-bottom: 0; }
+.cmenu-item.danger { color: var(--danger); }
+@keyframes cmenu-in { from { transform: scale(.9); opacity: 0; } }
