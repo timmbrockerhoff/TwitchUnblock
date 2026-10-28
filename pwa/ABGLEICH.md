@@ -4,6 +4,17 @@ Die iOS-App (`Sources/`, Branch `optimize`) ist die Vorgabe, die Web-App (`pwa/s
 
 Spalten: **Aufwand** klein = unter ~50 Zeilen, mittel = ein halber bis ganzer Tag, groß = mehrere Tage. **Browser/machbar** = auf GitHub Pages ohne eigenen Server, in Safari auf iOS.
 
+## Umsetzungsstand (28.10.2026)
+
+Die Listen unten beschreiben den Stand **vor** der Angleichung. Umgesetzt sind seitdem alle Top-Listen der drei Teile: Formate und Typografie, neue Karten, Long-Press-Menüs, Startseite, Durchsuchen, Kategorieseite, Meine VODs, Kanalseite, Einstellungen als Sheet mit acht Unterseiten, Player-Overlay, Fortschrittsleiste, Pull-Geste, Werbepausen-Countdown, Player- und Sleep-Timer-Sheet, Chat-Kopfzeile, Stream-Info, Mini-Player, Multi-Live mit VODs, Clip-Feed, Chat-Zeilen, Eingabezeile mit Punkte-Kapsel, Infozeile, Chat-Einstellungs-, Nachrichten-, Emote- und Badge-Sheet, Hinweise als Bänder, Chat-Robustheit (Timeout, PING, Dedupe, NOTICEs, Historie, Filter), VOD-Chat-Fallback, Follow-Poll unabhängig vom Tab, Hidden-/Pin-Regeln, Backup im iOS-Format, Drops-Timer, Punkte-Statistik, Service-Worker-Updates, Logger mit Levels.
+
+Noch offen:
+- Truhen-Zustand der Punkte-Kapsel (grün, „Bonus abholen“): die Web-App holt Truhen automatisch ab und meldet keinen offenen Bonus an den Chat.
+- „Deine Kategorien“ nach Zuschauern sortieren: die gespeicherten Kategorien tragen keine Zuschauerzahl.
+- Browser-Zurück schließt das ganze Einstellungs-Sheet statt einer Unterseite.
+- Clip-Pfeile im Single-Player und der zweite Sheet-Detent („groß“).
+- Nicht auf dem iPhone geprüft: Videowiedergabe, Pull-Geste, Leiste im gedrehten Querformat, Ton im Hintergrund, Vorladen im Clip-Feed, Long-Press. Geprüft ist nur Headless-Chrome (Layout, Konsole ohne Fehler, echter Chat).
+
 ## Gesamtbild
 
 Die Web-App hat Struktur und Funktionsumfang der iOS-App weitgehend übernommen (Tabs, Shelves, Kanalseite, Quellen-Rennen, Chat, Drops, Punkte, VOD-Recovery). Die Unterschiede liegen in drei Schichten:
