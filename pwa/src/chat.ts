@@ -495,6 +495,8 @@ export class ChatClient {
       const r = await fetch(`https://recent-messages.robotty.de/api/v2/recent-messages/${this.login}?limit=60`, { signal: AbortSignal.timeout(8000) });
       lines = (await r.json()).messages ?? [];
     } catch { addLog('Chat', `#${this.login}: Chat-Verlauf nicht erreichbar`, false); return; }
+    // Badges and emotes first: lines built before the tables arrive would show broken badges.
+    await Promise.all([globalsLoaded, this.channelId && channelLoaded.get(this.channelId)]);
     if (this.closed) return;
     const msgs: ChatMsg[] = [];
     for (const h of replayHistory(lines.map(parseIRC).filter(Boolean) as IRCMessage[])) {

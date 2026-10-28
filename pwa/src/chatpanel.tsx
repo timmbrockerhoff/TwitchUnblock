@@ -317,7 +317,7 @@ export function MessageRow({ m, onTap, onBadge, onEmote, onOpenChannel, marked }
     {(m.parts.length > 0 || !m.system) && <div class="msg-line">
       {st.chatTimestamps && <span class="ts">{time(m)}</span>}
       {m.history && <CI n="history" size={st.chatFont - 3} cls="ts" />}
-      {m.badges.map(b => <img class="badge-img" src={b.url} alt={b.title} title={b.title} onClick={e => { e.stopPropagation(); onBadge?.(b); }} />)}
+      {m.badges.map(b => <img class="badge-img" src={b.url} alt="" title={b.title} onClick={e => { e.stopPropagation(); onBadge?.(b); }} />)}
       <b class="msg-name" style={{ color: m.color }}>{m.name}{m.action ? '' : ':'}</b>{' '}
       <span class="msg-text" style={m.action ? { color: m.color } : undefined}>{renderParts(m.parts, p => onEmote?.(p, m.userId))}</span>
       {m.translation && <div class="tr"><CI n="translate" size={st.chatFont - 2} />{m.translation}</div>}

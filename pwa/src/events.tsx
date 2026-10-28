@@ -11,6 +11,7 @@ import { readHype, applyHype, endHypeFlash, readableColor, type LiveHype } from 
 import { state, useStore } from './store';
 import { rewards, gql as accountGql, errors } from './rewards';
 import { buildParts, type Part } from './chat';
+import { expectPayout } from './points';
 
 const H_VOTE = '1280e27b0f3c7ae60b5714bd569771ea50635778473182e6e959e2dcfcc16e3c';
 const H_PREDICT = 'b44682ecc88358817009f20e69d75081b1e58825bb40aa53d5dbadcc17c881d8';
@@ -84,6 +85,9 @@ export function LiveEvents({ login, channelId, onRaid }: { login: string; channe
   const [hype, setHype] = useState<LiveHype | undefined>();
   const [raid, setRaid] = useState<Raid | null>(null);
   const [closed, setClosed] = useState<string[]>([]);
+  // Landscape: the bands fold to an icon row (NoticesHideStrip / CollapsedNoticesBar), remembered.
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('noticesCollapsed') === '1'; } catch { return false; } });
+  const collapse = (v: boolean) => { setCollapsed(v); try { localStorage.setItem('noticesCollapsed', v ? '1' : '0'); } catch { /* blocked */ } };
   const [voted, setVoted] = useState<Record<string, string[]>>({});   // poll id → own choices (Twitch doesn't return them)
   const [localBet, setLocalBet] = useState<Record<string, { outcome: string; points: number }>>({});
   const [busy, setBusy] = useState(false);
@@ -124,7 +128,12 @@ export function LiveEvents({ login, channelId, onRaid }: { login: string; channe
           const d = await gql('query($l: String!) { channel(name: $l) { resolvedPredictionEvents(first: 3) { edges { node { id winningOutcome { id } } } } } }', { l: login });
           if (!alive) return;
           const w = d?.channel?.resolvedPredictionEvents?.edges?.find((e: any) => e.node?.id === prev.id)?.node?.winningOutcome?.id;
-          if (w) { resultUntil.current = Date.now() + 60000; setPred({ ...prev, winner: w, closesAt: undefined, locked: true }); }
+          if (w) {
+            resultUntil.current = Date.now() + 60000; setPred({ ...prev, winner: w, closesAt: undefined, locked: true });
+            // Our win: its payout is not watch income (points.ts takes it off the next balance rise).
+            const my = mineOf(prev), o = prev.outcomes.find(x => x.id === w);
+            if (my && my.outcome === w && o && o.points > 0) expectPayout(Math.floor(my.points * prev.outcomes.reduce((a, x) => a + x.points, 0) / o.points), login);
+          }
           else setPred(null);
         } else if (prev && (!prev.winner || resultUntil.current < Date.now())) setPred(null);
       } else {
@@ -310,8 +319,21 @@ export function LiveEvents({ login, channelId, onRaid }: { login: string; channe
   const pollKey = poll ? 'poll:' + (poll.id || poll.title) : '', predKey = pred ? 'pred:' + (pred.id || pred.title) : '';
   const hypeKey = hype ? (hype.phase === 'approaching' ? 'hype-approach' : 'hype') + (hype.id ? ':' + hype.id : '') : '';
 
-  return <div class="events">
+  const closedNow = closed.filter(k => k === pollKey || k === predKey || k === hypeKey);
+  // What the folded landscape row shows: one icon per notice, with its countdown.
+  const folded: [string, number | undefined][] = [];
+  if (pinned && pinned.id !== pinDismissed) folded.push(['pin', pinned.endsAt]);
+  if (drops) folded.push(['gift', undefined]);
+  if (s.showEvents && poll && show(pollKey)) folded.push(['chart', poll.active ? poll.endsAt : undefined]);
+  if (s.showEvents && pred && show(predKey)) folded.push(['sparkles', pred.closesAt]);
+  if (s.showEvents && hype && show(hypeKey)) folded.push(['tram', hype.endsAt]);
+  if (raid) folded.push(['run', undefined]);
+
+  return <div class={'events' + (collapsed ? ' collapsed' : '')}>
+    {folded.length > 0 && <button class="evt-collapsed" onClick={() => collapse(false)} aria-label="Hinweise einblenden">
+      {folded.map(([i, at]) => <span><I n={i} size={12} /><Countdown at={at} /></span>)}</button>}
     {pinned && pinned.id === pinDismissed && <button class="evt-chip" onClick={() => setPinDismissed('')}><I n="pin" size={10} /> Angeheftet</button>}
+    {closedNow.length > 0 && <button class="evt-chip" onClick={() => setClosed([])}><I n="x" size={9} /> {closedNow.length} {closedNow.length === 1 ? 'Hinweis' : 'Hinweise'} ausgeblendet</button>}
     {pinned && pinned.id !== pinDismissed && <PinnedBand pin={pinned} open={pinOpen} onToggle={() => setPinOpen(o => !o)} onClose={() => { setPinOpen(false); setPinDismissed(pinned.id); }} />}
 
     {drops && <div class="evt card drops">
@@ -405,6 +427,7 @@ export function LiveEvents({ login, channelId, onRaid }: { login: string; channe
       <div class="evt-body"><div class="evt-title">🚀 Raid zu {raid.name}</div>{raid.viewers > 0 && <div class="evt-sub">{raid.viewers} Zuschauer</div>}</div>
       <span class="evt-go">Beitreten</span>
     </div>}
+    {folded.length > 0 && <button class="evt-hide-strip" onClick={() => collapse(true)}>Ausblenden <I n="chevron" size={10} /></button>}
   </div>;
 }
 
