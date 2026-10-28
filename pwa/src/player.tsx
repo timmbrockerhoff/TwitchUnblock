@@ -1002,12 +1002,12 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   // on its clip's page, so a swipe drags in a real first frame instead of the thumbnail.
   const vids = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
   const N = vids.length;
-  const [vidAt, setVidAt] = useState<number[]>([-1, -1, -1, -1]);
-  const [frame, setFrame] = useState<boolean[]>([false, false, false, false]);
   const slot = cur % N;
   const curRef = useRef(cur); curRef.current = cur;
   const loaded = useRef<string[]>(['', '', '', '']); // url per element
-  const at = useRef<number[]>([-1, -1, -1, -1]);      // clip index per element (vidAt without the render lag)
+  // Clip index per element. Position, visibility and "first frame ready" are set on the elements
+  // directly: preloading must never re-render the feed while a page moves.
+  const at = useRef<number[]>([-1, -1, -1, -1]);
   const [muted, setMuted] = useState(false);
   const mutedRef = useRef(false); mutedRef.current = muted;
   const [paused, setPaused] = useState(false);
@@ -1056,7 +1056,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     el.style.transition = animate ? 'transform .35s cubic-bezier(.25, .8, .25, 1)' : 'none';
     el.style.transform = `translate3d(0, calc(${-cur * 100}% + ${dy}px), 0)`;
   };
-  useLayoutEffect(() => place(0, true), [cur]);
+  useLayoutEffect(() => { place(0, true); showNear(); }, [cur]);
   useLayoutEffect(() => place(0, false), []);
   /** Puts clip i into its element. `warm`: iOS ignores preload, so a muted play() that pauses
    *  at the first frame makes it really buffer (and shows that frame on its page). */
@@ -1067,10 +1067,11 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       const el = vids[si].current;
       if (!p || !el || Math.abs(i - curRef.current) > 2) return;
       at.current[si] = i;
-      setVidAt(a => a[si] === i ? a : (a = [...a], a[si] = i, a));
+      el.style.top = `${i * 100}%`;
+      showNear();
       if (loaded.current[si] !== p.url) {
         loaded.current[si] = p.url;
-        setFrame(f => (f = [...f], f[si] = false, f));
+        el.classList.remove('on');
         el.preload = 'auto'; el.src = p.url; el.load();
         if (warm && i !== curRef.current) {
           el.muted = true;
@@ -1078,6 +1079,17 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
         }
       }
     });
+  };
+  /** Only the clip on screen and its direct neighbours are drawn: every visible <video> is a
+   *  layer the GPU moves with the page, and only these can come into view during a swipe. */
+  const showNear = () => vids.forEach((r, si) => { const v = r.current; if (v) v.style.visibility = Math.abs(at.current[si] - curRef.current) <= 1 ? '' : 'hidden'; });
+  /** Runs `fn` once nothing moves: no finger on the feed, no page animation. Buffering a clip
+   *  starts the decoder and the network; during a swipe that cost frames. */
+  const idleT = useRef<ReturnType<typeof setTimeout>>();
+  const whenIdle = (fn: () => void, ms = 450) => {
+    clearTimeout(idleT.current);
+    const tick = () => { if (g.current || root.current?.classList.contains('moving')) idleT.current = setTimeout(tick, 150); else fn(); };
+    idleT.current = setTimeout(tick, ms);
   };
   /** Starts clip i; called inside the swipe's touchend, so iOS allows sound and nothing waits
    *  for a render. Every other element stops. */
@@ -1106,16 +1118,15 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       if (el && el.paused) activate(cur);
     });
     resolve(c).then(p => alive && setVod(p?.vod));
-    // The next clip first; it is the likeliest swipe and often warm already.
-    assign(cur + 1, true);
-    // After the 0.35 s page animation: the clip after next and the previous one, and the history
-    // write (it re-renders the whole app).
-    const later = setTimeout(() => {
+    // Neighbours once the page has settled and no finger is down: the next one first (often
+    // buffered already, then this is a no-op), then the one after and the previous one. The
+    // history write waits too: it re-renders the whole app.
+    whenIdle(() => {
       if (!alive) return;
-      assign(cur + 2, true); assign(cur - 1, true);
       addHistory({ kind: 'clip', id: c.slug, title: c.title, login: c.login ?? '', name: c.name ?? '', thumb: c.thumb });
-    }, 450);
-    return () => { alive = false; clearTimeout(later); };
+      assign(cur + 1, true).then(() => alive && whenIdle(() => { if (alive) { assign(cur + 2, true); assign(cur - 1, true); } }, 250));
+    });
+    return () => { alive = false; clearTimeout(idleT.current); };
   }, [cur]);
   useEffect(() => () => vids.forEach(r => { r.current?.pause(); r.current?.removeAttribute('src'); r.current?.load(); }), []);
 
@@ -1253,9 +1264,8 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
             <div ref={fill} /></div>
         </div>}
       </div>)}
-      {vids.map((r, si) => <video key={si} ref={r} class={'feed-video' + (frame[si] && vidAt[si] >= 0 ? ' on' : '')} playsInline preload="auto"
-        style={{ top: `${Math.max(0, vidAt[si]) * 100}%` }} disablePictureInPicture {...{ 'x-webkit-airplay': 'deny' }}
-        onLoadedData={() => setFrame(f => (f = [...f], f[si] = true, f))}
+      {vids.map((r, si) => <video key={si} ref={r} class="feed-video" playsInline preload="auto" disablePictureInPicture {...{ 'x-webkit-airplay': 'deny' }}
+        onLoadedData={e => (e.currentTarget as HTMLElement).classList.add('on')}
         onEnded={() => si === slot && ended()} />)}
     </div>
     {paused && <div class="feed-pause"><Icon n="play" size={60} /></div>}
