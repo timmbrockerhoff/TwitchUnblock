@@ -1,0 +1,230 @@
+/* Player (always dark): controls overlay, layouts, mini player, multi-live, clip feed.
+   Values from PlayerControls.swift / MainTabView.swift / MultiLiveView.swift / ClipFeedView.swift. */
+.player { position: fixed; inset: 0; z-index: 50; background: #000; color: #fff; display: flex; flex-direction: column; color-scheme: dark; transform-origin: 50% 0;
+  --text: #fff; --muted: rgba(235, 235, 245, .6); --fill: rgba(118, 118, 128, .32); --card: #1c1c1e; --grouped: #000; --sep: rgba(84, 84, 88, .6); }
+.player .sheet .group { background: var(--card); }
+/* Portrait: the picture lies under the status bar (ignoresSafeArea), the controls keep clear of it. */
+.stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; flex: none; }
+.stage video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+.stage-msg { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; text-align: center; padding: 20px; background: rgba(0, 0, 0, .55); }
+/* Hidden account stream for drop minutes: must stay "visible" to iOS or it stops loading. */
+.drops-stream { position: absolute; width: 2px; height: 2px; opacity: .01; pointer-events: none; left: 0; top: 0; }
+.bare { display: grid; place-items: center; width: 44px; height: 44px; color: #fff; flex: none; }
+
+/* Controls overlay (PlayerControls): bare glyphs with a shadow, glass circles in the middle,
+   fade 0.2 s after 3 s of playback. */
+.controls { position: absolute; inset: 0; }
+.controls::before { content: ''; position: absolute; inset: 0; background: linear-gradient(rgba(0, 0, 0, .45), rgba(0, 0, 0, .1), rgba(0, 0, 0, .55)); opacity: 0; transition: opacity .2s; pointer-events: none; }
+.controls.on::before { opacity: 1; }
+.ctl { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.controls.on .ctl { opacity: 1; pointer-events: auto; }
+.tapzone { position: absolute; top: 0; bottom: 0; width: 50%; } .tapzone.l { left: 0; } .tapzone.r { right: 0; }
+.ctl .bare .icon { filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .6)); }
+.ctl-top { position: absolute; top: var(--safe-t); left: 4px; right: 4px; display: flex; align-items: center; }
+.ctl-spacer { flex: 1; }
+.ctl-title { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 0 4px; text-shadow: 0 1px 3px #000; text-align: left; }
+.ctl-title b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ctl-title span { font-size: 12px; color: rgba(255, 255, 255, .85); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.dot { color: var(--live); font-style: normal; }
+.ctl-mid { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 36px; }
+.player.land .ctl-mid { gap: 56px; }
+.glass { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff; flex: none;
+  background: rgba(60, 60, 60, .45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .18); }
+.glass.big { width: 60px; height: 60px; }
+.glass.sm { width: 34px; height: 34px; }
+.glass.accent { color: var(--accent-light); }
+.glass:disabled { opacity: .35; }
+.glass .spinner { width: 28px; height: 28px; border-color: rgba(255, 255, 255, .25); border-top-color: #fff; }
+.ctl-bottom { position: absolute; left: 8px; right: 8px; bottom: 44px; display: flex; align-items: center; gap: 6px; }
+.player.land .ctl-bottom { bottom: 58px; }
+.time { flex: 1; display: flex; align-items: center; gap: 8px; padding-left: 10px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000; }
+.player.land .time { padding-left: 20px; }
+.time .dim { color: rgba(255, 255, 255, .7); }
+.live-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; background: rgba(0, 0, 0, .35); font-size: 13px; font-weight: 600; color: #fff; }
+.live-chip i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .6); }
+.live-chip.edge { background: none; } .live-chip.edge i { background: var(--live); }
+.chat-head .live-chip { background: var(--live); font-size: 11px; font-weight: 700; padding: 4px 8px; }
+/* "⏪ 10 Sekunden" flash on the tapped half */
+.flash { position: absolute; top: 0; bottom: 0; width: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; pointer-events: none;
+  font-size: 12px; font-weight: 600; animation: flash-in .15s ease-out; }
+.flash.l { left: 0; } .flash.r { right: 0; }
+.flash::before { content: ''; position: absolute; width: 96px; height: 96px; border-radius: 50%; background: rgba(255, 255, 255, .18); }
+.flash .icon, .flash span { position: relative; }
+@keyframes flash-in { from { opacity: 0; } }
+
+/* Progress bar: accent capsule, inset 18/28 px and a 44 px grip strip when shown; hidden a 3 px line
+   on the picture's edge (VODs only). */
+.scrub { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; padding: 0 var(--inset, 0px); touch-action: none; transition: height .15s; }
+.scrub.on { height: 44px; display: flex; align-items: center; }
+.player.land .scrub.on { height: 58px; padding-bottom: 14px; }
+.scrub.live:not(.on) { opacity: 0; }
+.track { position: relative; width: 100%; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, .2); transition: height .15s; }
+.scrub.on .track { height: 4px; background: rgba(255, 255, 255, .3); }
+.scrub.drag .track { height: 6px; }
+.track .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--accent); min-width: 3px; }
+.track .mute { position: absolute; top: 0; bottom: 0; background: rgba(255, 255, 255, .45); z-index: 1; }
+.track .knob { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); transform: translate(-50%, -50%); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: width .15s, height .15s; z-index: 2; }
+.scrub:not(.on) .knob { display: none; }
+.scrub.drag .knob { width: 22px; height: 22px; }
+.track .bubble { position: absolute; bottom: 30px; transform: translateX(-50%); padding: 4px 8px; border-radius: 999px; background: rgba(0, 0, 0, .75); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Capsules over the picture: unmute, ad break (top), ad gap, notice (bottom) */
+.pill-btn { position: absolute; padding: 6px 14px; border-radius: 999px; background: rgba(40, 40, 40, .85); color: #fff; font-size: 14px; font-weight: 600; }
+.unmute { top: calc(var(--safe-t) + 50px); left: 50%; transform: translateX(-50%); z-index: 2; }
+.ad-banner { position: absolute; top: calc(var(--safe-t) + 12px); left: 50%; transform: translateX(-50%); padding: 5px 10px; border-radius: 999px; background: rgba(0, 0, 0, .65);
+  font-size: 11px; font-weight: 700; white-space: nowrap; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+.ad-banner .link { pointer-events: auto; font-size: 11px; }
+.ad-gap { position: absolute; top: calc(var(--safe-t) + 12px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px;
+  background: rgba(60, 60, 60, .6); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+.stage-notice { position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: rgba(0, 0, 0, .65); font-size: 13px; font-weight: 700; white-space: nowrap; pointer-events: none; }
+
+/* Under the video: the chat header + chat, or the stream info when the chat is closed */
+.below { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
+.player.no-chat:not(.land) .below { overflow-y: auto; }
+.chat-head { display: flex; align-items: center; gap: 8px; height: 48px; flex: none; padding-left: 16px; padding-right: 4px; border-bottom: .5px solid var(--sep); }
+.player.land .chat-head { padding-left: 12px; }
+.chat-head-title { flex: 1; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-head .bare { color: var(--text); }
+.sinfo { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px calc(16px + var(--safe-b)); }
+.sinfo-title { margin: 0; font-size: 20px; font-weight: 700; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sinfo-detail { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sinfo-ch { display: flex; align-items: center; gap: 12px; }
+.sinfo-ch .avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; color: var(--muted); display: grid; place-items: center; }
+.sinfo-name { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player .btn.grey { color: var(--text); background: var(--fill); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.player .btn.danger { color: var(--danger); background: rgba(255, 79, 77, .15); box-shadow: inset 0 0 0 1px var(--danger); }
+.sinfo .chip-row { margin: 0 -16px; padding-bottom: 0; }
+.sinfo .chip-row .chip { color: var(--text); text-decoration: none; }
+.sinfo .chip.warn { color: #e6e619; }
+.chat-card { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border-radius: 14px; background: var(--fill); color: var(--accent-light); margin-top: 4px; }
+.chat-card span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; color: var(--text); }
+.chat-card b { font-size: 17px; font-weight: 600; } .chat-card small { font-size: 13px; color: var(--muted); }
+.chat-card > .icon:last-child { color: var(--muted); }
+.mini-bar { display: none; }
+
+/* Mini player (tabViewBottomAccessory): one glass line with a status icon, the title and ✕ */
+.player.mini { inset: auto 8px calc(64px + var(--safe-b)) 8px; height: 50px; border-radius: 14px; flex-direction: row; align-items: center; overflow: hidden;
+  background: rgba(28, 28, 30, .72); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent), 0 6px 24px rgba(0, 0, 0, .35); }
+.player.mini .stage { position: absolute; width: 2px; height: 2px; opacity: .01; pointer-events: none; aspect-ratio: auto; }
+.player.mini .below, .player.mini .controls, .player.mini .stage-msg, .player.mini .ad-banner, .player.mini .ad-gap, .player.mini .unmute, .player.mini .stage-notice, .player.mini .sheet-backdrop { display: none; }
+.player.mini .mini-bar { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; padding-left: 14px; color: #fff; height: 100%; }
+.mini-icon { display: grid; place-items: center; width: 16px; height: 16px; color: var(--accent-light); flex: none; }
+.mini-icon.live { color: var(--live); } .mini-icon.warn { color: #e6e619; }
+.mini-icon .spinner.small { width: 16px; height: 16px; border-width: 2px; }
+.mini-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.mini .multi, .player.mini .clipfeed { display: none; }
+.player.mini:has(.multi)::after, .player.mini:has(.clipfeed)::after { content: 'Multi-Live / Clips · Tippen zum Öffnen'; padding: 0 16px; font-size: 15px; font-weight: 600; }
+.player.mini:has(.multi), .player.mini:has(.clipfeed) { cursor: pointer; }
+
+/* Landscape (real or the "Querformat" rotation): video beside the chat column, its width from
+   --chat-w (0.20–0.60, ≥ 220 px) with a grip on its edge. */
+.player.land:not(.mini) { flex-direction: row; }
+.player.land:not(.mini) .stage { flex: 1; min-width: 0; height: 100%; aspect-ratio: auto; }
+.player.land:not(.mini) .below { flex: 0 0 max(calc(100% * var(--chat-w, .32)), 220px); min-width: 0; border-left: .5px solid var(--sep); padding-right: var(--land-r, env(safe-area-inset-right)); }
+.player.land:not(.mini) .below:empty { display: none; }
+.player.land:not(.mini) ~ .tabbar { display: none; }
+.player.land.lc-hidden:not(.mini) .below { display: none; }
+.chat-grip { position: absolute; left: -10px; top: 0; bottom: 0; width: 20px; display: grid; place-items: center; touch-action: none; cursor: col-resize; z-index: 3; }
+.chat-grip i { width: 3px; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, .22); transition: width .15s, height .15s; }
+.chat-grip.on i { width: 5px; height: 48px; background: rgba(255, 255, 255, .5); }
+.chat-grip.on::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+/* "Querformat" button: iOS Safari can't lock the orientation, so the portrait page turns the player
+   90° clockwise. Content left = screen top (notch), content right = screen bottom (home indicator);
+   the safe-area variables follow. Transforms rotate hit-testing too, so taps land where they show. */
+.player.pseudo-land:not(.mini) { inset: 0 auto auto 100vw; width: 100vh; width: 100dvh; height: 100vw;
+  transform-origin: top left; transform: rotate(90deg); padding-left: env(safe-area-inset-top);
+  --safe-t: 0px; --safe-b: 0px; --land-r: env(safe-area-inset-bottom); }
+.player.pseudo-land:not(.mini) .sheet { max-height: 88vw; }
+.player.pseudo-land .stage.fill video { object-fit: cover; }
+/* Pinch to fill (landscape only, like the app's "Bildschirm füllen") */
+@media (orientation: landscape) { .stage.fill video { object-fit: cover; } }
+
+/* Player settings sheet: no title bar, grabber, icon rows with the value in grey */
+.psheet { animation: up .25s ease-out; }
+.grabber { width: 36px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .3); margin: 6px auto 10px; flex: none; }
+.psheet .row .lbl { display: flex; align-items: center; gap: 12px; color: var(--text); }
+.psheet .row .lbl .icon { color: var(--text); }
+.psheet .row .val { color: var(--muted); }
+.psheet .row .check { color: var(--accent-light); display: grid; }
+.psheet .hint { padding: 10px 32px 0; font-size: 13px; }
+.psheet-nav { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 0 4px 6px; }
+.psheet-nav b { text-align: center; font-size: 17px; font-weight: 600; }
+.psheet-nav .bare { color: var(--accent-light); }
+/* Sleep timer sheet */
+.sleep { display: flex; flex-direction: column; gap: 16px; padding: 4px 16px 16px; }
+.sleep .hint { text-align: center; font-size: 13px; margin: 8px 0 0; }
+.sleep-big { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+.sleep-big span { font-size: 12px; color: var(--muted); }
+.sleep-big b { font-size: 34px; font-weight: 800; color: var(--accent-light); font-variant-numeric: tabular-nums; }
+.sleep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.sleep-grid .btn { width: 100%; padding: 0; color: var(--muted); }
+.sleep-custom { display: flex; align-items: center; gap: 8px; }
+.sleep-custom input { flex: 1; min-width: 0; border: 1px solid var(--sep); border-radius: 10px; background: var(--fill); color: var(--text); padding: 10px 12px; font: inherit; font-size: 15px; font-weight: 600; outline: none; }
+.sleep-custom input:focus { border-color: var(--accent); }
+.sleep-custom span { font-size: 13px; font-weight: 600; color: var(--muted); }
+.sleep-actions { display: flex; gap: 10px; } .sleep-actions .btn { flex: 1; }
+
+/* Multi-live: header, tiles (2 side by side / 3 = big + 2 stacked / 4 = 2×2 in landscape, stacked
+   in portrait), 4 px gaps, radius 8, accent ring on the audible one */
+.multi { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-t); }
+.multi-top { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
+.multi-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.multi-title b { font-size: 17px; font-weight: 600; } .multi-title span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.multi-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.player.land .multi-body { flex-direction: row; }
+.multi-grid { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; grid-auto-rows: minmax(0, 1fr); }
+.player.land .multi-grid.n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.player.land .multi-grid.n3 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.player.land .multi-grid.n3 > :first-child { grid-row: 1 / 3; }
+.player.land .multi-grid.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.tile { position: relative; min-height: 0; border-radius: 8px; overflow: hidden; background: #111; cursor: pointer; }
+.tile.on { box-shadow: inset 0 0 0 2px var(--accent); }
+/* Taps on an inline <video> sometimes never became a click on iOS (Simulator): the tile takes them. */
+.tile video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.tile-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 6px 6px 16px 10px; font-size: 13px; font-weight: 700;
+  background: linear-gradient(rgba(0, 0, 0, .7), transparent); }
+.tile-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vod-badge { font-size: 10px; font-weight: 800; padding: 2px 5px; border-radius: 4px; background: var(--accent); }
+.tile-btn { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .5); flex: none; }
+.tile-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 12px; text-align: center; }
+.tile-state.dim { background: rgba(0, 0, 0, .55); }
+.tile-state p { margin: 0; font-size: 12px; color: var(--muted); }
+.tile-state .chip { font-size: 13px; height: 30px; padding: 0 12px; }
+.tile-ad { top: auto; bottom: 8px; }
+.tile-ctl { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; padding-top: 14px; background: linear-gradient(transparent, rgba(0, 0, 0, .75)); }
+.tile-ctl .bare { width: 40px; height: 40px; }
+.tile-ctl input { flex: 1; min-width: 0; margin: 0 4px; accent-color: #fff; }
+.tile-time { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; padding-right: 8px; white-space: nowrap; }
+.tile-line { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, .5); }
+.tile-line div { height: 100%; background: var(--accent); }
+.multi .chat { flex: 1; min-height: 0; border-top: .5px solid var(--sep); }
+.player.land .multi .chat { flex: 0 0 min(360px, 32%); border-top: 0; border-left: .5px solid var(--sep); }
+
+/* Clip feed: full-screen vertical feed, info at the bottom over a gradient, progress line, chrome
+   that hides in landscape */
+.clipfeed { position: relative; height: 100%; overflow: hidden; }
+.clipfeed-top { position: absolute; z-index: 3; top: calc(var(--safe-t) + 8px); left: 8px; right: 8px; display: flex; justify-content: space-between; transition: opacity .2s; }
+.clipfeed:not(.chrome) .clipfeed-top, .clipfeed:not(.chrome) .feed-bottom { opacity: 0; pointer-events: none; }
+.feed { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; }
+.feed-item { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: grid; place-items: center; background: #000; }
+.feed-item img { width: 100%; height: 100%; object-fit: contain; }
+.feed-video { position: absolute; z-index: 1; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; opacity: 0; background: #000; }
+.feed-video.on { opacity: 1; }
+.feed-bottom { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: 12px; padding: 60px 14px calc(26px + var(--safe-b));
+  background: linear-gradient(transparent, rgba(0, 0, 0, .6)); transition: opacity .2s; }
+.feed-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
+.feed-info b { font-size: 17px; font-weight: 700; }
+.feed-title { font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.player.land .feed-title { -webkit-line-clamp: 1; }
+.feed-meta { font-size: 13px; color: rgba(255, 255, 255, .75); }
+.feed-info .chip { align-self: flex-start; margin-top: 6px; color: #fff; }
+.glass.share { width: 36px; height: 36px; }
+.feed-pause { position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; color: rgba(255, 255, 255, .85); pointer-events: none; filter: drop-shadow(0 0 8px rgba(0, 0, 0, .5)); }
+.fast-label { position: absolute; z-index: 3; top: calc(var(--safe-t) + 60px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 999px;
+  background: rgba(0, 0, 0, .55); font-size: 15px; font-weight: 700; pointer-events: none; }
+.clipfeed .unmute { position: absolute; z-index: 3; top: calc(var(--safe-t) + 60px); }
+.clip-line { position: absolute; z-index: 3; left: 0; right: 0; bottom: calc(var(--safe-b) + 6px); height: 28px; display: flex; align-items: center; touch-action: none; }
+.clip-line::before { content: ''; position: absolute; left: 0; right: 0; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, .3); transition: height .15s; }
+.clip-line div { position: relative; height: 3px; border-radius: 999px; background: #fff; transition: height .15s; }
+.clip-line.drag::before, .clip-line.drag div { height: 8px; }
