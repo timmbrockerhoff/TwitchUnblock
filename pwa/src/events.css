@@ -80,3 +80,12 @@ div.events { display: flex; flex-direction: column; gap: 0; padding: 0; font-siz
 /* Channel drops card */
 .drops-img { width: 34px; height: 34px; flex: none; object-fit: contain; border-radius: 6px; }
 .drops-img.ph { display: grid; place-items: center; color: #bf94ff; }
+
+/* Landscape only: "Ausblenden ⌃" strip under the bands, or the folded icon row (26 px) instead */
+.evt-collapsed, .evt-hide-strip { display: none; }
+.player.land .evt-hide-strip { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 22px; font-size: 10px; font-weight: 600; color: var(--muted); border-bottom: .5px solid var(--sep); }
+.evt-hide-strip .evt-i { transform: rotate(180deg); }
+.player.land div.events.collapsed > :not(.evt-collapsed) { display: none; }
+.player.land div.events.collapsed .evt-collapsed { display: flex; align-items: center; gap: 12px; width: 100%; height: 26px; padding: 0 12px; color: var(--accent-light); border-bottom: .5px solid var(--sep); }
+.evt-collapsed span { display: inline-flex; align-items: center; gap: 3px; }
+.evt-collapsed .evt-cd { color: var(--muted); font-size: 10px; }
