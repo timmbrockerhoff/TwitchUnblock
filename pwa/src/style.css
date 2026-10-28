@@ -24,7 +24,7 @@ body { font: 17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-u
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
 /* No Safari image sheet ("In Fotos sichern") on a long press: cards are buttons, not photos. */
 img { display: block; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.card, .nav-btn, .tabbar { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.card, .nav-btn, .tabbar, .stream-row, .vod-row, .offline-row, .cat, .avatar-tile, .resume, .recent-chip { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 a { color: var(--accent); text-decoration: none; }
 input, select { font: inherit; color: inherit; }
 /* Side insets: in landscape the Dynamic Island cut off titles and cards on the left. */
