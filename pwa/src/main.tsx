@@ -6,8 +6,9 @@ import { nav, current, setTab, play, openChannel, type Tab } from './nav';
 import { Home, Browse, Library, RoutePage } from './pages';
 import { PlayerHost } from './player';
 import { Icon } from './ui';
-import { NoticeHost } from './notices';
+import { NoticeHost, notice } from './notices';
 import { checkDrops } from './rewards';
+import { startFollowPolling } from './follows';
 import { helix } from './account';
 import { TV_CLIENT_ID } from './twitch';
 import { state, setAccount } from './store';
@@ -68,8 +69,14 @@ if (state.account) fetch('https://id.twitch.tv/oauth2/validate', { headers: { Au
 if (state.account && !state.account.avatar) helix(`users?id=${state.account.userId}`).then(j => {
   const u = j?.data?.[0]; if (u && state.account) setAccount({ ...state.account, name: u.display_name, avatar: u.profile_image_url });
 });
-// Finished drops are claimed on start and every return to the app (ForegroundRefresh in iOS).
+// Follows polled in the background of every screen; finished drops are claimed on start and, batched
+// with the follow refresh (30 s minimum gap), on every return to the app (ForegroundRefresh in iOS).
 checkDrops();
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkDrops(); });
+startFollowPolling(() => [() => checkDrops()]);
 if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js');
-navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.login) play({ kind: 'live', login: e.data.login }); });
+navigator.serviceWorker?.addEventListener('message', e => {
+  if (e.data?.login) play({ kind: 'live', login: e.data.login });
+  // A newer service worker took over (sw.js activate): this page still runs the old assets.
+  if (e.data?.type === 'updated' && e.data.version !== __APP_VERSION__)
+    notice({ kind: 'update', title: 'Neue Version verfügbar', body: `${e.data.version} · Tippen zum Neu laden`, action: 'reload' });
+});

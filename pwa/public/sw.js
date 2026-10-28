@@ -1,8 +1,14 @@
 // App-shell cache so the installed app opens offline/fast. Twitch data and video are never cached.
-const CACHE = 'shell-v1';
+// The build (vite.config.ts) fills in the app version: one cache per version, so an update drops
+// every old hashed asset on activate and the page learns that a newer version is live.
+const VERSION = '__APP_VERSION__';
+const CACHE = 'shell-' + VERSION;
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./', './index.html', './manifest.webmanifest']))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim())
+    .then(() => self.clients.matchAll({ type: 'window' }))
+    .then(list => list.forEach(c => c.postMessage({ type: 'updated', version: VERSION }))));
 });
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);

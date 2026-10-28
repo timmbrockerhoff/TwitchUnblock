@@ -79,6 +79,15 @@ async function workerJSON(path: string, ms = 20000): Promise<WorkerReply | undef
   return undefined;
 }
 
+/** The worker's own live source chain (workerLiveLinks in iOS), the last resort of raceLive.
+ *  Its links go through /api/proxy, so the master ("Auto") and every quality are readable. */
+export async function workerLive(login: string): Promise<Master | undefined> {
+  if (!/^[a-z0-9_]{1,25}$/i.test(login)) return undefined;
+  const j = await workerJSON(`/api/get-live?name=${encodeURIComponent(login.toLowerCase())}&proxy=false`, 15000);
+  if (!j?.links || !Object.keys(j.links).length) return undefined;
+  return { links: j.links, variants: workerVariants(j.variants) };
+}
+
 /** Worker implementation of getM3U8: official token, storyboard/CDN fallback, then proxy. */
 export async function workerVod(id: string): Promise<Master | undefined> {
   if (!/^\d{1,20}$/.test(id)) return undefined;

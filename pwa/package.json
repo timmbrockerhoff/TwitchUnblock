@@ -6,7 +6,7 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "node --experimental-strip-types --no-warnings test/logic.test.ts"
+    "test": "node --experimental-strip-types --no-warnings test/logic.test.ts && node --experimental-strip-types --no-warnings test/backup.test.ts"
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",
