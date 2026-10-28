@@ -172,7 +172,9 @@ export function PlayerHost() {
   const lc = s.settings.landscapeChat === 'hidden' ? 'hidden' : 'column';
   // .land carries the landscape layout for both: one set of CSS rules instead of a media query copy.
   const cls = 'player' + (nav.playerMin ? ' mini' : '') + (s.settings.chatHidden ? ' no-chat' : '') + ' lc-' + lc
-    + (land ? ' land' : '') + (single && pseudoLand ? ' pseudo-land' : '');
+    + (land ? ' land' : '') + (single && pseudoLand ? ' pseudo-land' : '')
+    // "Nur Chat" (chat sheet): live only, the video gives its height to the chat like iOS.
+    + (single && t.kind === 'live' && s.settings.chatOnly && !s.settings.chatHidden ? ' chat-only' : '');
   const open = () => nav.playerMin && minimizePlayer(false);
   const style = { '--chat-w': String(s.settings.chatWidth) } as any;
   if (t.kind === 'clips') return <div class={cls} ref={host} style={style} onClick={open}><ClipFeed key={key} clips={t.clips} index={t.index} /></div>;
@@ -197,7 +199,7 @@ function SinglePlayer({ target, host, landscape }: { target: Exclude<PlayerTarge
   const [sleepOpen, setSleepOpen] = useState(false);
   const [chatSettings, setChatSettings] = useState(false);
   const [mutedRanges, setMutedRanges] = useState<Range[]>([]);
-  const [vodChat, setVodChat] = useState<{ id: string; channelId?: string; offset: number }>();
+  const [vodChat, setVodChat] = useState<{ id: string; channelId?: string; offset: number; login?: string }>();
   const [clipVod, setClipVod] = useState<{ id: string; at?: number }>();
   // Live rewind: the running broadcast's recording, played natively (its seekable range is the whole broadcast).
   const [archiveId, setArchiveId] = useState<string>();
@@ -292,7 +294,7 @@ function SinglePlayer({ target, host, landscape }: { target: Exclude<PlayerTarge
         setQualities({ keys, links: vod.links }); setQuality(q);
         rewriteVod.current = !!vod.recovered; vodCreatedAt.current = meta?.createdAt;
         const at = target.start ?? resumePoint(state.progress[target.id], meta?.length ?? 0);
-        setVodChat({ id: target.id, channelId: meta?.ownerId, offset: at ?? 0 });
+        setVodChat({ id: target.id, channelId: meta?.ownerId, offset: at ?? 0, login: meta?.login });
         await setVodSrc(vod.links[q], at);
         if (!alive) return;
       } else if (target.kind === 'recovered') {
