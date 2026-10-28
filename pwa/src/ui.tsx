@@ -3,7 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { formatViewers, formatDuration, formatClipDuration, formatShortDate } from './logic';
 import { openChannel, play, pop, push } from './nav';
-import { state, useStore, isPinned, togglePin, isFollowed, hideChannel, hideCategory, type HistoryEntry } from './store';
+import { state, useStore, isPinned, togglePin, isFollowedOrPinned, isHiddenCategory, followsCategory, hideChannel, hideCategory, type HistoryEntry } from './store';
 import type { Stream, Vod, Clip, Category, ChannelBrief } from './twitch';
 
 /** Accent palette of the iOS app (Theme.swift AccentTheme): hex, German label. */
@@ -65,9 +65,34 @@ const paths: Record<string, string> = {
   scissors: 'M6 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 1.8a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zM6 14a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 1.8a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zM9 9.5 21 3l1 1.7L10.2 11zm0 5L21 21l1-1.7L10.2 13z',
   playRect: 'M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm7 4.5v7l5.5-3.5z',
   antenna: 'M12 9a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-1 4h2v9h-2zM8.11 7.11A5.5 5.5 0 0 0 8.11 14.89l1.27-1.27A3.7 3.7 0 0 1 9.38 8.38zm7.78 0A5.5 5.5 0 0 1 15.89 14.89l-1.27-1.27A3.7 3.7 0 0 0 14.62 8.38zM5.99 4.99A8.5 8.5 0 0 0 5.99 17.01l1.27-1.27A6.7 6.7 0 0 1 7.26 6.26zm12.02 0A8.5 8.5 0 0 1 18.01 17.01l-1.27-1.27A6.7 6.7 0 0 0 16.74 6.26z',
+  up: 'M4.9 15.5 12 8.4l7.1 7.1-1.4 1.4L12 11.2l-5.7 5.7z',
 };
-export function Icon({ n, size = 22 }: { n: keyof typeof paths | string; size?: number }) {
-  return <svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[n]} fill="currentColor" /></svg>;
+// Settings menu and channel page glyphs (checkmark.seal, shippingbox, flask …): drawn with cut-outs
+// that only work under the evenodd rule, so they keep it.
+const evenodd: Record<string, string> = {
+  seal: 'M12 1.5l2.4 1.9 3-.3 1.2 2.8 2.8 1.2-.3 3 1.9 2.4-1.9 2.4.3 3-2.8 1.2-1.2 2.8-3-.3L12 22.5l-2.4-1.9-3 .3-1.2-2.8-2.8-1.2.3-3L1 12l1.9-2.4-.3-3 2.8-1.2 1.2-2.8 3 .3zm-1.4 13.6 5.8-5.8-1.4-1.4-4.4 4.4-2.2-2.2L7 11.5z',
+  octagon: 'M7.8 2h8.4L22 7.8v8.4L16.2 22H7.8L2 16.2V7.8zM9.4 8 8 9.4l2.6 2.6L8 14.6 9.4 16l2.6-2.6 2.6 2.6 1.4-1.4-2.6-2.6L16 9.4 14.6 8 12 10.6z',
+  bubbles: 'M2 3h13v10H7l-4 3v-3H2zm15 5h5v10h-1v3l-4-3H9v-3h8z',
+  box: 'M12 2 3 6.5v11L12 22l9-4.5v-11zm0 2.2 6.5 3.3L12 10.8 5.5 7.5zM5 9.3l6 3v7.2l-6-3zm14 0v7.2l-6 3v-7.2z',
+  target: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10z',
+  flask: 'M9 2h6v2h-1v5.5l5.5 9.5A2 2 0 0 1 17.8 22H6.2a2 2 0 0 1-1.7-3L10 9.5V4H9z',
+  info: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-1 8h2v7h-2zm0-3.5h2v2h-2z',
+  checkcircle: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-1.5 13.6 6.6-6.6-1.4-1.4-5.2 5.2-2.6-2.6L6.5 11.6z',
+  circle: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16z',
+  swap: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zM9 7l-4 3.5L9 14v-2.5h6v-2H9zm6 3v2.5h-6v2h6V17l4-3.5z',
+  palette: 'M12 2a10 10 0 0 0 0 20c1.4 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5c0-4.7-4.5-8.5-10-8.5zM6.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z',
+  chart: 'M3 12h4v9H3zm7-7h4v16h-4zm7 4h4v12h-4z',
+  backup: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zM9 6 5.5 10h2.5v5h2v-5h2.5zm6 12 3.5-4H16V9h-2v5h-2.5z',
+  download: 'M12 16l4.5-4.5-1.4-1.4L13 12.2V3h-2v9.2L8.9 10.1 7.5 11.5zM5 10h3v2H6v8h12v-8h-2v-2h3v12H5z',
+  terminal: 'M3 4h18v16H3zm2 2v12h14V6zm2 2 3 3-3 3-1.2-1.2L7.6 11 5.8 9.2zm5 5h5v2h-5z',
+  arrowUpRight: 'M7 7h10v10h-2V10.4L6.4 19 5 17.6 13.6 9H7z',
+  bell: 'M12 2a1.5 1.5 0 0 1 1.5 1.5V4a6 6 0 0 1 4.5 5.8V15l2 2v1H4v-1l2-2V9.8A6 6 0 0 1 10.5 4v-.5A1.5 1.5 0 0 1 12 2zm-2 18h4a2 2 0 0 1-4 0z',
+  textsize: 'M3 5h10v2H9v12H7V7H3zm11 5h7v2h-2.5v7h-2v-7H14z',
+  translate: 'M4 4h8v2H9.6a9 9 0 0 1-1.8 4.3A9 9 0 0 0 11 12l-.6 2a11 11 0 0 1-3.9-2.3A11 11 0 0 1 2.6 14L2 12a9 9 0 0 0 3.2-2.1A9 9 0 0 1 3.5 6H4zm1.6 2a7 7 0 0 0 1.4 3 7 7 0 0 0 1.4-3zM15 9h2l4 11h-2l-1-3h-4l-1 3h-2zm1 2.6L14.6 15h2.8z',
+};
+export function Icon({ n, size = 22 }: { n: keyof typeof paths | keyof typeof evenodd | string; size?: number }) {
+  return <svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <path d={paths[n] ?? evenodd[n]} fill="currentColor" fill-rule={n in evenodd ? 'evenodd' : undefined} /></svg>;
 }
 
 // Context menu on a long press (the iOS contextMenu): items are read when the press fires, so
@@ -184,10 +209,6 @@ export const HiddenFooter = ({ count }: { count: number }) => count > 0
 const thumb = (u: string, w = 440, h = 248) => u.replace('{width}', String(w)).replace('{height}', String(h));
 const Eye = ({ n }: { n: number }) => <span class="badge-meta"><Icon n="eye" size={10} />{formatViewers(n)}</span>;
 const PinMark = () => <Icon n="pin" size={10} />;
-/** Followed and pinned channels are never hidden (AppStore.isFollowedOrPinned). */
-export function sortPinnedFirst<T extends { login: string }>(list: T[]): T[] {
-  return [...list].sort((a, b) => (isPinned(b.login) ? 1 : 0) - (isPinned(a.login) ? 1 : 0));
-}
 
 /** Context menu of a live card: multi-live, pin (followed lists), hide channel / category (discovery). */
 function streamMenu(s: Stream, pinnable?: boolean, hideable?: boolean, allowCategory = true): MenuItem[] {
@@ -195,13 +216,12 @@ function streamMenu(s: Stream, pinnable?: boolean, hideable?: boolean, allowCate
   if (pinnable) items.push(isPinned(s.login) ? { label: 'Loslösen', icon: 'pinSlash', onSelect: () => togglePin(s.login) }
     : { label: 'Oben in „Gefolgt“ anheften', icon: 'pin', onSelect: () => togglePin(s.login) });
   if (hideable) {
-    if (!isFollowed(s.login) && !isPinned(s.login)) items.push({ label: 'Diesen Kanal ausblenden', icon: 'eyeSlash', danger: true, onSelect: () => hideChannel(s.login) });
+    if (!isFollowedOrPinned(s.login)) items.push({ label: 'Diesen Kanal ausblenden', icon: 'eyeSlash', danger: true, onSelect: () => hideChannel(s.login, true, s.name) });
     if (allowCategory && s.gameId && s.game && !followsCategory(s.gameId))
       items.push({ label: `Kategorie „${s.game}“ ausblenden`, icon: 'eyeSlash', danger: true, onSelect: () => hideCategory({ id: s.gameId, name: s.game }) });
   }
   return items;
 }
-const followsCategory = (id: string) => state.favCategories.some(c => c.id === id) || state.accountCategories.some(c => c.id === id);
 
 export type CardFlags = { pinnable?: boolean; hideable?: boolean; hideCategory?: boolean };
 /** StreamCardView: card surface, "JETZT LIVE" + viewers on the picture, title (2 lines kept), name
@@ -236,19 +256,20 @@ export function StreamRow({ s, pinnable, hideable, hideCategory }: { s: Stream }
   </button>;
 }
 
-/** VodCardView: duration top right, 3 px progress bar, title (2 lines kept), short date. */
-export function VodCard({ v, wide, onClick, status, statusError, disabled }: {
-  v: Vod; wide?: boolean; onClick?: () => void; status?: string; statusError?: boolean; disabled?: boolean;
+/** VodCardView: duration top right, 3 px progress bar, title (2 lines kept), short date.
+ *  `noName`: the channel's own lists (the streamer is the page). */
+export function VodCard({ v, wide, width, noName, onClick, status, statusError, disabled }: {
+  v: Vod; wide?: boolean; width?: number; noName?: boolean; onClick?: () => void; status?: string; statusError?: boolean; disabled?: boolean;
 }) {
   const p = state.progress[v.id];
-  return <button class={'card' + (wide ? ' wide' : '')} disabled={disabled} aria-busy={status === 'Suche …'}
+  return <button class={'card' + (wide ? ' wide' : '')} style={width ? { width } : undefined} disabled={disabled} aria-busy={status === 'Suche …'}
     onClick={onClick ?? (() => play({ kind: 'vod', id: v.id }))}>
     <div class="thumb"><img loading="lazy" src={v.thumb.includes('404_processing') || !v.thumb ? '' : thumb(v.thumb, 320, 180)} alt="" />
       <span class="badge tr">{formatDuration(v.length)}</span>
       {status && <span class={'badge bl' + (statusError ? ' problem' : '')}>{status}</span>}
       {p && v.length ? <div class="progress"><div style={{ width: `${Math.min(100, p / v.length * 100)}%` }} /></div> : null}</div>
     <div class="card-body"><div class="card-title">{v.title}</div>
-      <div class="card-sub">{formatShortDate(v.publishedAt)}{v.name ? ` · ${v.name}` : ''}</div></div>
+      <div class="card-sub">{formatShortDate(v.publishedAt)}{v.name && !noName ? ` · ${v.name}` : ''}</div></div>
   </button>;
 }
 /** Picture of a history VOD; a recording still running only has Twitch's placeholder → live preview. */
@@ -293,7 +314,7 @@ export function ClipCardWide({ c, onClick }: { c: Clip; onClick: () => void }) {
 /** CategoryCardView: box art radius 6, name (2 lines kept), red dot + viewers; hidden = badge + 50 %. */
 export function CategoryTile({ c, hideable }: { c: Category; hideable?: boolean }) {
   useStore();
-  const hidden = !!hideable && state.hiddenCategories.some(h => h.id === c.id) && !followsCategory(c.id);
+  const hidden = !!hideable && isHiddenCategory(c.id);
   const lp = useLongPress(() => hideable && !followsCategory(c.id) ? [hidden
     ? { label: 'Wieder anzeigen', icon: 'eye', onSelect: () => hideCategory(c, false) }
     : { label: 'Diese Kategorie ausblenden', icon: 'eyeSlash', danger: true, onSelect: () => hideCategory(c) }] : undefined);

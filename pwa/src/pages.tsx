@@ -1,61 +1,22 @@
-// Screens: Home, Browse (search + categories), Category, Meine VODs, Channel page, Settings.
+// Screens: Home, Browse (search + categories), Category, Meine VODs; channel page and settings live in their own files.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import * as tw from './twitch';
-import type { ChannelBrief, Stream, Category, Vod, Clip, ChannelInfo } from './twitch';
+import type { ChannelBrief, Stream, Category } from './twitch';
 import { formatViewers, formatDuration, formatOfflineSince, loginFromInput, isValidLogin, isVodInput, extractVodId, clipSlugFromInput, vodStartFromInput } from './logic';
-import { useStore, state, setSetting, toggleFollow, isFollowed, hideChannel, hideCategory, toggleFavCategory, adStatsFor, isPinned,
-  addRecentChannel, removeRecentChannel, clearRecentChannels,
-  setAccount, removeHistory, clearHistory, exportBackup, importBackup, ICONS, iconURL, type HistoryEntry } from './store';
-import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, accountFollowsError, setChatColor, type DeviceCode } from './account';
+import { useStore, state, setSetting, hideCategory, toggleFavCategory, isPinned, isHiddenChannel, isHiddenCategory, sortPinnedFirst,
+  addRecentChannel, removeRecentChannel, clearRecentChannels, removeHistory, clearHistory, type HistoryEntry } from './store';
+import { accountFollowsError } from './account';
+import { useFollows, refreshFollows, loadFollowClips, followedLogins } from './follows';
 import { play, push, openChannel, type Route } from './nav';
-import { rewards, checkDrops, log as rewardsLog, twitchFollowState, setTwitchFollow, loadFollowedGames, setTwitchGameFollow } from './rewards';
-import { Page, AccountButton, Shelf, ShelfMenu, Empty, Spinner, LoadMore, ListEndNote, Chip, HiddenFooter, StreamCard, StreamRow, VodCard, ResumeVodCard, ShelfClipCard,
-  ClipCard, CategoryTile, OfflineAvatar, pinMenuItem, sortPinnedFirst, useLongPress, Icon, Sheet, Segmented, Toggle, Select, relDate, vodThumb, type CardFlags, type MenuItem } from './ui';
-import { logs, clearLogs, logLine } from './log';
-import { loadRecoverableStreams, resolveRecoverableStream, type RecoverableStream } from './vod';
-import { PushSettings } from './push';
+import { loadFollowedGames, setTwitchGameFollow } from './rewards';
+import { Page, AccountButton, Shelf, ShelfMenu, Empty, Spinner, LoadMore, ListEndNote, Chip, HiddenFooter, StreamCard, StreamRow, ResumeVodCard, ShelfClipCard,
+  CategoryTile, OfflineAvatar, pinMenuItem, useLongPress, Icon, vodThumb, type CardFlags, type MenuItem } from './ui';
 import { ChannelPage } from './channel';
-import { Settings, LogsPage } from './settings';
+import { Settings, LogsPage, LoginSheet } from './settings';
 export { ChannelPage, Settings, LogsPage };
 
-// Followed channels (local + account), refreshed every 2 minutes while the app is open.
-let followCache: ChannelBrief[] | undefined;
-const seenLive = new Set<string>();
-async function refreshFollows(): Promise<ChannelBrief[] | undefined> {
-  // Followed channels are never hidden (AppStore rule): no hiddenChannels filter here.
-  const logins = [...new Set([...state.follows, ...state.accountFollows])];
-  const list = await tw.channels(logins);
-  if (!list) return followCache;
-  // Live notification while the app runs (no push server: see LIMITATIONS.md).
-  const live = list.filter(c => c.stream);
-  if (followCache && state.settings.notifyLive && 'Notification' in window && Notification.permission === 'granted') {
-    for (const c of live) if (!seenLive.has(c.login))
-      notify(`${c.name} ist live`, { body: c.stream!.title, icon: c.avatar, tag: c.login, data: { login: c.login } });
-  }
-  live.forEach(c => seenLive.add(c.login));
-  followCache = list;
-  return list;
-}
-
-/** Service-worker notification where it exists (iOS WebKit in the Simulator reported
- *  registration.showNotification as undefined), else the plain constructor. */
-async function notify(title: string, opts: NotificationOptions & { data: { login: string } }) {
-  const reg = await navigator.serviceWorker?.ready.catch(() => undefined);
-  if (typeof reg?.showNotification === 'function') return reg.showNotification(title, opts);
-  const n = new Notification(title, opts);
-  n.onclick = () => { focus(); play({ kind: 'live', login: opts.data.login }); };
-}
-
-function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined, boolean, () => void] {
-  const [v, setV] = useState<T>();
-  const [loading, setLoading] = useState(true);
-  const [n, setN] = useState(0);
-  useEffect(() => { let alive = true; setLoading(true); fn().then(r => { if (alive) { setV(r); setLoading(false); } }); return () => { alive = false; }; }, [...deps, n]);
-  return [v, loading, () => setN(x => x + 1)];
-}
-
 // Language of the top lists (TopLanguage.swift): Helix codes, device language, German names.
-const TOP_CODES = ['ar', 'bg', 'ca', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'ms', 'nl', 'no',
+export const TOP_CODES = ['ar', 'bg', 'ca', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'ms', 'nl', 'no',
   'pl', 'pt', 'ro', 'ru', 'sk', 'sv', 'th', 'tl', 'tr', 'uk', 'vi', 'zh', 'zh-hk'];
 export function langName(code: string): string {
   try {
@@ -75,44 +36,52 @@ export function deviceLang(): string {
 }
 
 // Startseite --------------------------------------------------------------------------------------
+const TOP_SHELF = 20;
+/** Top streams for the home shelf: 20 visible ones, hidden channels/categories replaced from the
+ *  next pages (HiddenContent.fill), at most 3 extra pages. `refused` = Twitch stopped paging. */
+async function loadTopShelf(lang?: string): Promise<{ streams: Stream[]; refused: boolean } | undefined> {
+  const r = await tw.topStreams(lang, undefined, TOP_SHELF);
+  if (!r) return undefined;
+  let { streams, next, refused } = r;
+  const visible = () => streams.filter(t => !isHiddenChannel(t.login) && !isHiddenCategory(t.gameId)).length;
+  for (let i = 0; i < 3 && next && !refused && visible() < TOP_SHELF; i++) {
+    const more = await tw.topStreams(lang, next, TOP_SHELF);
+    if (!more) break;
+    streams = [...streams, ...more.streams.filter(x => !streams.some(y => y.login === x.login))]; next = more.next; refused = more.refused;
+  }
+  return { streams, refused };
+}
 export function Home() {
   const s = useStore();
-  const [follows, setFollows] = useState(followCache);
-  const [failed, setFailed] = useState(false);
-  const [top, setTop] = useState<Stream[]>();
-  const [clips, setClips] = useState<Clip[]>();
+  const f = useFollows();
+  const [top, setTop] = useState<Awaited<ReturnType<typeof loadTopShelf>>>();
   const [clipChannel, setClipChannel] = useState('');
-  const key = [...s.follows, ...s.accountFollows].join(',') + s.hiddenChannels.join(',');
-  const load = () => Promise.all([
-    refreshFollows().then(r => { setFollows(r); setFailed(r === undefined); }),
-    tw.topStreams(s.settings.topLang || undefined).then(r => r && setTop(r.streams)),
-  ]);
-  useEffect(() => { if (s.account) loadAccountFollows(); }, [s.account?.userId]);
-  useEffect(() => { load(); const t = setInterval(load, 120000); return () => clearInterval(t); }, [key, s.settings.topLang]);
-  // "Clips deiner Kanäle": every clip of the last 24 h of followed channels, newest first, 8 channels at a time.
-  useEffect(() => {
-    const logins = [...new Set([...s.follows, ...s.accountFollows])].slice(0, 8);
-    if (!logins.length) { setClips([]); return; }
-    Promise.all(logins.map(l => tw.clips(l, 'LAST_DAY'))).then(r => setClips(r.flatMap(x => x?.clips ?? [])
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))));
-  }, [key]);
+  const [login, setLogin] = useState(false);
+  const key = followedLogins().join(',');
+  const loadTop = () => loadTopShelf(s.settings.topLang || undefined).then(r => r && setTop(r));
+  const refresh = () => Promise.all([refreshFollows(), loadTop()]);
+  useEffect(() => { loadTop(); }, [s.settings.topLang, s.hiddenChannels, s.hiddenCategories]);
+  // "Clips deiner Kanäle": every clip of the last 24 h of followed channels, newest first (follows.ts).
+  useEffect(() => { if (key) loadFollowClips(); }, [key]);
   const hasFollows = s.follows.length > 0 || !!s.account;
-  const live = sortPinnedFirst((follows ?? []).filter(c => c.stream).sort((a, b) => b.stream!.viewers - a.stream!.viewers));
-  const offline = sortPinnedFirst((follows ?? []).filter(c => !c.stream));
+  const live = sortPinnedFirst((f.list ?? []).filter(c => c.stream).sort((a, b) => b.stream!.viewers - a.stream!.viewers), c => c.login);
+  const offline = sortPinnedFirst((f.list ?? []).filter(c => !c.stream), c => c.login);
   const resume = continueWatching(10);
-  // Hidden channels and categories are left out and the shelf filled up to 20 (HiddenContent.fill).
-  const topVisible = (top ?? []).filter(t => !s.hiddenChannels.includes(t.login) && !s.hiddenCategories.some(c => c.id === t.gameId)).slice(0, 20);
+  const topVisible = (top?.streams ?? []).filter(t => !isHiddenChannel(t.login) && !isHiddenCategory(t.gameId)).slice(0, TOP_SHELF);
   const local = s.settings.topLang || deviceLang(); // the setting's language, else the device's (TopLanguage.resolved)
-  const clipChannels = [...new Map((clips ?? []).map(c => [c.login ?? '', c.name ?? c.login ?? ''])).entries()]
-    .filter(([l]) => l).sort((a, b) => a[1].localeCompare(b[1], 'de', { sensitivity: 'base' }));
-  const shownClips = clipChannel ? (clips ?? []).filter(c => c.login === clipChannel) : clips ?? [];
-  // Account follows still loading: no "nobody live" verdict yet.
-  const waiting = follows === undefined || (!!s.account && !s.accountFollows.length && !accountFollowsError && !s.follows.length);
-  return <Page title="Startseite" onRefresh={load} trailing={<AccountButton />}>
+  const clipChannels = Object.keys(f.clipsByLogin).map(l => [l, f.clipsByLogin[l][0].name ?? l] as [string, string])
+    .sort((a, b) => a[1].localeCompare(b[1], 'de', { sensitivity: 'base' }));
+  const clips = key ? f.clips : [];
+  const shownClips = clipChannel ? f.clipsByLogin[clipChannel] ?? [] : clips ?? [];
+  // First answer still pending (or the account follows): no "nobody live" verdict yet.
+  const failed = f.list === undefined && !f.loading && f.lastLoad > 0;
+  const waiting = f.list === undefined || (!!s.account && !s.accountFollows.length && !accountFollowsError && !s.follows.length);
+  return <Page title="Startseite" onRefresh={refresh} trailing={<AccountButton />}>
     {!hasFollows && <div class="login-card"><Icon n="personPlus" size={28} /><div>
       <b>Melde dich an, um deine Lieblingskanäle zu finden.</b>
       <p>Optional: für deine Twitch-Follows, den Chat und Kanalpunkte. Alles andere funktioniert ohne Konto.</p>
-      <button class="btn prominent" onClick={() => push({ name: 'settings' })}>Mit Twitch anmelden</button></div></div>}
+      <button class="btn prominent" onClick={() => setLogin(true)}>Mit Twitch anmelden</button></div></div>}
+    {login && <LoginSheet onClose={() => setLogin(false)} />}
     {s.account && accountFollowsError && <p class="hint pad">{accountFollowsError}</p>}
     {hasFollows && (live.length > 0
       ? <Shelf title="Jetzt live · Du folgst" onAll={() => push({ name: 'list', kind: 'live' })}>
@@ -127,6 +96,7 @@ export function Home() {
     {(!top || topVisible.length > 0) && <Shelf title="Top-Streams" onAll={() => push({ name: 'list', kind: 'top' })}
       menu={<ShelfMenu value={s.settings.topLang && local} onChange={v => setSetting('topLang', v)} options={[[local, langName(local)], ['', 'Weltweit']]} />}>
       {top ? topVisible.map(t => <StreamCard s={t} width={240} hideable />) : <Spinner />}</Shelf>}
+    {top?.refused && topVisible.length < TOP_SHELF && <ListEndNote text="Twitch liefert den Rest gerade nicht." />}
     {offline.length > 0 && <Shelf title={`Offline · ${offline.length}`} onAll={() => push({ name: 'list', kind: 'offline' })}>
       {offline.map(c => <OfflineAvatar c={c} />)}</Shelf>}
   </Page>;
@@ -143,20 +113,21 @@ export function FullList({ kind }: { kind: 'live' | 'offline' | 'top' }) {
   const [next, setNext] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState(false);
-  const [follows, setFollows] = useState(followCache);
-  const [failed, setFailed] = useState(false);
+  const f = useFollows();
+  const failed = f.list === undefined && !f.loading && f.lastLoad > 0;
   // Local language or the world, a choice of this page like HomeView.topLang; the language itself is the setting.
   const [world, setWorld] = useState(s.settings.topLang === '');
   const local = s.settings.topLang || deviceLang();
   const lang = world ? undefined : local;
   useEffect(() => {
-    if (kind === 'top') { setTop(undefined); setRefused(false); tw.topStreams(lang).then(r => { setTop(r?.streams ?? []); setNext(r?.next); setRefused(!r); }); }
-    else refreshFollows().then(r => { setFollows(r); setFailed(r === undefined); });
+    if (kind === 'top') { setTop(undefined); setRefused(false); tw.topStreams(lang).then(r => { setTop(r?.streams ?? []); setNext(r?.next); setRefused(!!r?.refused); }); }
+    else if (!f.list) refreshFollows();
   }, [kind, lang]);
   const more = async () => {
     setBusy(true);
     const r = await tw.topStreams(lang, next);
-    if (r) { setTop(t => [...(t ?? []), ...r.streams.filter(x => !t?.some(y => y.login === x.login))]); setNext(r.next); } else setRefused(true);
+    if (r && !r.refused) { setTop(t => [...(t ?? []), ...r.streams.filter(x => !t?.some(y => y.login === x.login))]); setNext(r.next); }
+    else { setRefused(true); setNext(undefined); }
     setBusy(false);
   };
   const list = s.settings.homeListLayout === 'list';
@@ -165,18 +136,18 @@ export function FullList({ kind }: { kind: 'live' | 'offline' | 'top' }) {
     : <div class="grid2">{items.map(x => <StreamCard s={x} wide {...flags} />)}</div>;
   const toggle = kind !== 'offline' && <button class="nav-btn" aria-label={list ? 'Als Raster anzeigen' : 'Als Liste anzeigen'}
     onClick={() => setSetting('homeListLayout', list ? 'grid' : 'list')}><Icon n={list ? 'grid' : 'list'} /></button>;
-  const live = sortPinnedFirst((follows ?? []).filter(c => c.stream).map(c => ({ ...c.stream!, avatar: c.avatar })));
-  const offline = sortPinnedFirst((follows ?? []).filter(c => !c.stream));
+  const live = sortPinnedFirst((f.list ?? []).filter(c => c.stream).map(c => ({ ...c.stream!, avatar: c.avatar })), c => c.login);
+  const offline = sortPinnedFirst((f.list ?? []).filter(c => !c.stream), c => c.login);
   const noFollows = !s.account && !s.follows.length;
   const title = kind === 'live' ? 'Du folgst' : kind === 'offline' ? 'Offline' : 'Top-Streams';
-  return <Page title={title} back large={false} trailing={toggle}>
+  return <Page title={title} back large={false} trailing={toggle} onRefresh={kind === 'top' ? undefined : refreshFollows}>
     {kind === 'live' && (noFollows ? <Empty icon="heart" title="Kanälen ohne Konto folgen" text="Öffne eine Kanalseite und tippe auf „Folgen“: Der Kanal erscheint hier, sobald er live geht." />
-      : follows === undefined && !failed ? <Spinner />
+      : f.list === undefined && !failed ? <Spinner />
       : failed ? <Empty icon="warning" title="Fehler beim Laden der Daten." />
       : live.length ? streams(live, { pinnable: true })
       : <Empty icon="moon" title="Keiner deiner Kanäle ist live" text="Schau dir in der Zwischenzeit die Top-Streams oder die Kategorien an."
           action={offline.length ? `Offline-Kanäle ansehen · ${offline.length}` : undefined} onAction={() => push({ name: 'list', kind: 'offline' })} />)}
-    {kind === 'offline' && (follows === undefined && !failed ? <Spinner />
+    {kind === 'offline' && (f.list === undefined && !failed ? <Spinner />
       : failed ? <Empty icon="warning" title="Fehler beim Laden der Daten." />
       : offline.length ? <><h2 class="section-title">Offline · {offline.length}</h2><div class="list">{offline.map(c => <OfflineRow c={c} />)}</div></>
       : live.length ? <Empty icon="antenna" title="Alle deine gefolgten Kanäle sind live!" />
@@ -184,7 +155,7 @@ export function FullList({ kind }: { kind: 'live' | 'offline' | 'top' }) {
     {kind === 'top' && <>
       <div class="chip-row"><Chip on={!world} onClick={() => setWorld(false)}>{langName(local)}</Chip><Chip on={world} onClick={() => setWorld(true)}>Weltweit</Chip></div>
       {!top ? <Spinner /> : !top.length ? <Empty icon="antenna" title="Gerade sind keine Kanäle live." /> : (() => {
-        const shown = top.filter(t => !s.hiddenChannels.includes(t.login) && !s.hiddenCategories.some(c => c.id === t.gameId));
+        const shown = top.filter(t => !isHiddenChannel(t.login) && !isHiddenCategory(t.gameId));
         return <>
           {shown.length ? streams(shown, { hideable: true }) : <Empty icon="antenna" title="Gerade sind keine Kanäle live." />}
           <HiddenFooter count={top.length - shown.length} />
@@ -197,7 +168,7 @@ export function FullList({ kind }: { kind: 'live' | 'offline' | 'top' }) {
 /** Offline "Alle" row: dimmed avatar, pin mark, "13 T · 21. Okt.", chevron; long press pins. */
 function OfflineRow({ c }: { c: ChannelBrief }) {
   const lp = useLongPress(() => [pinMenuItem(c.login)]);
-  const since = formatOfflineSince(c.lastStart);
+  const since = formatOfflineSince(c.lastEnd ?? c.lastStart);
   return <button class="offline-row" onClick={() => openChannel(c.login)} {...lp}>
     <img class="avatar sm" src={c.avatar} alt="" />
     <div><span class="row-name">{isPinned(c.login) && <Icon n="pin" size={10} />}{c.name}</span>{since && <span class="row-sub">{since}</span>}</div>
@@ -243,12 +214,12 @@ export function Browse() {
   const more = async () => {
     setBusy(true);
     const r = await tw.topCategories(next);
-    if (r) { setTop(t => [...(t ?? []), ...r.categories.filter(c => !t?.some(x => x.id === c.id))]); setNext(r.next); } else setRefused(true);
+    if (r && !r.refused) { setTop(t => [...(t ?? []), ...r.categories.filter(c => !t?.some(x => x.id === c.id))]); setNext(r.next); } else { setRefused(true); setNext(undefined); }
     setBusy(false);
   };
   const t = q.trim(), isClip = !!clipSlugFromInput(t), isVod = isVodInput(t);
   const searching = active || t !== '';
-  const visibleTop = (top ?? []).filter(c => !s.hiddenCategories.some(h => h.id === c.id));
+  const visibleTop = (top ?? []).filter(c => !isHiddenCategory(c.id));
   return <Page title="Durchsuchen" trailing={<AccountButton />}>
     <form class="search" onSubmit={submit}>
       <input ref={input} type="search" placeholder="Kanäle, Kategorien oder Links" value={q} onInput={e => setQ((e.target as HTMLInputElement).value)}
@@ -262,7 +233,7 @@ export function Browse() {
       {!isVod && users.length > 0 && <div class="suggest">{users.slice(0, 5).map(u =>
         <button class="suggest-row" onClick={() => open(u.login)}>
           <img class={'avatar xs' + (u.viewers != null ? ' live-ring' : '')} src={u.avatar} alt="" />
-          <div><span class="name">{u.name}{s.hiddenChannels.includes(u.login) && <Icon n="eyeSlash" size={11} />}</span>
+          <div><span class="name">{u.name}{isHiddenChannel(u.login) && <Icon n="eyeSlash" size={11} />}</span>
             {u.viewers != null && <span class="live-line"><span class="live-tag">LIVE</span>{formatViewers(u.viewers)}{u.game ? ` · ${u.game}` : ''}</span>}</div>
           <Icon n="arrowUpLeft" size={12} />
         </button>)}</div>}
@@ -273,7 +244,7 @@ export function Browse() {
           <button class="x" aria-label="Entfernen" onClick={e => { e.stopPropagation(); removeRecentChannel(l); }}><Icon n="close" size={10} /></button></span>)}</div>
       </section>}
     </> : <>
-      {myCats.length > 0 && <Shelf title="Deine Kategorien" onAll={() => push({ name: 'category', id: '', title: 'Deine Kategorien' })}>{myCats.map(c => <CategoryTile c={c} />)}</Shelf>}
+      {myCats.length > 0 && <Shelf title="Deine Kategorien" onAll={() => push({ name: 'myCategories' })}>{myCats.map(c => <CategoryTile c={c} />)}</Shelf>}
       <h2 class="section-title">Kategorien</h2>
       {!top ? <Spinner /> : failed ? <Empty icon="warning" title="Fehler beim Laden der Daten." action="Erneut versuchen" onAction={loadTop} /> : <>
         <div class="cat-grid">{visibleTop.map(c => <CategoryTile c={c} hideable />)}</div>
@@ -284,11 +255,8 @@ export function Browse() {
   </Page>;
 }
 
-/** Route "category" with an empty id = the "Deine Kategorien" grid (no route of its own in nav.ts). */
-export function CategoryPage({ id, title }: { id: string; title: string }) {
-  return id ? <CategoryStreams id={id} title={title} /> : <MyCategories />;
-}
-function MyCategories() {
+/** "Deine Kategorien · Alle": the followed categories as a grid (CategoriesView.swift:221-247). */
+export function MyCategories() {
   const s = useStore();
   const list = myCategories(s);
   return <Page title="Deine Kategorien" back large={false}>
@@ -298,7 +266,7 @@ function MyCategories() {
 }
 type StreamSort = 'desc' | 'asc' | 'name';
 const SORTS: [StreamSort, string][] = [['desc', 'Meiste Zuschauer'], ['asc', 'Wenigste Zuschauer'], ['name', 'Name (A → Z)']];
-function CategoryStreams({ id, title }: { id: string; title: string }) {
+export function CategoryStreams({ id, title }: { id: string; title: string }) {
   const s = useStore();
   const lang = s.settings.categoryLang;
   const [sort, setSort] = useState<StreamSort>('desc');
@@ -312,16 +280,17 @@ function CategoryStreams({ id, title }: { id: string; title: string }) {
     if (!data?.next) return;
     setBusy(true);
     const r = await tw.categoryStreams(id, lang || undefined, data.next);
-    if (r) setData({ ...r, streams: [...data.streams, ...r.streams.filter(x => !data.streams.some(y => y.login === x.login))] }); else setRefused(true);
+    if (r && !r.refused) setData({ ...r, streams: [...data.streams, ...r.streams.filter(x => !data.streams.some(y => y.login === x.login))] });
+    else { setRefused(true); setData({ ...data, next: undefined }); }
     setBusy(false);
   };
   // Logged in, the heart follows on Twitch (like channels); without login or when Twitch's list can't
   // be read it stays local, a failed follow falls back to local with a hint.
   const [twc, setTwc] = useState<{ failed?: boolean; busy?: boolean; err?: string }>({});
   useEffect(() => { setTwc({}); if (s.account) loadFollowedGames().then(ok => !ok && setTwc({ failed: true })); }, [id, s.account?.userId]);
-  const hidden = s.hiddenCategories.some(c => c.id === id);
   const local = s.favCategories.some(c => c.id === id), onTwitch = s.accountCategories.some(c => c.id === id);
   const fav = local || onTwitch;
+  const hidden = isHiddenCategory(id);
   const name = data?.category.name ?? title;
   const toggleFav = async () => {
     if (fav && !confirm(`${name} entfolgen?`)) return;
@@ -336,14 +305,14 @@ function CategoryStreams({ id, title }: { id: string; title: string }) {
   const device = deviceLang();
   const others = TOP_CODES.filter(c => c !== device).map(c => [c, langName(c)] as [string, string]).sort((a, b) => a[1].localeCompare(b[1], 'de'));
   const shown = (() => {
-    const list = (data?.streams ?? []).filter(x => !s.hiddenChannels.includes(x.login));
+    const list = (data?.streams ?? []).filter(x => !isHiddenChannel(x.login));
     return sort === 'desc' ? [...list].sort((a, b) => b.viewers - a.viewers) : sort === 'asc' ? [...list].sort((a, b) => a.viewers - b.viewers)
       : [...list].sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }));
   })();
   return <Page title={title} back large={false} trailing={<>
     {!fav && !hidden && <button class="nav-btn" aria-label="Diese Kategorie ausblenden" onClick={() => hideCategory({ id, name })}><Icon n="eyeSlash" /></button>}
     <button class={'nav-btn' + (fav ? ' danger' : '')} aria-label={fav ? 'Folge ich' : 'Folgen'} disabled={twc.busy} onClick={toggleFav}><Icon n={fav ? 'heart' : 'heartOutline'} /></button></>}>
-    {hidden && !fav && <div class="cat-strip"><button class="chip" onClick={() => hideCategory({ id, name }, false)}><Icon n="eye" size={14} />Ausgeblendet · Wieder anzeigen</button></div>}
+    {hidden && <div class="cat-strip"><button class="chip" onClick={() => hideCategory({ id, name }, false)}><Icon n="eye" size={14} />Ausgeblendet · Wieder anzeigen</button></div>}
     {twc.err && <p class="hint pad error">Twitch hat abgelehnt ({twc.err}), {onTwitch ? 'du folgst der Kategorie dort weiter' : 'die Kategorie ist nur in dieser App gemerkt'}.</p>}
     {twc.failed && <p class="hint pad error">Gefolgte Kategorien von Twitch nicht lesbar, das Herz merkt die Kategorie deshalb nur in dieser App.</p>}
     <div class="chip-row">
@@ -400,7 +369,8 @@ function VodRow({ h }: { h: HistoryEntry }) {
 export function RoutePage({ r }: { r: Route }) {
   switch (r.name) {
     case 'channel': return <ChannelPage login={r.login} />;
-    case 'category': return <CategoryPage id={r.id} title={r.title} />;
+    case 'category': return <CategoryStreams id={r.id} title={r.title} />;
+    case 'myCategories': return <MyCategories />;
     case 'list': return <FullList kind={r.kind} />;
     case 'settings': return <Settings />;
     case 'logs': return <LogsPage />;

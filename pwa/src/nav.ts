@@ -9,12 +9,14 @@ export type Route =
   | { name: 'root' }
   | { name: 'channel'; login: string }
   | { name: 'category'; id: string; title: string }
+  | { name: 'myCategories' }
   | { name: 'list'; kind: 'live' | 'offline' | 'top' }
   | { name: 'settings' }
   | { name: 'logs' };
 export type PlayerTarget =
   | { kind: 'live'; login: string }
-  | { kind: 'vod'; id: string; start?: number }
+  /** `queue`: VOD ids to play after this one (a channel's playlist, "Alle abspielen"). */
+  | { kind: 'vod'; id: string; start?: number; queue?: string[] }
   | { kind: 'recovered'; vod: RecoveredVod }
   | { kind: 'clip'; slug: string }
   | { kind: 'clips'; clips: Clip[]; index: number }

@@ -3,38 +3,18 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { LiveSource } from './twitch';
-import { useStore, setSetting, hideChannel, hideCategory, adStatsFor, setAccount, clearHistory, exportBackup, importBackup, ICONS, iconURL, type Settings as SettingsT } from './store';
+import { useStore, setSetting, hideChannel, hideCategory, unhideAll, adStatsFor, setAccount, clearHistory, exportBackup, importBackup, backupFileName, ICONS, iconURL, type Settings as SettingsT } from './store';
 import { startDeviceLogin, pollDeviceLogin, loadAccountFollows, setChatColor, type DeviceCode } from './account';
 import { pop } from './nav';
-import { rewards, checkDrops, log as rewardsLog } from './rewards';
-import { Empty, Spinner, Icon, Sheet } from './ui';
-import { logs, clearLogs, logLine } from './log';
+import { rewards, checkDrops, loadDropCampaigns, log as rewardsLog, type DropCampaign } from './rewards';
+import { points, resetPoints } from './points';
+import { formatDuration } from './logic';
+import { Empty, Spinner, Icon, Sheet, ACCENTS, relDate } from './ui';
+import { logs, clearLogs, logLine, LOG_LEVELS, type LogLevel } from './log';
 import { PushSettings } from './push';
-import { XIcon } from './channel';
+import { TOP_CODES, langName, deviceLang } from './pages';
 import './settings.css';
 
-/** Accent palette (Theme.swift). Local fallback until ui.tsx exports it. */
-const ACCENTS: [string, string][] = [['#9146ff', 'Twitch-Lila'], ['#2f7cf6', 'Blau'], ['#10b981', 'Grün'], ['#ec4899', 'Pink'],
-  ['#f97316', 'Orange'], ['#e5484d', 'Rot'], ['#06b6d4', 'Petrol']];
-/** Helix `language=` codes (TopLanguage.swift). */
-const TOP_CODES = ['ar', 'bg', 'ca', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'ms', 'nl', 'no', 'pl', 'pt',
-  'ro', 'ru', 'sk', 'sv', 'th', 'tl', 'tr', 'uk', 'vi', 'zh', 'zh-hk'];
-const langName = (code: string) => {
-  try {
-    const n = new Intl.DisplayNames(['de'], { type: 'language' }).of(code === 'zh-hk' ? 'zh-HK' : code) ?? code.toUpperCase();
-    return n[0].toUpperCase() + n.slice(1);
-  } catch { return code.toUpperCase(); }
-};
-const deviceLang = (() => {
-  const alias: Record<string, string> = { nb: 'no', nn: 'no', fil: 'tl' };
-  for (const raw of navigator.languages ?? [navigator.language]) {
-    const tag = raw.toLowerCase();
-    if (/^zh-(hk|mo|hant)/.test(tag)) return 'zh-hk';
-    const base = tag.split('-')[0], code = alias[base] ?? base;
-    if (TOP_CODES.includes(code)) return code;
-  }
-  return 'en';
-})();
 const DEFAULT_ORDER: LiveSource[] = ['as', 'al', 'eu', 'twitch'];
 const SOURCE_NAMES: Record<LiveSource, string> = { as: 'Luminous Asien', al: 'Albanien-Proxy (TTV.LOL)', eu: 'Luminous Europa', twitch: 'Offizielles Twitch (Werbung)' };
 const adStatsLabel = ([breaks, sec]: [number, number]) =>
@@ -47,17 +27,15 @@ const CHAT_COLORS: [string, string][] = [['blue', '0000FF'], ['blue_violet', '8A
 type SubPage = 'account' | 'general' | 'player' | 'chat' | 'drops' | 'points' | 'labs' | 'about' | 'logs';
 // Settings-app rows: white symbol on a solid system-coloured square.
 const MENU: [SubPage, string, string, string][] = [
-  ['account', 'Twitch-Konto', 'person', '#af52de'], ['general', 'Allgemein', 'gear', '#8e8e93'], ['player', 'Player', 'playrect', '#007aff'],
+  ['account', 'Twitch-Konto', 'person', '#af52de'], ['general', 'Allgemein', 'gear', '#8e8e93'], ['player', 'Player', 'playRect', '#007aff'],
   ['chat', 'Chat', 'bubbles', '#34c759'], ['drops', 'Drops', 'box', '#ff3b30'], ['points', 'Kanalpunkte', 'target', '#5856d6'],
   ['labs', 'Funktionen im Test', 'flask', '#ff9500'], ['about', 'Über', 'info', '#8e8e93']];
 const TITLES: Record<SubPage, string> = { account: 'Twitch-Konto', general: 'Allgemein', player: 'Player', chat: 'Chat', drops: 'Drops',
   points: 'Kanalpunkte', labs: 'Funktionen im Test', about: 'Über', logs: 'Systemprotokolle' };
-const uiIcons = new Set(['person', 'gear', 'chat', 'gift', 'link', 'share', 'check', 'close', 'play', 'grid', 'heart', 'down', 'back', 'browse']);
-const AnyIcon = ({ n, size }: { n: string; size?: number }) => uiIcons.has(n) ? <Icon n={n} size={size} /> : <XIcon n={n} size={size} />;
 
 // Building blocks (settingCard / label / toggleRow / sliderRow in SettingsView.swift) ------------
 function Card({ icon, title, children }: { icon?: string; title?: string; children: ComponentChildren }) {
-  return <section class="scard">{title && <div class="scard-label">{icon && <AnyIcon n={icon} size={20} />}<span>{title}</span></div>}{children}</section>;
+  return <section class="scard">{title && <div class="scard-label">{icon && <Icon n={icon} size={20} />}<span>{title}</span></div>}{children}</section>;
 }
 const Div = () => <div class="sdiv" />;
 function TRow({ title, sub, value, onChange }: { title: string; sub?: string; value: boolean; onChange: (v: boolean) => void }) {
@@ -113,7 +91,7 @@ export function Settings() {
             <div><div class="acc-login">{acc?.login ?? 'Twitch'}</div><div class="srow-sub">{acc ? 'Verbunden' : 'Nicht angemeldet'}</div></div>
           </div>
           <div class="group">{MENU.map(([p, title, icon, tint]) => <button class="menu-row" onClick={() => go(p)}>
-            <span class="menu-icon" style={{ background: tint }}><AnyIcon n={icon} size={17} /></span><span class="menu-title">{title}</span><XIcon n="chevron" size={16} /></button>)}</div>
+            <span class="menu-icon" style={{ background: tint }}><Icon n={icon} size={17} /></span><span class="menu-title">{title}</span><Icon n="right" size={16} /></button>)}</div>
           <p class="sfooter">Version Web {__APP_VERSION__}</p>
         </>}
         {page === 'account' && <AccountPage onLogin={() => setLogin(true)} />}
@@ -138,12 +116,12 @@ function AccountPage({ onLogin }: { onLogin: () => void }) {
   const logout = () => confirm('Möchtest du dich wirklich abmelden?') && setAccount(null);
   return <Card icon="person" title="Twitch-Konto">
     <div class="srow">
-      <span class={'acc-check' + (acc ? ' ok' : '')}><XIcon n={acc ? 'checkcircle' : 'circle'} size={22} /></span>
+      <span class={'acc-check' + (acc ? ' ok' : '')}><Icon n={acc ? 'checkcircle' : 'circle'} size={22} /></span>
       <div class="srow-text"><div class="srow-title">API-Anmeldung</div><div class={'srow-sub' + (acc ? ' ok' : '')}>{acc ? 'Verbunden' : 'Chat, gefolgte Kanäle und Top'}</div></div>
       <Pill danger={!!acc} onClick={acc ? logout : onLogin}>{acc ? 'Abmelden' : 'Mit Twitch anmelden'}</Pill>
     </div>
     {acc && <button class="srow plain" onClick={() => { setAccount(null); onLogin(); }}>
-      <span class="acc-check accent"><XIcon n="swap" size={22} /></span>
+      <span class="acc-check accent"><Icon n="swap" size={22} /></span>
       <div class="srow-text"><div class="srow-title accent">Konto wechseln</div><div class="srow-sub">Twitch fragt nach deinen Zugangsdaten: Melde dich mit dem anderen Konto an.</div></div>
     </button>}
     <p class="srow-sub pad-top">Login per Code auf twitch.tv/activate (Twitchs TV-Zugang): kein Passwort in dieser App, kein Server.</p>
@@ -163,7 +141,7 @@ function GeneralPage() {
   // The iOS share sheet ("In Dateien sichern"): an <a download> did nothing in the installed
   // web app (Simulator). Other browsers fall back to the download.
   const download = () => {
-    const name = `TwitchUnblock-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const name = backupFileName();
     const f = new File([exportBackup()], name, { type: 'application/json' });
     if (navigator.canShare?.({ files: [f] })) { navigator.share({ files: [f] }).then(() => setMsg('Datei exportiert')).catch(() => {}); return; }
     const a = document.createElement('a');
@@ -173,9 +151,9 @@ function GeneralPage() {
   return <>
     <Card>
       <div class="srow">
-        <div class="srow-text"><div class="srow-title">Top-Streams</div><div class="srow-sub">Sprache der Streamer. Standardmäßig die Sprache deines Geräts ({langName(deviceLang)}).</div></div>
+        <div class="srow-text"><div class="srow-title">Top-Streams</div><div class="srow-sub">Sprache der Streamer. Standardmäßig die Sprache deines Geräts ({langName(deviceLang())}).</div></div>
         <select class="sselect" value={st.topLang} onChange={e => setSetting('topLang', (e.target as HTMLSelectElement).value)}>
-          <option value={deviceLang}>Gerät · {langName(deviceLang)}</option>
+          <option value={deviceLang()}>Gerät · {langName(deviceLang())}</option>
           <option value="">Weltweit</option>
           {langs.map(([c, n]) => <option value={c}>{n}</option>)}
         </select>
@@ -185,11 +163,11 @@ function GeneralPage() {
       <Div />
       <TRow title="Zuletzt angesehen" sub="Abkürzungen zu den zuletzt geöffneten Kanälen, in der Suche." value={st.showRecentChannels} onChange={v => setSetting('showRecentChannels', v)} />
     </Card>
-    <Card icon="eyeslash" title="Ausgeblendete Kanäle und Kategorien">
+    <Card icon="eyeSlash" title="Ausgeblendete Kanäle und Kategorien">
       <p class="srow-sub">Sie erscheinen nicht mehr in Top oder in Kategorien. Die Suche findet sie trotzdem, und was du folgst, wird nie ausgeblendet.</p>
       {!s.hiddenChannels.length && !s.hiddenCategories.length ? <p class="srow-sub">Nichts ausgeblendet. Halte einen Stream oder eine Kategorie gedrückt und wähle „Ausblenden“.</p>
         : <button class="srow plain" onClick={() => setHidden(true)}>
-          <span class="srow-title grow">Kanäle ({s.hiddenChannels.length}) · Kategorien ({s.hiddenCategories.length})</span><XIcon n="chevron" size={16} /></button>}
+          <span class="srow-title grow">Kanäle ({s.hiddenChannels.length}) · Kategorien ({s.hiddenCategories.length})</span><Icon n="right" size={16} /></button>}
     </Card>
     <Card icon="palette" title="Darstellung">
       <div class="srow-title">Akzentfarbe</div>
@@ -203,20 +181,21 @@ function GeneralPage() {
     </Card>
     <Card icon="chart" title="Verlauf">
       <div class="stats">
-        <div class="stat"><XIcon n="film" size={18} /><b>{vodCount}</b><span>VODs</span></div>
+        <div class="stat"><Icon n="film" size={18} /><b>{vodCount}</b><span>VODs</span></div>
         <div class="stat"><Icon n="person" size={18} /><b>{channelCount}</b><span>Kanäle</span></div>
       </div>
-      {(vodCount > 0 || channelCount > 0) && <Pill danger onClick={() => confirm('Verlauf und Fortschritt löschen?') && clearHistory()}><XIcon n="trash" size={16} /> Löschen</Pill>}
+      {(vodCount > 0 || channelCount > 0) && <Pill danger onClick={() => confirm('Verlauf und Fortschritt löschen?') && clearHistory()}><Icon n="trash" size={16} /> Löschen</Pill>}
     </Card>
     <Card icon="backup" title="Sicherung">
       <p class="srow-sub">Exportiere deine gefolgten Kanäle, Kategorien und Einstellungen in eine Datei, um sie anderswo zu importieren (App oder Website).</p>
       <div class="srow-btns">
         <Pill onClick={download}><Icon n="share" size={16} /> Exportieren</Pill>
-        <Pill onClick={() => file.current?.click()}><XIcon n="download" size={16} /> Importieren</Pill>
+        <Pill onClick={() => file.current?.click()}><Icon n="download" size={16} /> Importieren</Pill>
       </div>
       <input ref={file} type="file" accept="application/json,.json" hidden onChange={async e => {
         const f = (e.target as HTMLInputElement).files?.[0]; if (!f) return;
-        setMsg(importBackup(await f.text()) ? 'Import abgeschlossen' : 'Diese Datei ist keine TwitchUnblock-Sicherung');
+        const r = importBackup(await f.text());
+        setMsg(r ? `Import abgeschlossen: ${r.added} neue Kanäle, ${r.skipped} schon vorhanden` : 'Diese Datei ist keine TwitchUnblock-Sicherung');
       }} />
       {msg && <p class="srow-sub">{msg}</p>}
     </Card>
@@ -228,19 +207,14 @@ function GeneralPage() {
 function HiddenSheet({ onClose }: { onClose: () => void }) {
   const s = useStore();
   const empty = !s.hiddenChannels.length && !s.hiddenCategories.length;
-  const unhideAll = () => {
-    if (!confirm('Alle wieder anzeigen?')) return;
-    s.hiddenChannels.slice().forEach(l => hideChannel(l, false));
-    s.hiddenCategories.slice().forEach(c => hideCategory(c, false));
-  };
   return <Sheet title="Ausgeblendete Kanäle und Kategorien" onClose={onClose}>
     <p class="hint pad">{empty ? 'Nichts ausgeblendet. Halte einen Stream oder eine Kategorie gedrückt und wähle „Ausblenden“.'
       : 'Sie erscheinen nicht mehr in Top oder in Kategorien. Die Suche findet sie trotzdem, und was du folgst, wird nie ausgeblendet.'}</p>
     {s.hiddenChannels.length > 0 && <><h2 class="section-title">Kanäle ({s.hiddenChannels.length})</h2>
-      <div class="group">{s.hiddenChannels.map(l => <div class="row"><span class="srow-title">{l}</span><button class="unhide" onClick={() => hideChannel(l, false)}>Wieder anzeigen</button></div>)}</div></>}
+      <div class="group">{s.hiddenChannels.map(l => <div class="row"><span class="srow-title">{s.hiddenInfo[l]?.name ?? l}</span><button class="unhide" onClick={() => hideChannel(l, false)}>Wieder anzeigen</button></div>)}</div></>}
     {s.hiddenCategories.length > 0 && <><h2 class="section-title">Kategorien ({s.hiddenCategories.length})</h2>
       <div class="group">{s.hiddenCategories.map(c => <div class="row"><span class="srow-title">{c.name || c.id}</span><button class="unhide" onClick={() => hideCategory(c, false)}>Wieder anzeigen</button></div>)}</div></>}
-    {!empty && <div class="group" style={{ marginTop: 16 }}><button class="row danger" onClick={unhideAll}><XIcon n="eye" size={18} /> Alle wieder anzeigen</button></div>}
+    {!empty && <div class="group" style={{ marginTop: 16 }}><button class="row danger" onClick={() => confirm('Alle wieder anzeigen?') && unhideAll()}><Icon n="eye" size={18} /> Alle wieder anzeigen</button></div>}
   </Sheet>;
 }
 
@@ -254,7 +228,7 @@ function PlayerPage() {
   };
   const qualities: [string, string][] = [['source', 'Quelle (Original)'], ['1080', '1080p'], ['720', '720p'], ['480', '480p'], ['360', '360p'], ['160', '160p'], ['audio', 'Nur Audio']];
   if (!qualities.some(q => q[0] === st.quality)) qualities.unshift([st.quality, 'Automatisch']);
-  return <Card icon="playrect" title="Videoplayer">
+  return <Card icon="playRect" title="Videoplayer">
     <TRow title="Modus mit niedriger Latenz" sub="Bleibt so nah wie möglich am Live (wie auf Twitch). Kann bei langsamer Verbindung etwas mehr puffern. Gilt für den nächsten Stream, den du öffnest." value={st.lowLatency} onChange={v => setSetting('lowLatency', v)} />
     <Div />
     <div class="srow col">
@@ -263,7 +237,7 @@ function PlayerPage() {
       {st.sourceOrder.map((src, i) => <div class="src-row">
         <span class="src-num">{i + 1}</span>
         <div class="srow-text"><div class="srow-title">{SOURCE_NAMES[src]}</div>{adStatsFor(src) && <div class="srow-sub">{adStatsLabel(adStatsFor(src)!)}</div>}</div>
-        <button class="src-arrow" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Nach oben"><XIcon n="up" size={18} /></button>
+        <button class="src-arrow" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Nach oben"><Icon n="up" size={18} /></button>
         <button class="src-arrow" disabled={i === st.sourceOrder.length - 1} onClick={() => move(i, 1)} aria-label="Nach unten"><Icon n="down" size={18} /></button>
       </div>)}
       {st.sourceOrder.join() !== DEFAULT_ORDER.join() && <button class="link" onClick={() => setSetting('sourceOrder', DEFAULT_ORDER)}>Standardreihenfolge</button>}
@@ -374,45 +348,92 @@ function ChatPreview({ st }: { st: SettingsT }) {
   </div>;
 }
 
-// Drops / Kanalpunkte ---------------------------------------------------------------------------
+// Drops / Kanalpunkte (DropsView.swift, PointsTrackerView.swift) ---------------------------------
+const dateShort = (iso?: string) => iso ? new Date(iso).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' }) : '';
+/** One campaign: game · name, link hint, each drop with its progress bar. */
+function Campaign({ c, brief }: { c: DropCampaign; brief?: boolean }) {
+  return <div class="campaign">
+    <div class="srow-title">{c.game} · {c.name}</div>
+    {!c.linked && <div class="srow-sub warn">Spielkonto fehlt{c.linkURL && <> · <a href={c.linkURL} target="_blank" rel="noopener">Verknüpfen</a></>}</div>}
+    {brief && <div class="srow-sub">{c.upcoming ? `Beginnt ${dateShort(c.startAt)}` : `Endet ${dateShort(c.endAt)}`} · {c.drops.map(d => `${d.required} Min.`).join(', ')}</div>}
+    {!brief && c.drops.map(d => <div class="drop"><div class="srow-sub">{d.claimed ? 'Abgeholt' : `${Math.min(d.current, d.required)} / ${d.required} Min.`} · {d.name}</div>
+      <div class="progress inline"><div style={{ width: `${Math.min(100, d.current / Math.max(1, d.required) * 100)}%` }} /></div></div>)}
+  </div>;
+}
 function DropsPage({ onLogin }: { onLogin: () => void }) {
   const s = useStore();
   const st = s.settings;
+  // Like the iOS page: inventory and every open campaign are re-read when the page opens.
+  useEffect(() => { if (s.account) { checkDrops(); loadDropCampaigns(); } }, [s.account?.userId]);
   if (!s.account) return <Card icon="box" title="Drops">
     <p class="srow-sub">Drops laufen über dein Twitch-Konto, wie Kanalpunkte: Melde dich einmal an.</p>
     <Pill onClick={onLogin}>Mit Twitch anmelden</Pill></Card>;
+  const ready = rewards.drops.filter(c => c.linked), waiting = rewards.drops.filter(c => !c.linked);
+  const started = new Set(rewards.drops.map(c => c.id));
+  // Open campaigns: the ones with progress first, then running before upcoming.
+  const touched = (c: DropCampaign) => c.drops.some(d => d.claimed || d.current > 0);
+  const open = rewards.available.filter(c => !started.has(c.id))
+    .sort((a, b) => Number(touched(b)) - Number(touched(a)) || Number(a.upcoming) - Number(b.upcoming));
+  const ds = rewards.dropSession;
   return <>
     <Card icon="box" title="Drops">
       <TRow title="Drops automatisch abholen" sub="Sobald ein Drop fertig ist, holt die App ihn für dich ab (während eines Lives alle 5 Min. geprüft und wenn du diese Seite öffnest)." value={st.autoDrops} onChange={v => setSetting('autoDrops', v)} />
       <Div />
       <TRow title="Drop-Fortschritt im Hintergrund" sub="Lädt bei Kanälen mit Drops einen unsichtbaren zweiten Stream in niedriger Qualität (mehr Datenverbrauch)" value={st.dropsStream} onChange={v => setSetting('dropsStream', v)} />
       <Div />
-      <Pill onClick={() => checkDrops(true)}>Drops jetzt prüfen</Pill>
+      <Pill onClick={() => { checkDrops(true); loadDropCampaigns(); }}>Drops jetzt prüfen</Pill>
     </Card>
+    {ds && <Card icon="target" title={`Fortschritt auf ${ds.channel || '—'}`}>
+      <div class="srow-sub">{Math.min(ds.current, ds.required)} / {ds.required} Min.</div>
+      <div class="progress inline"><div style={{ width: `${Math.min(100, ds.current / Math.max(1, ds.required) * 100)}%` }} /></div>
+    </Card>}
     <Card icon="gift" title="Laufende Kampagnen">
       {!rewards.drops.length ? <p class="srow-sub">Keine Drops in Arbeit. Schau ein Live mit Drops (Tag „DropsEnabled“), um welche zu verdienen.</p>
-        : rewards.drops.map(c => <div class="campaign">
-          <div class="srow-title">{c.game} · {c.name}</div>
-          {!c.linked && <div class="srow-sub warn">Spielkonto fehlt{c.linkURL && <> · <a href={c.linkURL} target="_blank" rel="noopener">Verknüpfen</a></>}</div>}
-          {c.drops.map(d => <div class="drop"><div class="srow-sub">{d.claimed ? 'Abgeholt' : `${Math.min(d.current, d.required)} / ${d.required} Min.`} · {d.name}</div>
-            <div class="progress inline"><div style={{ width: `${Math.min(100, d.current / Math.max(1, d.required) * 100)}%` }} /></div></div>)}
-        </div>)}
+        : <>
+          {ready.map(c => <Campaign c={c} />)}
+          {waiting.length > 0 && <details class="fold"><summary class="srow-title">Verknüpfung fehlt ({waiting.length})</summary>{waiting.map(c => <Campaign c={c} />)}</details>}
+        </>}
+    </Card>
+    <Card icon="box" title="Offene Kampagnen">
+      <p class="srow-sub">Alle aktuell laufenden Kampagnen: Schau ein Live des Spiels (Tag „DropsEnabled“), damit sie zu „Laufende Kampagnen“ wandern.</p>
+      {!open.length ? <p class="srow-sub">{rewards.available.length ? 'Gerade keine weitere offene Kampagne.' : 'Twitch gibt die Liste für diesen Login nicht frei.'}</p>
+        : open.map(c => <Campaign c={c} brief />)}
     </Card>
   </>;
 }
+/** PointsTrackerPanel: what watching earned, now, in total and per channel (points.ts). */
 function PointsPage({ onLogin }: { onLogin: () => void }) {
   const s = useStore();
-  const balances = Object.entries(rewards.balance).sort((a, b) => b[1] - a[1]);
+  const sessions = Object.values(points.sessions).sort((a, b) => a.start - b.start);
+  const channels = Object.values(points.channels).sort((a, b) => b.last - a.last);
+  const n = (v: number) => v.toLocaleString('de-DE');
+  const mins = (m: number) => m ? formatDuration(m * 60) : '0min';
   return <>
     <Card icon="gift" title="Truhen automatisch abholen">
       <TRow title="Truhen automatisch abholen" sub="Sammelt Punkte-Truhen ein, sobald sie erscheinen." value={s.settings.autoPoints} onChange={v => setSetting('autoPoints', v)} />
     </Card>
-    <Card icon="target" title="Nach Kanal">
-      {!s.account ? <><p class="srow-sub">Punkte werden mit angemeldetem Konto verdient und gezählt (wie Drops).</p><Pill onClick={onLogin}>Mit Twitch anmelden</Pill></>
-        : !balances.length ? <p class="srow-sub">Noch nichts gezählt: Schau einen Livestream mit angemeldetem Konto.</p>
-        : balances.map(([login, pts]) => <div class="srow"><span class="srow-title grow">{login}</span><span class="points">{pts.toLocaleString('de-DE')} Pkt.</span></div>)}
-      <p class="srow-sub">Guthaben der Kanäle, die du in dieser Sitzung geschaut hast. Punkte und Drops gibt es, solange ein Live-Stream in der App läuft.</p>
+    {!s.account && <Card><p class="srow-sub">Punkte werden mit angemeldetem Konto verdient und gezählt (wie Drops).</p><Pill onClick={onLogin}>Mit Twitch anmelden</Pill></Card>}
+    {sessions.length > 0 && <Card icon="antenna" title="Gerade">
+      {sessions.map(x => <div class="srow"><span class="srow-title grow">{x.login}</span><span class="srow-sub mono">{mins(x.minutes)} · +{n(x.points)}</span></div>)}
+    </Card>}
+    <Card>
+      <div class="srow-line"><span class="scard-label" style={{ margin: 0 }}>Gesamt</span>
+        {points.since && <span class="srow-sub">seit {new Date(points.since).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}</div>
+      <div class="stats">
+        <div class="stat"><Icon n="clock" size={18} /><b>{mins(points.totalMinutes)}</b><span>Geschaut</span></div>
+        <div class="stat"><Icon n="target" size={18} /><b>+{n(points.totalPoints)}</b><span>Verdient</span></div>
+        <div class="stat"><Icon n="gift" size={18} /><b>{n(points.totalChests)}</b><span>Truhen</span></div>
+      </div>
     </Card>
+    <Card icon="target" title="Nach Kanal">
+      {!channels.length ? <p class="srow-sub">Noch nichts gezählt: Schau einen Livestream mit angemeldetem Konto.</p>
+        : channels.map(c => <div class="srow">
+          <div class="srow-text"><div class="srow-title">{c.login}</div><div class="srow-sub">{relDate(new Date(c.last).toISOString())}</div></div>
+          <div class="pt-right"><span class="points">+{n(c.points)}</span><span class="srow-sub mono">{mins(c.minutes)}{c.chests > 0 ? ` · 🎁 ${c.chests}` : ''}</span></div>
+        </div>)}
+    </Card>
+    <p class="srow-sub pad">Auf diesem Gerät gezählt, solange du angemeldet bist: die Minuten, die Twitch für Punkte zählt, und die beim Zuschauen verdienten Punkte (passiv, Serien, Truhen), keine Gewinne aus Vorhersagen.</p>
+    {channels.length > 0 && <div class="pad"><Pill danger onClick={() => confirm('Gezählte Zeit und Punkte löschen?') && resetPoints()}>Zurücksetzen</Pill></div>}
   </>;
 }
 
@@ -436,7 +457,7 @@ function LabsPage() {
     <Card icon="flask" title="Funktionen im Test">
       <p class="srow-sub">Neue Funktionen, an denen noch gefeilt wird: Sie können sich ändern oder Fehler machen.</p>
       <TRow title="Live-Benachrichtigungen" sub="Werde benachrichtigt, wenn ein gefolgter Kanal live geht, solange die App offen ist. Bei geschlossener App: „Mitteilungen im Hintergrund“ unten." value={s.settings.notifyLive} onChange={notify} />
-      {s.settings.notifyLive && <Pill onClick={test}><XIcon n="bell" size={16} /> Testbenachrichtigung senden</Pill>}
+      {s.settings.notifyLive && <Pill onClick={test}><Icon n="bell" size={16} /> Testbenachrichtigung senden</Pill>}
       {result && <p class="srow-sub">{result}</p>}
     </Card>
     <PushSettings />
@@ -446,7 +467,7 @@ function LabsPage() {
 // Über ------------------------------------------------------------------------------------------
 function AboutPage({ onLogs }: { onLogs: () => void }) {
   useStore();
-  const link = (title: string, url: string) => <a class="credit-link" href={url} target="_blank" rel="noopener"><XIcon n="arrowupright" size={14} /><span>{title}</span></a>;
+  const link = (title: string, url: string) => <a class="credit-link" href={url} target="_blank" rel="noopener"><Icon n="arrowUpRight" size={14} /><span>{title}</span></a>;
   return <Card icon="info" title="Info">
     <div class="srow"><div class="srow-text"><div class="about-name">TwitchUnblock</div><div class="srow-sub">Version Web {__APP_VERSION__}</div></div><span class="accent-dot big" /></div>
     <p class="srow-sub">Twitch-VODs und Livestreams ohne Abo in voller Qualität ansehen. Nichts einzurichten.</p>
@@ -454,12 +475,12 @@ function AboutPage({ onLogs }: { onLogs: () => void }) {
     {link('Quellcode der App', 'https://github.com/timmbrockerhoff/TwitchUnblock')}
     {link('Was die Web-App nicht kann', 'https://github.com/timmbrockerhoff/TwitchUnblock/blob/pwa/pwa/LIMITATIONS.md')}
     <p class="srow-sub dim">Unabhängiges Projekt, nicht mit Twitch verbunden.</p>
-    <button class="srow plain accent" onClick={onLogs}><XIcon n="terminal" size={18} /><span class="grow">Systemprotokolle anzeigen</span><span class="count-badge">{logs.length}</span></button>
+    <button class="srow plain accent" onClick={onLogs}><Icon n="terminal" size={18} /><span class="grow">Systemprotokolle anzeigen</span><span class="count-badge">{logs.length}</span></button>
   </Card>;
 }
 
 // Login -----------------------------------------------------------------------------------------
-function LoginSheet({ onClose }: { onClose: () => void }) {
+export function LoginSheet({ onClose }: { onClose: () => void }) {
   const [code, setCode] = useState<DeviceCode>();
   const [err, setErr] = useState('');
   useEffect(() => {
@@ -484,10 +505,9 @@ function LoginSheet({ onClose }: { onClose: () => void }) {
 }
 
 // Systemprotokolle (LogsView.swift): level + category filter, share/copy ---------------------------
-type Level = '' | 'fail' | 'ok' | 'info';
-let logFilter: { level: Level; cat: string } = { level: '', cat: '' };
-const shownLogs = () => logs.filter(l => (!logFilter.cat || l.cat === logFilter.cat)
-  && (!logFilter.level || (logFilter.level === 'fail' ? l.ok === false : logFilter.level === 'ok' ? l.ok === true : l.ok === undefined)));
+const LEVEL_NAMES: Record<LogLevel, string> = { debug: 'Debug', info: 'Info', success: 'Erfolg', warn: 'Warnung', error: 'Fehler' };
+let logFilter: { level: LogLevel | ''; cat: string } = { level: '', cat: '' };
+const shownLogs = () => logs.filter(l => (!logFilter.cat || l.cat === logFilter.cat) && (!logFilter.level || l.level === logFilter.level));
 // Share sheet first (iOS), clipboard elsewhere.
 function copyLogs(done: (msg: string) => void) {
   const text = shownLogs().map(logLine).join('\n');
@@ -501,14 +521,15 @@ export function LogsPage() {
   const setF = (f: Partial<typeof logFilter>) => { logFilter = { ...logFilter, ...f }; rerender(x => x + 1); };
   const cats = [...new Set(logs.map(l => l.cat))].sort();
   const shown = shownLogs();
-  const levels: [Level, string][] = [['', `Alle (${logs.length})`], ['fail', 'Fehler'], ['ok', 'Erfolg'], ['info', 'Info']];
+  const levels: [LogLevel | '', string][] = [['', `Alle (${logs.length})`], ...LOG_LEVELS.map(l => [l, LEVEL_NAMES[l]] as [LogLevel, string])];
   return <>
     <div class="chips pad">{levels.map(([v, l]) => <button class={'chip small' + (logFilter.level === v ? ' on' : '')} onClick={() => setF({ level: v })}>{l}</button>)}</div>
     {cats.length > 1 && <div class="chips pad">{[['', 'Alle Kategorien'], ...cats.map(c => [c, c])].map(([v, l]) =>
       <button class={'chip small' + (logFilter.cat === v ? ' on' : '')} onClick={() => setF({ cat: v })}>{l}</button>)}</div>}
     {!shown.length ? <Empty title="Keine Einträge" text="Kanalpunkte, Drops, Player-Quellen und Chat-Verbindungen erscheinen hier." />
-      : <div class="group">{shown.map(l => <div class={'row log-row' + (l.ok === true ? ' ok' : l.ok === false ? ' fail' : '')}>
-        <div><div>{l.text}</div><div class="row-sub">{l.cat} · {new Date(l.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div></div>)}</div>}
+      : <div class="group">{shown.map(l => <div class={'row log-row ' + l.level}>
+        <div><div>{l.text}</div>{l.detail && <div class="row-sub detail">{l.detail}</div>}
+          <div class="row-sub">{l.cat} · {LEVEL_NAMES[l.level]} · {new Date(l.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div></div>)}</div>}
     {logs.length > 0 && <div class="group" style={{ marginTop: 20 }}><button class="row danger" onClick={() => confirm('Protokoll löschen?') && clearLogs()}>Protokoll löschen</button></div>}
   </>;
 }

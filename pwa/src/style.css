@@ -432,7 +432,8 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .drops-stream { position: absolute; width: 2px; height: 2px; opacity: .01; pointer-events: none; left: 0; top: 0; }
 .points { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .log-row { font-size: 13px; }
-.log-row.ok { color: #30d158; } .log-row.fail { color: var(--danger); }
+.log-row.success { color: #30d158; } .log-row.error { color: var(--danger); } .log-row.warn { color: #ff9f0a; } .log-row.debug { color: var(--muted); }
+.log-row .detail { white-space: normal; color: var(--text); opacity: .8; }
 /* Long subtitles wrap instead of pushing the switch off screen (seen on a 402 px iPhone). */
 .group .row > div:first-child { flex: 1; min-width: 0; }
 .group .row-sub { white-space: normal; }
