@@ -2,7 +2,7 @@
 // Playback is Safari's native HLS: Twitch's playlist servers refuse other sites' fetch()
 // (Origin check), so hls.js/MSE and playlist rewriting are impossible; the <video> element itself
 // loads them without an Origin header.
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import * as tw from './twitch';
 import { sortQualities, preferredQualityKey, qualityText, formatClock, formatViewers, adActive, isAdCue, adBridgePlan, type AdBridge,
@@ -989,16 +989,21 @@ function relTime(iso: string) {
     : a < 86400 * 30 ? rtf.format(Math.round(d / 86400), 'day') : a < 86400 * 365 ? rtf.format(Math.round(d / 2592000), 'month') : rtf.format(Math.round(d / 31536000), 'year');
 }
 type ClipSrc = { url: string; vod?: { id: string; at?: number } };
+/** ClipFeedView: one clip per page, paged by our own touch handling (like ScrollView .paging).
+ *  Native scroll-snap lost swipes to Safari's own scrolling (page bounce, toolbar), so the feed
+ *  takes every touch itself (`touch-action: none`) and decides: vertical drag = page, left edge
+ *  = close, hold = 2×, tap = pause. */
 function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const [cur, setCur] = useState(index);
-  const feed = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  // Two <video>s: one plays, the other preloads the neighbour so a swipe starts without a gap.
-  // iOS allows sound per element once it played from a tap: the "Ton an" pill unlocks both.
+  const track = useRef<HTMLDivElement>(null);
+  // Two <video>s: one plays, the other preloads a neighbour; each sits on the page of its clip,
+  // so a swipe drags the next clip's first frame in instead of a still thumbnail.
   const vids = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
+  const [vidAt, setVidAt] = useState<[number, number]>([-1, -1]);
+  const [frame, setFrame] = useState<[boolean, boolean]>([false, false]);
   const slot = cur % 2;
   const [muted, setMuted] = useState(false);
-  const [ready, setReady] = useState(false);
   const [paused, setPaused] = useState(false);
   const [fast, setFast] = useState(false);
   const [chrome, setChrome] = useState(true);
@@ -1007,11 +1012,10 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const [drag, setDrag] = useState<number | null>(null);
   const [dragX, setDragX] = useState(0);
   const srcs = useRef(new Map<string, Promise<ClipSrc | undefined>>());
-  const pressT = useRef<ReturnType<typeof setTimeout>>();
-  const pressAt = useRef<[number, number]>();
-  const skipClick = useRef(false);
   const chromeT = useRef<ReturnType<typeof setTimeout>>();
-  const edge = useRef<{ x: number; y: number; t: number; dx: number; vx: number; on: boolean }>();
+  const pressT = useRef<ReturnType<typeof setTimeout>>();
+  const wheelAt = useRef(0);
+  const g = useRef<{ x: number; y: number; t0: number; t: number; dy: number; vy: number; mode?: 'page' | 'edge' | 'none'; edge: boolean; fast: boolean }>();
   const landscape = landMQ.matches;
   const resolve = (c: tw.Clip) => {
     let p = srcs.current.get(c.slug);
@@ -1022,42 +1026,49 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     }
     return p;
   };
-  const showChrome = () => { setChrome(true); clearTimeout(chromeT.current); if (landscape) chromeT.current = setTimeout(() => setChrome(false), 3000); };
-  useEffect(() => { feed.current?.children[index]?.scrollIntoView(); showChrome(); return () => clearTimeout(chromeT.current); }, []);
+  const showChrome = () => { setChrome(true); clearTimeout(chromeT.current); if (landMQ.matches) chromeT.current = setTimeout(() => setChrome(false), 3000); };
+  useEffect(() => { showChrome(); return () => { clearTimeout(chromeT.current); clearTimeout(pressT.current); }; }, []);
+
+  // The track sits at page `cur`; `dy` follows the finger, `animate` eases into place (0.35 s like iOS).
+  const place = (dy = 0, animate = false) => {
+    const el = track.current; if (!el) return;
+    el.style.transition = animate ? 'transform .35s cubic-bezier(.25, .8, .25, 1)' : 'none';
+    el.style.transform = `translate3d(0, calc(${-cur * 100}% + ${dy}px), 0)`;
+  };
+  useLayoutEffect(() => place(0, true), [cur]);
+  useLayoutEffect(() => place(0, false), []);
+  const go = (i: number) => { if (clips[i] && i !== cur) setCur(i); else place(0, true); };
+
   useEffect(() => {
-    let alive = true; setReady(false); setPaused(false); setFast(false); setFrac(0);
+    let alive = true; setPaused(false); setFast(false); setFrac(0);
     const c = clips[cur], el = vids[slot].current!, other = vids[1 - slot].current!;
-    other.pause();
+    other.pause(); other.playbackRate = 1;
     resolve(c).then(p => {
       if (!alive || !p) return;
-      if (el.src !== p.url) el.src = p.url;
+      if (el.src !== p.url) { setFrame(f => (f[slot] = false, [...f] as [boolean, boolean])); el.src = p.url; }
+      setVidAt(a => (a[slot] = cur, [...a] as [number, number]));
       el.playbackRate = 1; el.currentTime = 0; el.muted = muted;
       start(el, () => setMuted(true));
       setVod(p.vod);
       addHistory({ kind: 'clip', id: c.slug, title: c.title, login: c.login ?? '', name: c.name ?? '', thumb: c.thumb });
     });
-    const next = clips[cur + 1] ?? clips[cur - 1];
-    if (next) resolve(next).then(p => { if (alive && p && other.src !== p.url) { other.src = p.url; other.load(); } });
+    // The neighbour the next swipe most likely goes to: the following clip, else the previous one.
+    const ni = clips[cur + 1] ? cur + 1 : cur - 1;
+    if (clips[ni]) resolve(clips[ni]).then(p => {
+      if (!alive || !p) return;
+      if (other.src !== p.url) { setFrame(f => (f[1 - slot] = false, [...f] as [boolean, boolean])); other.src = p.url; other.load(); }
+      setVidAt(a => (a[1 - slot] = ni, [...a] as [number, number]));
+    });
     return () => { alive = false; el.pause(); };
   }, [cur]);
   useEffect(() => () => vids.forEach(r => { r.current?.removeAttribute('src'); r.current?.load(); }), []);
-  const onScroll = () => { const el = feed.current!; const i = Math.round(el.scrollTop / el.clientHeight); if (i !== cur && clips[i]) setCur(i); };
+
   /** End of a clip: the next one, or this one again when it was the last. */
-  const ended = () => {
-    const el = vids[slot].current!;
-    if (clips[cur + 1]) feed.current?.scrollTo({ top: (cur + 1) * feed.current.clientHeight, behavior: 'smooth' });
-    else { el.currentTime = 0; el.play().catch(() => {}); }
-  };
+  const ended = () => { const el = vids[slot].current!; if (clips[cur + 1]) go(cur + 1); else { el.currentTime = 0; el.play().catch(() => {}); } };
   const cv = () => vids[slot].current!;
   const toggle = () => { const el = cv(); if (el.paused) { el.play().catch(() => {}); setPaused(false); } else { el.pause(); setPaused(true); } };
-  const tap = () => {
-    if (skipClick.current) { skipClick.current = false; return; }
-    if (landscape && !chrome) { showChrome(); return; }
-    toggle(); showChrome();
-  };
-  // Held down ≥ 0.35 s: 2× until let go (a plain tap still pauses); a moving finger swipes instead.
-  const pressStart = (e: PointerEvent) => { pressAt.current = [e.clientX, e.clientY]; clearTimeout(pressT.current); pressT.current = setTimeout(() => { if (!cv().paused) { cv().playbackRate = 2; setFast(true); skipClick.current = true; } }, 350); };
-  const pressEnd = () => { clearTimeout(pressT.current); if (fast) { cv().playbackRate = 1; setFast(false); } };
+  const tap = () => { if (landMQ.matches && !chrome) { showChrome(); return; } toggle(); showChrome(); };
+  const setFastOn = (on: boolean) => { const el = cv(); el.playbackRate = on ? 2 : 1; setFast(on); };
   const setMute = (m: boolean) => { vids.forEach(r => { if (r.current) r.current.muted = m; }); setMuted(m); };
   const unmute = () => {
     setMute(false);
@@ -1065,49 +1076,102 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     const o = vids[1 - slot].current; o?.play().then(() => o.pause()).catch(() => {});
   };
   const scrubTo = (e: PointerEvent) => { const f = localFraction(e.currentTarget as HTMLElement, e); setDrag(f); const el = cv(); if (isFinite(el.duration)) el.currentTime = f * el.duration; };
-  // Thin strip on the left edge, like the system back swipe: past a third of the width (or flicked), the feed closes.
-  const edgeStart = (e: TouchEvent) => { const t = e.touches[0]; edge.current = t.clientX < 24 ? { x: t.clientX, y: t.clientY, t: Date.now(), dx: 0, vx: 0, on: false } : undefined; };
-  const edgeMove = (e: TouchEvent) => {
-    const s = edge.current; if (!s) return;
-    const t = e.touches[0], dx = t.clientX - s.x, now = Date.now();
-    if (!s.on && dx > 10 && dx > Math.abs(t.clientY - s.y)) s.on = true;
-    if (!s.on) return;
-    s.vx = (dx - s.dx) / Math.max(1, now - s.t); s.dx = dx; s.t = now;
-    setDragX(Math.max(0, dx));
+
+  // One gesture handler for the whole feed. Buttons and the progress line keep their own touches.
+  const own = (e: TouchEvent) => !(e.target as HTMLElement).closest('button, a, .clip-line');
+  const onStart = (e: TouchEvent) => {
+    if (e.touches.length > 1 || !own(e)) { g.current = undefined; return; }
+    const t = e.touches[0], now = Date.now();
+    g.current = { x: t.clientX, y: t.clientY, t0: now, t: now, dy: 0, vy: 0, edge: t.clientX < 24, fast: false };
+    clearTimeout(pressT.current);
+    // Held ≥ 0.35 s without moving: 2× while the finger stays (onLongPressGesture minimumDuration 0.35).
+    pressT.current = setTimeout(() => { const s = g.current; if (s && !s.mode && !cv().paused) { s.fast = true; setFastOn(true); } }, 350);
   };
-  const edgeEnd = () => {
-    const s = edge.current; edge.current = undefined; if (!s?.on) return;
-    const w = root.current?.clientWidth ?? innerWidth;
-    if (s.dx > w / 3 || s.vx > 1) { setDragX(w); setTimeout(closePlayer, 200); } else setDragX(0);
+  const onMove = (e: TouchEvent) => {
+    const s = g.current; if (!s) return;
+    e.preventDefault();
+    const t = e.touches[0], dx = t.clientX - s.x, dy = t.clientY - s.y, now = Date.now();
+    if (s.fast) return;
+    if (!s.mode) {
+      if (Math.hypot(dx, dy) < 10) return;
+      clearTimeout(pressT.current);
+      s.mode = s.edge && dx > Math.abs(dy) ? 'edge' : Math.abs(dy) >= Math.abs(dx) ? 'page' : 'none';
+    }
+    if (s.mode === 'page') {
+      s.vy = (dy - s.dy) / Math.max(1, now - s.t); s.dy = dy; s.t = now;
+      // Rubber band past the first and last clip.
+      const end = (dy > 0 && !clips[cur - 1]) || (dy < 0 && !clips[cur + 1]);
+      place(end ? dy / 3 : dy);
+    } else if (s.mode === 'edge') {
+      s.vy = (dx - s.dy) / Math.max(1, now - s.t); s.dy = dx; s.t = now;
+      setDragX(Math.max(0, dx));
+    }
   };
-  return <div class={'clipfeed' + (chrome ? ' chrome' : '')} ref={root} style={{ transform: dragX ? `translateX(${dragX}px)` : undefined, transition: edge.current?.on ? 'none' : 'transform .2s' }}
-    onTouchStart={edgeStart} onTouchMove={edgeMove} onTouchEnd={edgeEnd} onTouchCancel={edgeEnd}>
-    {vids.map((r, i) => <video key={i} ref={r} class={'feed-video' + (i === slot && ready ? ' on' : '')} playsInline preload="auto"
-      onPlaying={() => i === slot && setReady(true)} onEnded={() => i === slot && ended()}
-      onTimeUpdate={e => { if (i === slot && drag == null) { const el = e.currentTarget as HTMLVideoElement; if (isFinite(el.duration) && el.duration > 0) setFrac(el.currentTime / el.duration); } }} />)}
-    <div class="clipfeed-top">
-      <button class="glass sm" onClick={closePlayer} aria-label="Schließen"><Icon n="close" size={18} /></button>
-      <button class="glass sm" onClick={() => muted ? unmute() : setMute(true)} aria-label={muted ? 'Ton an' : 'Ton aus'}><G n={muted ? 'speakerOff' : 'speaker'} size={18} /></button>
-    </div>
-    {muted && <button class="pill-btn unmute" onClick={unmute}>🔇 Ton an</button>}
-    {fast && <div class="fast-label"><Icon n="fwd" size={14} /> 2×</div>}
-    {paused && ready && <div class="feed-pause"><Icon n="play" size={60} /></div>}
-    <div class="feed" ref={feed} onScroll={onScroll}>
-      {clips.map((k, i) => <div class="feed-item" onClick={tap} onPointerDown={pressStart} onPointerUp={pressEnd} onPointerCancel={pressEnd} onPointerMove={e => { const a = pressAt.current; if (a && Math.hypot(e.clientX - a[0], e.clientY - a[1]) > 10) clearTimeout(pressT.current); }}>
-        <img src={k.thumb} alt="" />
-        {i === cur && <div class="feed-bottom" onClick={e => e.stopPropagation()}>
-          <div class="feed-info">
-            <b onClick={() => k.login && openChannel(k.login)}>{k.name}</b>
-            <div class="feed-title">{k.title}</div>
-            <div class="feed-meta">{[relTime(k.createdAt), k.curator && `von ${k.curator}`, `${formatViewers(k.views)} Aufrufe`].filter(Boolean).join(' · ')}</div>
-            {vod && <button class="chip" onClick={() => play({ kind: 'vod', id: vod.id, start: vod.at })}><Icon n="play" size={14} />Ganzes VOD ab hier</button>}
+  const onEnd = (e: TouchEvent) => {
+    const s = g.current; g.current = undefined; clearTimeout(pressT.current);
+    if (!s) return;
+    e.preventDefault(); // no synthetic click on top of our own tap
+    if (s.fast) { setFastOn(false); return; }
+    if (s.mode === 'page') {
+      const h = root.current?.clientHeight ?? innerHeight;
+      if (s.dy < -h * 0.2 || s.vy < -0.5) go(cur + 1);
+      else if (s.dy > h * 0.2 || s.vy > 0.5) go(cur - 1);
+      else place(0, true);
+    } else if (s.mode === 'edge') {
+      const w = root.current?.clientWidth ?? innerWidth;
+      if (s.dy > w / 3 || s.vy > 1) { setDragX(w); setTimeout(closePlayer, 200); } else setDragX(0);
+    } else if (!s.mode && Date.now() - s.t0 < 500) tap();
+  };
+  const onCancel = () => { const s = g.current; g.current = undefined; clearTimeout(pressT.current); if (s?.fast) setFastOn(false); if (s?.mode === 'page') place(0, true); if (s?.mode === 'edge') setDragX(0); };
+  // Mouse wheel and arrow keys page too (desktop, iPad keyboard).
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    if (Math.abs(e.deltaY) < 20 || Date.now() - wheelAt.current < 500) return;
+    wheelAt.current = Date.now(); go(cur + (e.deltaY > 0 ? 1 : -1));
+  };
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'ArrowDown') go(cur + 1); else if (e.key === 'ArrowUp') go(cur - 1); else if (e.key === ' ') { e.preventDefault(); toggle(); } };
+    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
+  }, [cur]);
+
+  const pages = clips.map((k, i) => ({ k, i })).filter(({ i }) => Math.abs(i - cur) <= 2);
+  return <div class={'clipfeed' + (chrome ? ' chrome' : '')} ref={root}
+    style={{ transform: dragX ? `translateX(${dragX}px)` : undefined, transition: g.current?.mode === 'edge' ? 'none' : 'transform .2s' }}
+    onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd} onTouchCancel={onCancel} onWheel={onWheel}
+    onClick={e => { if (!(e.target as HTMLElement).closest('button, a, .clip-line')) tap(); }}
+    onContextMenu={e => e.preventDefault()}>
+    <div class="feed-track" ref={track}>
+      {pages.map(({ k, i }) => <div class="feed-page" key={k.slug} style={{ top: `${i * 100}%` }}>
+        <img src={k.thumb} alt="" draggable={false} />
+        {i === cur && <div class="feed-bottom">
+          <div class="feed-row">
+            <div class="feed-info">
+              <button class="feed-name" onClick={() => k.login && openChannel(k.login)}>{k.name}</button>
+              <div class="feed-title">{k.title}</div>
+              <div class="feed-meta">{[relTime(k.createdAt), k.curator && `von ${k.curator}`, k.views ? `${formatViewers(k.views)} Aufrufe` : ''].filter(Boolean).join(' · ')}</div>
+              {vod && <button class="feed-vod" onClick={() => play({ kind: 'vod', id: vod.id, start: vod.at })}><Icon n="play" size={13} />Ganzes VOD ab hier</button>}
+            </div>
+            <button class="feed-share" onClick={() => navigator.share?.({ url: `https://clips.twitch.tv/${k.slug}` }).catch(() => {})} aria-label="Teilen"><Icon n="share" size={18} /></button>
           </div>
-          <button class="glass share" onClick={() => navigator.share?.({ url: `https://clips.twitch.tv/${k.slug}` }).catch(() => {})} aria-label="Teilen"><Icon n="share" size={18} /></button>
+          <div class={'clip-line' + (drag != null ? ' drag' : '')} onPointerDown={e => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); scrubTo(e); }}
+            onPointerMove={e => { if (drag != null) scrubTo(e); }} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)}>
+            <div style={{ width: `${(drag ?? frac) * 100}%` }} /></div>
         </div>}
       </div>)}
+      {vids.map((r, si) => <video key={si} ref={r} class={'feed-video' + (frame[si] && vidAt[si] >= 0 ? ' on' : '')} playsInline preload="auto"
+        style={{ top: `${Math.max(0, vidAt[si]) * 100}%` }} disablePictureInPicture {...{ 'x-webkit-airplay': 'deny' }}
+        onLoadedData={() => setFrame(f => (f[si] = true, [...f] as [boolean, boolean]))}
+        onEnded={() => si === slot && ended()}
+        onTimeUpdate={e => { if (si === slot && drag == null) { const el = e.currentTarget as HTMLVideoElement; if (isFinite(el.duration) && el.duration > 0) setFrac(el.currentTime / el.duration); } }} />)}
     </div>
-    <div class={'clip-line' + (drag != null ? ' drag' : '')} onPointerDown={e => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); scrubTo(e); }}
-      onPointerMove={e => { if (drag != null) scrubTo(e); }} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)}>
-      <div style={{ width: `${(drag ?? frac) * 100}%` }} /></div>
+    {paused && <div class="feed-pause"><Icon n="play" size={60} /></div>}
+    <div class="clipfeed-top">
+      <button class="feed-btn" onClick={closePlayer} aria-label="Schließen"><Icon n="close" size={20} /></button>
+      <div class="feed-center">
+        {fast ? <div class="fast-label"><Icon n="fwd" size={14} /> 2×</div>
+          : muted ? <button class="pill-btn unmute" onClick={unmute}>🔇 Ton an</button> : null}
+      </div>
+      <button class="feed-btn" onClick={() => { muted ? unmute() : setMute(true); showChrome(); }} aria-label={muted ? 'Ton an' : 'Ton aus'}><G n={muted ? 'speakerOff' : 'speaker'} size={20} /></button>
+    </div>
   </div>;
 }
