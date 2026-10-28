@@ -1,8 +1,8 @@
 // Twitch data access, ported from Sources/Services/TwitchAPI.swift.
 import { parseMaster, type Master } from './logic';
 import { state } from './store';
-import { addLog } from './log';
-import { workerVod } from './vod';
+import { log } from './log';
+import { workerVod, workerLive } from './vod';
 
 export const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 /** Twitch's Android client id: only for page 2+ of lists, where the web id needs an integrity token. */
@@ -16,8 +16,10 @@ export const TV_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
 export const LUMINOUS_AS = ['as.luminous.dev'];
 export const LUMINOUS_EU = ['eu.luminous.dev', 'eu2.luminous.dev', 'eu3.luminous.dev'];
 export const TTVLOL_HOSTS = ['twitch-al.nadeko.net'];
+/** Sources the user can order; the TwitchUnblock worker is always tried last (liveSourceSteps). */
 export const LIVE_SOURCES = ['as', 'al', 'eu', 'twitch'] as const;
 export type LiveSource = typeof LIVE_SOURCES[number];
+export type LiveStep = LiveSource | 'worker';
 
 /** Stable per-installation device id used by account GQL playback requests. */
 export function twitchWebDeviceId(): string {
@@ -36,25 +38,41 @@ export type Stream = { id: string; login: string; name: string; title: string; g
 export type Category = { id: string; name: string; boxArt: string; viewers?: number };
 export type Vod = { id: string; title: string; thumb: string; publishedAt: string; length: number; login?: string; name?: string; views?: number };
 export type Clip = { slug: string; title: string; thumb: string; views: number; duration: number; createdAt: string; curator?: string; login?: string; name?: string };
-export type ChannelBrief = { login: string; name: string; avatar: string; stream?: Stream; lastStart?: string };
+/** `lastEnd`: end of the last VOD (start + length) or, if later, the last broadcast's start. */
+export type ChannelBrief = { login: string; name: string; avatar: string; stream?: Stream; lastStart?: string; lastEnd?: string };
 
 function timeout(ms: number): AbortSignal { return AbortSignal.timeout(ms); }
+/** Like the iOS app: a fresh id per request, so Twitch sees no stable device across calls. */
+const deviceId = () => `MkMq8a9${Math.floor(100000 + Math.random() * 900000)}`;
 
+/** Raw GQL: HTTP status (0 = network/timeout) and the parsed body. 10 s like twitchGQL in iOS. */
+async function gqlRaw(query: string, variables: Record<string, unknown>, clientId: string, ms = 10000): Promise<{ status: number; json?: any }> {
+  try {
+    const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: timeout(ms),
+      headers: { 'Client-ID': clientId, 'Content-Type': 'application/json', 'Device-ID': deviceId() }, body: JSON.stringify({ query, variables }) });
+    return { status: r.status, json: r.ok ? await r.json().catch(() => undefined) : undefined };
+  } catch { return { status: 0 }; }
+}
 /** GQL with variables. Returns `data`, or undefined on network/HTTP failure. */
 export async function gql<T = any>(query: string, variables: Record<string, unknown> = {}, clientId = GQL_CLIENT_ID): Promise<T | undefined> {
-  try {
-    const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: timeout(15000),
-      headers: { 'Client-ID': clientId, 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) });
-    if (!r.ok) return undefined;
-    return (await r.json()).data ?? undefined;
-  } catch { return undefined; }
+  return (await gqlRaw(query, variables, clientId)).json?.data ?? undefined;
 }
-/** List page: page 1 with the web id, later pages with the Android id (web id needs integrity there). */
-async function gqlPage<T = any>(query: string, variables: Record<string, unknown>, after?: string) {
-  return after ? gql<T>(query, { ...variables, after }, GQL_NEXT_CLIENT_ID) : gql<T>(query, variables);
+/** Twitch refuses a page for lack of an integrity token: HTTP 200, list null and
+ *  errors[].extensions.code = IntegrityCheckFailed. Without this a refusal looks like the end of the list. */
+const integrityRefused = (json: any) => (json?.errors ?? []).some((e: any) =>
+  e?.extensions?.code === 'IntegrityCheckFailed' || String(e?.message ?? '').toLowerCase().includes('integrity check'));
+/** List page: page 1 with the web id, later pages with the Android id (web id needs integrity there).
+ *  `refused`: Twitch rejects this client id (integrity, or 400/401/403), replaying is pointless. */
+async function gqlPage<T = any>(query: string, variables: Record<string, unknown>, after?: string): Promise<{ data?: T; refused: boolean }> {
+  if (!after) return { data: await gql<T>(query, variables), refused: false };
+  const { status, json } = await gqlRaw(query, { ...variables, after }, GQL_NEXT_CLIENT_ID, 15000);
+  if ([400, 401, 403].includes(status)) { log.warn('GQL', `Folgeseite verweigert (HTTP ${status})`); return { refused: true }; }
+  if (integrityRefused(json)) { log.warn('GQL', 'Folgeseite verweigert (Integrität)'); return { refused: true }; }
+  return { data: json?.data ?? undefined, refused: false };
 }
 const nextCursor = (conn: any): string | undefined =>
   conn?.pageInfo?.hasNextPage ? conn?.edges?.[conn.edges.length - 1]?.cursor || undefined : undefined;
+const BOX_ART = 'boxArtURL(width: 570, height: 760)';
 
 /** Persisted query (what twitch.tv itself sends), e.g. VOD chat. */
 export async function gqlPersisted(op: string, variables: Record<string, unknown>, sha256: string): Promise<any> {
@@ -74,12 +92,14 @@ function streamFrom(u: any, s: any): Stream {
 }
 const STREAM_FIELDS = 'title viewersCount createdAt previewImageURL(width: 440, height: 248) game { id displayName } freeformTags { name }';
 
-export async function topStreams(lang?: string, after?: string) {
-  const d = await gqlPage(`query($langs: [Language!], $after: Cursor) { streams(first: 30, after: $after, options: { broadcasterLanguages: $langs }) {
+/** `first`: 20 for the home shelf, 30 (default) for the full list. `refused`: see gqlPage. */
+export async function topStreams(lang?: string, after?: string, first = 30) {
+  const { data: d, refused } = await gqlPage(`query($langs: [Language!], $after: Cursor, $first: Int) { streams(first: $first, after: $after, options: { broadcasterLanguages: $langs }) {
     edges { cursor node { ${STREAM_FIELDS} broadcaster { id login displayName profileImageURL(width: 70) } } } pageInfo { hasNextPage } } }`,
-  lang ? { langs: [lang.toUpperCase().replace('-', '_')] } : {}, after);
+  { first, ...(lang ? { langs: [lang.toUpperCase().replace('-', '_')] } : {}) }, after);
+  if (refused) return { streams: [] as Stream[], next: undefined, refused: true };
   if (!d?.streams) return undefined;
-  return { streams: d.streams.edges.map((e: any) => streamFrom(e.node.broadcaster, e.node)) as Stream[], next: nextCursor(d.streams) };
+  return { streams: d.streams.edges.map((e: any) => streamFrom(e.node.broadcaster, e.node)) as Stream[], next: nextCursor(d.streams), refused: false };
 }
 
 /** Channels (avatar, live stream if any), 100 per request; undefined if Twitch did not answer. */
@@ -87,43 +107,69 @@ export async function channels(logins: string[]): Promise<ChannelBrief[] | undef
   const chunks: string[][] = [];
   for (let i = 0; i < logins.length; i += 100) chunks.push(logins.slice(i, i + 100));
   const parts = await Promise.all(chunks.map(l => gql(`query($l: [String!]) { users(logins: $l) { id login displayName profileImageURL(width: 70)
-    lastBroadcast { startedAt } stream { ${STREAM_FIELDS} } } }`, { l })));
+    lastBroadcast { startedAt } videos(first: 1, type: ARCHIVE, sort: TIME) { edges { node { publishedAt lengthSeconds } } } stream { ${STREAM_FIELDS} } } }`, { l })));
   if (parts.some(p => !p)) return undefined;
   return parts.flatMap(p => p.users.filter(Boolean).map((u: any) => ({ login: u.login, name: u.displayName ?? u.login,
-    avatar: u.profileImageURL ?? '', stream: u.stream ? streamFrom(u, u.stream) : undefined, lastStart: u.lastBroadcast?.startedAt })));
+    avatar: u.profileImageURL ?? '', stream: u.stream ? streamFrom(u, u.stream) : undefined, lastStart: u.lastBroadcast?.startedAt,
+    lastEnd: lastLiveEnd(u.videos?.edges?.[0]?.node, u.lastBroadcast?.startedAt) })));
+}
+/** End of the last live: the last VOD (start + length) or, if later, the last broadcast's start. */
+export function lastLiveEnd(video: { publishedAt?: string; lengthSeconds?: number } | undefined, lastStart?: string): string | undefined {
+  const fromVod = video?.publishedAt ? Date.parse(video.publishedAt) + (video.lengthSeconds ?? 0) * 1000 : NaN;
+  const started = lastStart ? Date.parse(lastStart) : NaN;
+  const t = [fromVod, started].filter(Number.isFinite);
+  return t.length ? new Date(Math.max(...t)).toISOString() : undefined;
+}
+
+/** Profile picture of a login (user cards, chat), cached for the session. A miss (gone account,
+ *  no network) is not asked again for 5 min, but not remembered for the whole session either. */
+const avatars = new Map<string, string>(), avatarMisses = new Map<string, number>();
+export async function userAvatar(login: string): Promise<string | undefined> {
+  const key = login.toLowerCase();
+  if (!key) return undefined;
+  const hit = avatars.get(key); if (hit) return hit;
+  if (Date.now() - (avatarMisses.get(key) ?? 0) < 300_000) return undefined;
+  const d = await gql(`query($l: String!) { user(login: $l) { profileImageURL(width: 150) } }`, { l: key });
+  const img = d?.user?.profileImageURL as string | undefined;
+  if (img) { avatars.set(key, img); avatarMisses.delete(key); return img; }
+  avatarMisses.set(key, Date.now());
+  return undefined;
 }
 
 export async function topCategories(after?: string) {
-  const d = await gqlPage(`query($after: Cursor) { games(first: 100, after: $after) {
-    edges { cursor node { id displayName boxArtURL(width: 285, height: 380) viewersCount } } pageInfo { hasNextPage } } }`, {}, after);
+  const { data: d, refused } = await gqlPage(`query($after: Cursor) { games(first: 100, after: $after) {
+    edges { cursor node { id displayName ${BOX_ART} viewersCount } } pageInfo { hasNextPage } } }`, {}, after);
+  if (refused) return { categories: [] as Category[], next: undefined, refused: true };
   if (!d?.games) return undefined;
-  return { categories: d.games.edges.map((e: any) => catFrom(e.node)) as Category[], next: nextCursor(d.games) };
+  return { categories: d.games.edges.map((e: any) => catFrom(e.node)) as Category[], next: nextCursor(d.games), refused: false };
 }
 const catFrom = (n: any): Category => ({ id: n.id, name: n.displayName ?? n.name, boxArt: n.boxArtURL ?? '', viewers: n.viewersCount });
 export async function searchCategories(q: string): Promise<Category[]> {
-  const d = await gql(`query($q: String!) { searchCategories(query: $q, first: 30) { edges { node { id displayName boxArtURL(width: 285, height: 380) viewersCount } } } }`, { q });
+  const d = await gql(`query($q: String!) { searchCategories(query: $q, first: 30) { edges { node { id displayName ${BOX_ART} viewersCount } } } }`, { q });
   const list: Category[] = (d?.searchCategories?.edges ?? []).map((e: any) => catFrom(e.node));
   const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
   return [...list.filter(c => fold(c.name) === fold(q)), ...list.filter(c => fold(c.name) !== fold(q))];
 }
 export async function categoryStreams(id: string, lang?: string, after?: string) {
-  const d = await gqlPage(`query($id: ID!, $langs: [Language!], $after: Cursor) { game(id: $id) { id displayName boxArtURL(width: 285, height: 380) viewersCount
+  const { data: d, refused } = await gqlPage(`query($id: ID!, $langs: [Language!], $after: Cursor) { game(id: $id) { id displayName ${BOX_ART} viewersCount
     streams(first: 100, after: $after, options: { broadcasterLanguages: $langs }) {
     edges { cursor node { ${STREAM_FIELDS} broadcaster { id login displayName profileImageURL(width: 70) } } } pageInfo { hasNextPage } } } }`,
   { id, ...(lang ? { langs: [lang.toUpperCase().replace('-', '_')] } : {}) }, after);
+  // Refused pages are page 2+: the caller already has the category, a stub keeps the shape.
+  if (refused) return { category: { id, name: '', boxArt: '' } as Category, streams: [] as Stream[], next: undefined, refused: true };
   if (!d?.game) return undefined;
-  return { category: catFrom(d.game), streams: d.game.streams.edges.map((e: any) => streamFrom(e.node.broadcaster, e.node)) as Stream[], next: nextCursor(d.game.streams) };
+  return { category: catFrom(d.game), streams: d.game.streams.edges.map((e: any) => streamFrom(e.node.broadcaster, e.node)) as Stream[], next: nextCursor(d.game.streams), refused: false };
 }
 
 export type Suggestion = { login: string; name: string; avatar?: string; viewers?: number; game?: string };
 export async function searchUsers(q: string): Promise<Suggestion[]> {
-  const d = await gql(`query($q: String!) { searchUsers(userQuery: $q, first: 8) { edges { node { login displayName profileImageURL(width: 70) stream { viewersCount game { displayName } } } } } }`, { q });
+  const d = await gql(`query($q: String!) { searchUsers(userQuery: $q, first: 5) { edges { node { login displayName profileImageURL(width: 70) stream { viewersCount game { displayName } } } } } }`, { q });
   const list: Suggestion[] = (d?.searchUsers?.edges ?? []).map((e: any) => ({ login: e.node.login, name: e.node.displayName,
     avatar: e.node.profileImageURL, viewers: e.node.stream?.viewersCount, game: e.node.stream?.game?.displayName }));
   return [...list.filter(s => s.viewers != null), ...list.filter(s => s.viewers == null)];
 }
 
-export type ChannelInfo = { id: string; login: string; name: string; avatar: string; stream?: Stream; lastStart?: string;
+export type ChannelInfo = { id: string; login: string; name: string; avatar: string; stream?: Stream; lastStart?: string; lastEnd?: string;
   description: string; followers?: number; banner?: string; partner: boolean; archiveId?: string;
   socials: { name: string; title: string; url: string }[]; panels: { title: string; image?: string; link?: string; text: string }[] };
 const web = (s: any) => typeof s === 'string' && /^https?:\/\//i.test(s) ? s : undefined;
@@ -131,12 +177,14 @@ const web = (s: any) => typeof s === 'string' && /^https?:\/\//i.test(s) ? s : u
 export async function channelInfo(login: string): Promise<ChannelInfo | null | undefined> {
   const d = await gql(`query($l: String!) { user(login: $l) { id login displayName profileImageURL(width: 150)
     description followers { totalCount } bannerImageURL roles { isPartner } lastBroadcast { startedAt }
+    videos(first: 1, type: ARCHIVE, sort: TIME) { edges { node { publishedAt lengthSeconds } } }
     channel { socialMedias { name title url } }
     panels { type ... on DefaultPanel { title imageURL linkURL description } }
     stream { ${STREAM_FIELDS} archiveVideo { id } } } }`, { l: login.toLowerCase() });
   if (!d) return undefined;
   const u = d.user; if (!u) return null;
   return { id: u.id, login: u.login, name: u.displayName, avatar: u.profileImageURL ?? '', lastStart: u.lastBroadcast?.startedAt,
+    lastEnd: lastLiveEnd(u.videos?.edges?.[0]?.node, u.lastBroadcast?.startedAt),
     stream: u.stream ? streamFrom(u, u.stream) : undefined, archiveId: u.stream?.archiveVideo?.id,
     description: u.description ?? '', followers: u.followers?.totalCount, banner: web(u.bannerImageURL), partner: !!u.roles?.isPartner,
     socials: (u.channel?.socialMedias ?? []).filter((s: any) => web(s.url)).map((s: any) => ({ name: s.name, title: s.title || s.name, url: s.url })),
@@ -153,14 +201,15 @@ export async function streamStats(login: string) {
 }
 
 export async function channelVideos(login: string, type: 'ARCHIVE' | 'HIGHLIGHT' | 'UPLOAD' = 'ARCHIVE', after?: string) {
-  const d = await gqlPage(`query($l: String!, $t: BroadcastType, $after: Cursor) { user(login: $l) { login displayName videos(first: 50, after: $after, type: $t, sort: TIME) {
+  const { data: d, refused } = await gqlPage(`query($l: String!, $t: BroadcastType, $after: Cursor) { user(login: $l) { login displayName videos(first: 100, after: $after, type: $t, sort: TIME) {
     edges { cursor node { id title previewThumbnailURL(width: 320, height: 180) publishedAt lengthSeconds viewCount } } pageInfo { hasNextPage } } } }`,
   { l: login.toLowerCase(), t: type }, after);
+  if (refused) return { vods: [] as Vod[], next: undefined, refused: true };
   if (!d) return undefined;
   const v = d.user?.videos;
   return { vods: (v?.edges ?? []).map((e: any) => ({ id: e.node.id, title: e.node.title ?? '', thumb: e.node.previewThumbnailURL ?? '',
     publishedAt: e.node.publishedAt ?? '', length: e.node.lengthSeconds ?? 0, views: e.node.viewCount, login: d.user.login, name: d.user.displayName })) as Vod[],
-  next: nextCursor(v) };
+  next: nextCursor(v), refused: false };
 }
 
 export async function collections(login: string) {
@@ -172,16 +221,18 @@ export async function collections(login: string) {
     .filter((c: any) => c.vods.length);
 }
 
+/** 100 per page like iOS; `next` continues ("Mehr laden"), `refused` when Twitch rejects the next page. */
 export async function clips(login: string, period: 'LAST_DAY' | 'LAST_WEEK' | 'LAST_MONTH' | 'ALL_TIME', after?: string) {
-  const d = await gqlPage(`query($l: String!, $p: ClipsPeriod, $after: Cursor) { user(login: $l) { login displayName
-    clips(first: 50, after: $after, criteria: { period: $p, sort: VIEWS_DESC }) {
+  const { data: d, refused } = await gqlPage(`query($l: String!, $p: ClipsPeriod, $after: Cursor) { user(login: $l) { login displayName
+    clips(first: 100, after: $after, criteria: { period: $p, sort: VIEWS_DESC }) {
     edges { cursor node { slug title viewCount durationSeconds createdAt thumbnailURL(width: 480, height: 272) curator { displayName } } } pageInfo { hasNextPage } } } }`,
   { l: login.toLowerCase(), p: period }, after);
+  if (refused) return { clips: [] as Clip[], next: undefined, refused: true };
   if (!d) return undefined;
   const c = d.user?.clips;
   return { clips: (c?.edges ?? []).map((e: any) => ({ slug: e.node.slug, title: e.node.title ?? '', thumb: e.node.thumbnailURL ?? '',
     views: e.node.viewCount ?? 0, duration: e.node.durationSeconds ?? 0, createdAt: e.node.createdAt ?? '',
-    curator: e.node.curator?.displayName, login: d.user.login, name: d.user.displayName })) as Clip[], next: nextCursor(c) };
+    curator: e.node.curator?.displayName, login: d.user.login, name: d.user.displayName })) as Clip[], next: nextCursor(c), refused: false };
 }
 
 /** Signed MP4 links of a clip (played directly by <video>) and its source VOD. */
@@ -201,16 +252,33 @@ export async function clipPlayback(slug: string) {
     name: c.broadcaster?.displayName as string | undefined, vodId: c.video?.id as string | undefined, vodOffset: c.videoOffsetSeconds as number | undefined };
 }
 
+/** Twitch lists muted passages (muteInfo) in 3-min blocks; touching blocks are merged. */
+export function mergeMuted(nodes: { offset?: number; duration?: number }[]): { start: number; end: number }[] {
+  const raw = nodes.filter(n => Number.isFinite(n.offset) && (n.duration ?? 0) > 0)
+    .map(n => ({ start: n.offset!, end: n.offset! + n.duration! })).sort((a, b) => a.start - b.start);
+  const out: { start: number; end: number }[] = [];
+  for (const r of raw) {
+    const last = out[out.length - 1];
+    if (last && r.start <= last.end + 1) last.end = Math.max(last.end, r.end); else out.push({ ...r });
+  }
+  return out;
+}
+/** Title, chapters (game changes), muted passages and date of a VOD in one query. */
 export async function vodMeta(id: string) {
   const d = await gql(`query($id: ID!) { video(id: $id) { title lengthSeconds viewCount createdAt previewThumbnailURL(width: 320, height: 180)
     owner { id login displayName profileImageURL(width: 70) }
-    moments(first: 50, momentRequestType: VIDEO_CHAPTER_MARKERS) { edges { node { positionMilliseconds durationMilliseconds description } } } } }`, { id });
+    moments(first: 50, momentRequestType: VIDEO_CHAPTER_MARKERS) { edges { node { positionMilliseconds durationMilliseconds description } } }
+    muteInfo { mutedSegmentConnection { nodes { offset duration } } } } }`, { id });
   const v = d?.video; if (!v) return d ? null : undefined;
   const chapters = (v.moments?.edges ?? []).map((e: any) => ({ start: e.node.positionMilliseconds / 1000,
     duration: e.node.durationMilliseconds / 1000, title: e.node.description ?? '' })).sort((a: any, b: any) => a.start - b.start);
+  // Two chapters at the same start: keep the first (ids are the start offsets).
+  const seen = new Set<number>();
+  const unique = chapters.filter((c: any) => !seen.has(c.start) && seen.add(c.start));
   return { title: v.title ?? '', length: v.lengthSeconds ?? 0, views: v.viewCount ?? 0, createdAt: v.createdAt as string, thumb: v.previewThumbnailURL ?? '',
     login: v.owner?.login ?? '', name: v.owner?.displayName ?? '', ownerId: v.owner?.id as string | undefined, avatar: v.owner?.profileImageURL as string | undefined,
-    chapters: chapters.length > 1 ? chapters as { start: number; duration: number; title: string }[] : [] };
+    chapters: unique.length > 1 ? unique as { start: number; duration: number; title: string }[] : [],
+    muted: mergeMuted(v.muteInfo?.mutedSegmentConnection?.nodes ?? []) };
 }
 
 // Playback ------------------------------------------------------------------------------------
@@ -230,7 +298,7 @@ export async function accountPlaybackToken(login: string): Promise<AccountPlayba
   const q = `query($l: String!) { streamPlaybackAccessToken(channelName: $l,
     params: {platform: "web", playerBackend: "mediaplayer", playerType: "site"}) { value signature } }`;
   try {
-    const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: timeout(8000),
+    const r = await fetch('https://gql.twitch.tv/gql', { method: 'POST', signal: timeout(6000),
       headers: { 'Client-ID': TV_CLIENT_ID, Authorization: `OAuth ${acc.token}`, 'Content-Type': 'application/json',
         'X-Device-Id': twitchWebDeviceId() },
       body: JSON.stringify({ query: q, variables: { l: login.toLowerCase() } }) });
@@ -297,11 +365,15 @@ const firstOf = <T>(ps: Promise<T | undefined>[]) => new Promise<T | undefined>(
 });
 
 /** `url`: the master for the native player ("Automatisch"); `master`: its qualities when readable. */
-export type LiveHit = { src: LiveSource; master?: Master; url: string };
+export type LiveHit = { src: LiveStep; master?: Master; url: string };
 /** One source. Proxies return a readable master (quality list); official Twitch only a URL for
  *  the native player: usher sends no CORS header to other sites, so its master can't be read. */
-async function attempt(src: LiveSource, login: string, lowLatency: boolean): Promise<LiveHit | undefined> {
+async function attempt(src: LiveStep, login: string, lowLatency: boolean): Promise<LiveHit | undefined> {
   const q = `allow_source=true&allow_audio_only=true&fast_bread=${lowLatency}`;
+  if (src === 'worker') {
+    const m = await workerLive(login);
+    return m && { src, master: m, url: m.links.Auto ?? Object.values(m.links)[0] };
+  }
   if (src === 'as' || src === 'eu') {
     const hosts = src === 'as' ? LUMINOUS_AS : LUMINOUS_EU;
     const m = await firstOf(hosts.map(h => fetchMaster(`https://${h}/live/${login}?${q}`, 8000)));
@@ -323,19 +395,25 @@ async function attempt(src: LiveSource, login: string, lowLatency: boolean): Pro
 
 /** Staggered race over the sources (raceLiveSources): the next one starts when the previous failed
  *  or after 1.5 s; the first answer wins. Official Twitch (with ads) only after all before it failed. */
-/** `firstAlone`: a source picked in the player gets its full time before the others start. */
-export function raceLive(steps: LiveSource[], login: string, lowLatency: boolean, onSource?: (s: LiveSource) => void, firstAlone = false): Promise<LiveHit | undefined> {
+/** `firstAlone`: a source picked in the player gets its full time before the others start.
+ *  The worker is appended as the last resort (liveSourceSteps in iOS), only once everything else failed. */
+export function raceLive(order: LiveStep[], login: string, lowLatency: boolean, onSource?: (s: LiveStep) => void, firstAlone = false): Promise<LiveHit | undefined> {
+  const steps: LiveStep[] = order.includes('worker') ? order : [...order, 'worker'];
   return new Promise(resolve => {
     let next = 0, running = 0, done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const t0 = Date.now();
     const start = () => {
       if (done || next >= steps.length) return;
       const src = steps[next++]; running++; onSource?.(src);
       clearTimeout(timer);
-      if (next < steps.length && steps[next] !== 'twitch' && !(firstAlone && next === 1)) timer = setTimeout(start, 1500);
+      // Official Twitch and the worker never run in parallel with the proxies.
+      if (next < steps.length && steps[next] !== 'twitch' && steps[next] !== 'worker' && !(firstAlone && next === 1)) timer = setTimeout(start, 1500);
+      const started = Date.now();
       attempt(src, login, lowLatency).then(hit => {
         running--;
-        if (!hit) addLog('Player', `Quelle ${src} für ${login}: keine Antwort`, false);
+        if (!hit) log.warn('Player', `Quelle ${src} für ${login}: keine Antwort`, `${Date.now() - started} ms`);
+        else log.debug('Player', `Quelle ${src} für ${login} antwortet`, `${Date.now() - started} ms, gesamt ${Date.now() - t0} ms`);
         if (done) return;
         if (hit) { done = true; clearTimeout(timer); resolve(hit); return; }
         if (running === 0) { if (next >= steps.length) { done = true; resolve(undefined); } else start(); }
