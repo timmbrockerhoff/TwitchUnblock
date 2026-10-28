@@ -230,9 +230,11 @@ export function addRecentChannel(login: string) {
 export function removeRecentChannel(login: string) { state.recentChannels = state.recentChannels.filter(l => l !== login); persist('recentChannels'); }
 export function clearRecentChannels() { state.recentChannels = []; persist('recentChannels'); }
 export function setAccount(a: Account | null) {
+  const switched = a?.userId !== state.account?.userId;
   state.account = a;
   if (a) localStorage.setItem('account', JSON.stringify(a)); else { localStorage.removeItem('account'); state.accountFollows = []; state.accountCategories = []; }
   changed();
+  if (switched) followListeners.forEach(f => f()); // login/logout changes the followed set
 }
 
 // History and progress -------------------------------------------------------------------------------
