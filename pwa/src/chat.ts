@@ -9,8 +9,9 @@ import { state } from './store';
 import { addLog } from './log';
 
 export type Part = { t: 'text'; v: string } | { t: 'emote'; v: string; url: string; zeroWidth?: boolean } | { t: 'link'; v: string } | { t: 'mention'; v: string };
+export type Badge = { url: string; title: string; description?: string };
 export type ChatMsg = {
-  id: string; login: string; name: string; color: string; badges: { url: string; title: string }[];
+  id: string; login: string; name: string; color: string; badges: Badge[];
   parts: Part[]; text: string; ts: number; system?: string; action?: boolean; mention?: boolean; deleted?: boolean;
   history?: boolean; translation?: string; offset?: number;
   /** Twitch user id (personal BTTV emotes are per author). */
@@ -19,8 +20,8 @@ export type ChatMsg = {
   highlighted?: boolean;
   /** First message in this channel (`first-msg`). */
   firstMsg?: boolean;
-  /** Reply quote (`reply-parent-*`): who and what. */
-  reply?: { login: string; text: string };
+  /** Reply quote (`reply-parent-*`): who and what; the ids make up the thread (MessageSheet). */
+  reply?: { login: string; text: string; parent?: string; root?: string };
   /** USERNOTICE `msg-id` (sub, resub, raid, announcement …); `accent` = announcement colour. */
   noticeKind?: string; accent?: string;
   /** USERNOTICE raid: the raiding channel's login (tap → open it). */
@@ -28,7 +29,8 @@ export type ChatMsg = {
 };
 
 // Emotes (EmoteService.swift) -------------------------------------------------------------------
-type Emote = { id: string; url: string; zeroWidth?: boolean };
+export type EmoteSource = 'bttv' | 'ffz' | '7tv';
+type Emote = { id: string; url: string; zeroWidth?: boolean; source: EmoteSource; author?: string };
 type EmoteMap = Map<string, Emote>;
 const globalBTTV: EmoteMap = new Map(), globalFFZ: EmoteMap = new Map(), global7TV: EmoteMap = new Map();
 const channelBTTV = new Map<string, EmoteMap>(), channelFFZ = new Map<string, EmoteMap>(), channel7TV = new Map<string, EmoteMap>();
@@ -39,16 +41,16 @@ const stvSets = new Map<string, Promise<string | undefined>>();
 const channelLoaded = new Map<string, Promise<void>>();
 let globalsLoaded: Promise<void> | undefined;
 const json = (u: string) => fetch(u, { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : undefined).catch(() => undefined);
-const bttv = (e: any): Emote | undefined => e?.id && e.code ? { id: String(e.id), url: `https://cdn.betterttv.net/emote/${e.id}/2x` } : undefined;
+const bttv = (e: any): Emote | undefined => e?.id && e.code ? { id: String(e.id), url: `https://cdn.betterttv.net/emote/${e.id}/2x`, source: 'bttv', author: e.user?.displayName } : undefined;
 // FFZ keeps animated emotes in `animated` (WebP); `urls` only has a still frame.
 const ffz = (e: any): Emote | undefined => {
   const u = e.animated?.['2'] ?? e.urls?.['2'] ?? e.urls?.['1'];
-  return u && e.name ? { id: String(e.id), url: u.startsWith('//') ? 'https:' + u : u } : undefined;
+  return u && e.name ? { id: String(e.id), url: u.startsWith('//') ? 'https:' + u : u, source: 'ffz', author: e.owner?.display_name } : undefined;
 };
 // 7TV: `flags & 1` = zero-width in this set (drawn over the previous emote).
 const stv = (e: any): Emote | undefined => {
   const h = e?.data?.host?.url;
-  return h && e.name ? { id: String(e.id), url: `https:${h}/2x.webp`, zeroWidth: ((e.flags ?? 0) & 1) !== 0 } : undefined;
+  return h && e.name ? { id: String(e.id), url: `https:${h}/2x.webp`, zeroWidth: ((e.flags ?? 0) & 1) !== 0, source: '7tv', author: e.data?.owner?.display_name } : undefined;
 };
 const fill = (map: EmoteMap, list: any[] | undefined, make: (e: any) => Emote | undefined) =>
   list?.forEach(e => { const m = make(e); if (m) map.set(e.code ?? e.name, m); });
@@ -62,6 +64,8 @@ export function loadGlobalEmotes() {
   ]).then(() => {});
   return globalsLoaded;
 }
+/** "Chat neu laden": the next loadChannelEmotes fetches again. */
+export const forgetChannelEmotes = (channelId: string) => { channelLoaded.delete(channelId); channelBadges.delete(channelId); };
 export function loadChannelEmotes(channelId: string, login: string) {
   let p = channelLoaded.get(channelId);
   if (p) return p;
@@ -159,32 +163,41 @@ export function liveEmotes(channelId: string, login: string): () => void {
           const b = m.d.body;
           for (const c of [...(b.pulled ?? []), ...(b.updated ?? [])]) if (c.key === 'emotes' && c.old_value?.id) dropEmote(map(), String(c.old_value.id));
           for (const c of [...(b.pushed ?? []), ...(b.updated ?? [])]) if (c.key === 'emotes' && c.value?.id && c.value.name)
-            map()?.set(c.value.name, stv(c.value) ?? { id: String(c.value.id), url: `https://cdn.7tv.app/emote/${c.value.id}/2x.webp` });
+            map()?.set(c.value.name, stv(c.value) ?? { id: String(c.value.id), url: `https://cdn.7tv.app/emote/${c.value.id}/2x.webp`, source: '7tv' });
         }
       });
   });
   return () => { stopped = true; bttvLeave(channelId); stop7tv?.(); };
 }
 
+export type EmoteEntry = { name: string; url: string; id: string; zeroWidth?: boolean; source: EmoteSource | 'twitch'; scope: 'channel' | 'personal' | 'global'; author?: string };
 /** Emote list for the picker: channel first, then global third-party. */
-export function emoteList(channelId?: string): { name: string; url: string; zeroWidth?: boolean }[] {
+export function emoteList(channelId?: string): EmoteEntry[] {
   const maps = channelId ? [channelBTTV.get(channelId), channelFFZ.get(channelId), channel7TV.get(channelId)] : [];
-  const out: { name: string; url: string; zeroWidth?: boolean }[] = [], seen = new Set<string>();
-  for (const m of [...maps, globalBTTV, globalFFZ, global7TV]) m?.forEach((e, name) => { if (!seen.has(name)) { seen.add(name); out.push({ name, url: e.url, zeroWidth: e.zeroWidth }); } });
+  const out: EmoteEntry[] = [], seen = new Set<string>();
+  const add = (m: EmoteMap | undefined, scope: EmoteEntry['scope']) => m?.forEach((e, name) => { if (!seen.has(name)) { seen.add(name); out.push({ name, ...e, scope }); } });
+  maps.forEach(m => add(m, 'channel'));
+  [globalBTTV, globalFFZ, global7TV].forEach(m => add(m, 'global'));
   return out;
+}
+/** Where a third-party emote comes from (emote sheet); undefined = a Twitch emote. */
+export function emoteInfo(name: string, channelId?: string, userId?: string): (EmoteEntry & { source: EmoteSource }) | undefined {
+  const pick = (m: EmoteMap | undefined, scope: EmoteEntry['scope']) => { const e = m?.get(name); return e && { name, ...e, scope }; };
+  return (channelId && (pick(channelBTTV.get(channelId), 'channel') || pick(channelFFZ.get(channelId), 'channel') || pick(channel7TV.get(channelId), 'channel')))
+    || (userId && pick(personalBTTV.get(userId), 'personal')) || pick(globalBTTV, 'global') || pick(globalFFZ, 'global') || pick(global7TV, 'global') || undefined;
 }
 
 // Badges (public GQL, no account needed; static CDN when a badge is unknown) ---------------------
-const globalBadges = new Map<string, { url: string; title: string }>();
-const channelBadges = new Map<string, Map<string, { url: string; title: string }>>();
+const globalBadges = new Map<string, Badge>();
+const channelBadges = new Map<string, Map<string, Badge>>();
 async function loadGlobalBadges() {
-  const d = await gql('query { badges { setID version title imageURL(size: DOUBLE) } }');
-  d?.badges?.forEach((b: any) => globalBadges.set(`${b.setID}/${b.version}`, { url: b.imageURL, title: b.title }));
+  const d = await gql('query { badges { setID version title description imageURL(size: DOUBLE) } }');
+  d?.badges?.forEach((b: any) => globalBadges.set(`${b.setID}/${b.version}`, { url: b.imageURL, title: b.title, description: b.description }));
 }
 async function loadChannelBadges(id: string) {
-  const d = await gql('query($id: ID!) { user(id: $id) { broadcastBadges { setID version title imageURL(size: DOUBLE) } } }', { id });
-  const m = new Map<string, { url: string; title: string }>();
-  d?.user?.broadcastBadges?.forEach((b: any) => m.set(`${b.setID}/${b.version}`, { url: b.imageURL, title: b.title }));
+  const d = await gql('query($id: ID!) { user(id: $id) { broadcastBadges { setID version title description imageURL(size: DOUBLE) } } }', { id });
+  const m = new Map<string, Badge>();
+  d?.user?.broadcastBadges?.forEach((b: any) => m.set(`${b.setID}/${b.version}`, { url: b.imageURL, title: b.title, description: b.description }));
   channelBadges.set(id, m);
 }
 function badgesFor(raw: string[], channelId?: string) {
@@ -193,7 +206,7 @@ function badgesFor(raw: string[], channelId?: string) {
     if (known) return known;
     const [set, v] = b.split('/');
     return set && v ? { url: `https://static-cdn.jtvnw.net/badges/v1/${set}/${v}/2`, title: set.replace(/[-_]/g, ' ') } : undefined;
-  }).filter(Boolean) as { url: string; title: string }[];
+  }).filter(Boolean) as Badge[];
 }
 
 // Message building ----------------------------------------------------------------------------
@@ -267,7 +280,8 @@ function fromIRC(m: IRCMessage, channelId: string | undefined, me?: string): Cha
   if (hit.highlighted || t['msg-id'] === 'highlighted-message') msg.highlighted = true;
   if (t['first-msg'] === '1') msg.firstMsg = true;
   const replyLogin = t['reply-parent-display-name'] || t['reply-parent-user-login'];
-  if (replyLogin && t['reply-parent-msg-body'] != null) msg.reply = { login: replyLogin, text: t['reply-parent-msg-body'] };
+  if (replyLogin && t['reply-parent-msg-body'] != null)
+    msg.reply = { login: replyLogin, text: t['reply-parent-msg-body'], parent: t['reply-parent-msg-id'], root: t['reply-thread-parent-msg-id'] || t['reply-parent-msg-id'] };
   return msg;
 }
 const palette = ['#FF0000', '#0000FF', '#00FF00', '#B22222', '#FF7F50', '#9ACD32', '#FF4500', '#2E8B57', '#DAA520', '#D2691E', '#5F9EA0', '#1E90FF', '#FF69B4', '#8A2BE2', '#00FF7F'];
@@ -381,12 +395,16 @@ export class ChatClient {
     this.connect();
   }
   /** Replace the connection now (token refused, banned): same channel, without the account. */
-  private reconnectAnonymously() {
-    this.anonymous = true;
+  private reconnectAnonymously() { this.anonymous = true; this.reconnect(); }
+  /** "Chat neu laden": a fresh connection, the lines stay. */
+  reconnect() {
+    this.retryDelay = 2;
     const ws = this.ws; this.ws = undefined; ws?.close();
     this.dropConnection();
     this.connect();
   }
+  /** Banned → try the account again (an unban is never announced on IRC). */
+  retryAccount() { this.readOnly = false; this.anonymous = false; this.reconnect(); }
   private handle(line: string) {
     const m = parseIRC(line); if (!m) return;
     switch (m.command) {
@@ -525,14 +543,16 @@ export class ChatClient {
     return r;
   }
   get canSend() { return !!state.account && this.connected && !this.readOnly && !this.anonymous; }
-  send(text: string) {
+  /** `reply`: the message answered (`reply-parent-msg-id`), quoted on our own echo. */
+  send(text: string, reply?: ChatMsg) {
     const acc = state.account; if (!acc || !this.ws || !this.canSend) return false;
-    this.ws.send(`PRIVMSG #${this.login} :${text.replace(/[\r\n]/g, ' ')}`);
+    this.ws.send(`${reply ? `@reply-parent-msg-id=${reply.id} ` : ''}PRIVMSG #${this.login} :${text.replace(/[\r\n]/g, ' ')}`);
     // Twitch doesn't echo our own message: show it locally with our USERSTATE (color, badges).
     // Shown at once, never delayed (ChatService.sendMessage).
     const t = this.userState;
     this.push([{ id: `me-${Date.now()}`, login: acc.login, name: t['display-name'] || acc.name, color: readableColor(t.color || nickColor(acc.login)), userId: acc.userId,
-      badges: badgesFor((t.badges || '').split(',').filter(Boolean), this.channelId), parts: buildParts(text, '', this.channelId, acc.userId), text, ts: Date.now() }]);
+      badges: badgesFor((t.badges || '').split(',').filter(Boolean), this.channelId), parts: buildParts(text, '', this.channelId, acc.userId), text, ts: Date.now(),
+      reply: reply && { login: reply.name, text: reply.text, parent: reply.id, root: reply.reply?.root ?? reply.id } }]);
     return true;
   }
   close() {
@@ -621,6 +641,8 @@ export class VodChat {
   private failures = 0;
   /** Last failure, for the panel ("Chat der Aufzeichnung nicht verfügbar"). */
   error?: string;
+  /** First page answered (or failed): the panel can tell "loading" from "nothing here". */
+  ready = false;
   constructor(private videoId: string, private channelId?: string) {}
   /** Messages due up to `t` (seconds into the VOD). Back by 2 s or ahead by 30 s restarts there. */
   async tick(t: number): Promise<{ msgs: ChatMsg[]; reset: boolean }> {
@@ -628,7 +650,7 @@ export class VodChat {
     let reset = false;
     if (this.last < 0 || t < this.last - 2 || t > this.last + 30) {
       this.gen++; this.buffer = []; this.seen.clear(); this.fetchedUntil = -1; this.hasNext = true;
-      this.retryAt = 0; this.failures = 0; this.error = undefined; reset = true;
+      this.retryAt = 0; this.failures = 0; this.error = undefined; this.ready = false; reset = true;
     }
     this.last = t;
     if (this.hasNext && !this.fetching && this.fetchedUntil < t + LOOKAHEAD && Date.now() >= this.retryAt)
@@ -647,7 +669,7 @@ export class VodChat {
       res = d ? { data: d } : undefined;
     }
     if (gen !== this.gen) return;
-    this.fetching = false;
+    this.fetching = false; this.ready = true;
     if (!res || res.errors?.length) { this.failed(res?.errors?.map((e: any) => e.message).join(' · ') || 'network'); return; }
     const comments = res.data?.video?.comments;
     if (!comments?.edges) { this.hasNext = false; return; }   // no chat for this VOD: like the site, nothing to retry
