@@ -1,0 +1,82 @@
+/* Notices above the chat (events.tsx): full-width bands with an icon column, a 10 % tint and a
+   hairline below, in the iOS order pin → drops → poll → prediction → hype train → raid. */
+div.events { display: flex; flex-direction: column; gap: 0; padding: 0; font-size: 12px; line-height: 1.3; }
+.evt { position: relative; display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px 4px 8px 12px; text-align: left; color: var(--text);
+  border-bottom: .5px solid var(--sep); background: color-mix(in srgb, var(--c, var(--accent)) 10%, transparent); }
+.evt > .evt-i { flex: none; margin-top: 2px; color: var(--c, var(--accent)); }
+.evt.accent { --c: var(--accent); }
+.evt.purple { --c: #bf94ff; }
+.evt.red { --c: var(--live); }
+.evt.raid { --c: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); align-items: center; cursor: pointer; padding-right: 12px; }
+.evt.card { background: var(--card); }
+.evt.err { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.evt-i { fill: currentColor; vertical-align: -1px; }
+.evt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.evt-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.evt-head.tap { cursor: pointer; }
+.evt-title { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evt-sub { font-size: 10px; color: var(--muted); }
+.evt-sub.one, .evt-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evt-meta { font-size: 10px; color: var(--muted); display: flex; gap: 10px; }
+.evt-meta a { font-size: 11px; font-weight: 700; }
+.evt-tag { font-size: 10px; font-weight: 700; color: var(--muted); padding: 2px 6px; border-radius: 5px; background: var(--fill); white-space: nowrap; }
+.evt-tag.green { color: var(--success, #30d158); background: none; padding: 0; }
+.evt-tag.red { color: var(--live); background: color-mix(in srgb, var(--live) 15%, transparent); }
+.evt-cd { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.evt-cd.accent { color: var(--accent); } .evt-cd.purple { color: #bf94ff; } .evt-cd.red { color: var(--live); }
+.evt-x { flex: none; width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); margin-top: -5px; }
+.evt-chev { display: inline-block; transition: transform .18s; } .evt-chev.up { transform: rotate(180deg); }
+.evt-chip { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin: 4px 12px; font-size: 11px; font-weight: 700; color: var(--text);
+  padding: 3px 9px; border-radius: 999px; background: var(--fill); }
+.evt-win { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; }
+.evt-trophy { color: #ffb800; } .evt-check { color: var(--success, #30d158); }
+.evt-row { display: flex; align-items: center; gap: 6px; }
+
+/* EventBar: label, %, 5 px capsule, stats row (prediction); a frame when picked for a bet */
+.evt-bar { display: block; width: 100%; text-align: left; color: var(--text); padding: 2px 0; border-radius: 6px; }
+.evt-bar.sel { box-shadow: 0 0 0 1.5px var(--c); padding: 2px 4px; margin: 0 -4px; width: calc(100% + 8px); }
+.evt-bar:disabled { opacity: 1; }
+.evt-bar-head { display: flex; align-items: center; gap: 4px; }
+.evt-bar-label { font-size: 11px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evt-bar-label.voted { color: var(--success, #30d158); }
+.evt-pct { font-size: 10px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.evt-track { flex: 1; height: 5px; border-radius: 3px; background: var(--fill); overflow: hidden; margin-top: 1px; }
+.evt-track div { height: 100%; border-radius: 3px; background: var(--c, var(--accent)); }
+.evt-track.red div { background: var(--live); }
+.evt-stats { display: flex; gap: 10px; margin-top: 2px; font-size: 10px; font-weight: 600; color: var(--c); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.evt-stats span { display: inline-flex; align-items: center; gap: 3px; }
+.evt-mine { font-size: 10px; font-weight: 600; color: var(--success, #30d158); }
+.evt-done { font-size: 11px; font-weight: 600; color: var(--success, #30d158); }
+.evt-err { font-size: 10px; font-weight: 600; color: var(--live); }
+
+/* Prediction bet panel: "„X“ vorhersagen" + balance, preset chips, number field, capsule button */
+.evt-bet { display: flex; flex-direction: column; gap: 6px; padding-top: 2px; }
+.evt-bet-on { font-size: 11px; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evt-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.evt-presets .evt-chip { margin: 0; }
+.evt-bet input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--fill); color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.evt-go { flex: none; font-size: 12px; font-weight: 700; color: #fff; padding: 5px 10px; border-radius: 999px; background: var(--accent); white-space: nowrap; }
+.evt-go:disabled { opacity: .5; }
+
+/* Hype train approach pills */
+.evt-pills { display: inline-flex; gap: 4px; }
+.evt-pills i { width: 14px; height: 14px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--live); display: grid; place-items: center;
+  font-style: normal; font-size: 8px; font-weight: 900; color: #fff; transform: scale(.88); transition: transform .35s; }
+.evt-pills i.on { background: var(--live); transform: scale(1); }
+.evt-kick { font-size: 11px; font-weight: 600; }
+
+/* Pinned message */
+.evt.pin { padding: 6px 4px 6px 10px; overflow: hidden; }
+.pin-i { color: #bf94ff; margin-top: 3px; }
+.pin-text { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.pin-text.open { white-space: normal; max-height: 160px; overflow-y: auto; cursor: auto; }
+.pin-text .badge-img { height: 14px; vertical-align: -3px; margin-right: 3px; }
+.pin-text .emote { height: 20px; vertical-align: middle; }
+.evt.pin .evt-meta { padding-left: 0; }
+.pin-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(191, 148, 255, .15); }
+.pin-bar div { height: 100%; background: #bf94ff; transform-origin: left; transition: transform 1s linear; }
+
+/* Channel drops card */
+.drops-img { width: 34px; height: 34px; flex: none; object-fit: contain; border-radius: 6px; }
+.drops-img.ph { display: grid; place-items: center; color: #bf94ff; }
