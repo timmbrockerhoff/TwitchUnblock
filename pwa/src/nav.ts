@@ -20,7 +20,9 @@ export type PlayerTarget =
   | { kind: 'recovered'; vod: RecoveredVod }
   | { kind: 'clip'; slug: string }
   | { kind: 'clips'; clips: Clip[]; index: number }
-  | { kind: 'multi'; logins: string[] };
+  | { kind: 'multi'; logins: MultiEntry[] };
+/** Multi-live tile: a channel's live, or a VOD by id. */
+export type MultiEntry = string | { vod: string };
 
 export const nav = {
   tab: 'home' as Tab,
