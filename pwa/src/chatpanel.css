@@ -1,0 +1,28 @@
+/* Chat panel (chatpanel.tsx): list, rows, input bar, info line, sheets. Dark player colours
+   come from .player's variables; the preview in Settings reuses .msg/.ts/.badge-img/.emote. */
+.chat { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
+.chat-list { flex: 1; overflow-y: auto; padding: 6px 10px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.msg { padding: 3px 0; line-height: 1.35; overflow-wrap: anywhere; }
+.msg.old { opacity: .55; }
+.msg.mention { background: rgba(233, 25, 22, .18); border-radius: 6px; padding: 3px 6px; margin: 0 -6px; }
+.msg.deleted { opacity: .35; text-decoration: line-through; }
+.msg.system { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 6px; padding: 4px 6px; margin: 2px -6px; }
+.msg b[style] { cursor: pointer; }
+.sys { color: var(--muted); font-size: .9em; }
+.ts { color: var(--muted); font-size: .85em; }
+.badge-img { display: inline-block; width: 18px; height: 18px; vertical-align: -3px; margin-right: 3px; }
+.emote { display: inline-block; height: 28px; vertical-align: middle; margin: -4px 1px; }
+.tr { color: var(--muted); font-size: .9em; margin-top: 1px; }
+.jump { bottom: 64px; left: 50%; transform: translateX(-50%); }
+.info-line { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; padding: 4px 12px; }
+.info-actions { margin-left: auto; display: flex; gap: 12px; } .info-actions .link { font-size: 12px; }
+/* Narrow landscape column: room modes get the full line, Chatter/Befehle wrap below. */
+.player.land.lc-overlay:not(.mini):has(.below .chat) .info-line { flex-wrap: wrap; }
+.chat-input { display: flex; align-items: center; gap: 4px; padding: 6px 8px calc(6px + var(--safe-b)); border-top: .5px solid var(--sep); }
+.chat-input input { flex: 1; border: 0; border-radius: 18px; background: var(--fill); padding: 8px 14px; font-size: 16px; outline: none; }
+.emote-picker { max-height: 200px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; padding: 8px; border-top: .5px solid var(--sep); }
+.emote-picker img { height: 28px; margin: auto; }
+.emote-info { text-align: center; padding: 10px 16px; } .emote-info img { height: 112px; margin: 0 auto 8px; }
+.user-card .chat-list { max-height: 40vh; }
+.list-row.cmd .row-sub { white-space: normal; }
+.multi .chat { border-top: .5px solid var(--sep); }
