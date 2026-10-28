@@ -120,17 +120,39 @@ export function vodStartFromInput(input: string): number | undefined {
   return s > 0 ? s : undefined;
 }
 
-export const formatViewers = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1).replace('.', ',')} Mio.`
-  : n >= 1000 ? `${(n / 1000).toFixed(1).replace('.', ',')}k` : String(n);
+/** "12.8k" like the iOS app (no thousands separator, no million step). */
+export const formatViewers = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 export function formatClock(sec: number): string {
   sec = Math.max(0, Math.floor(sec));
   const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
   const mm = String(m).padStart(h ? 2 : 1, '0'), ss = String(s).padStart(2, '0');
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
+/** "1h 23min" / "23min" (TwitchAPI.formatDuration). */
 export function formatDuration(sec: number): string {
   const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
-  return h ? `${h} h ${m} min` : `${m} min`;
+  return h ? `${h}h ${m}min` : `${m}min`;
+}
+/** "0:28": clips last a minute at most, formatDuration would say "0min". */
+export function formatClipDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+/** Short date of a VOD card, "21.10.26" (DateFormatter .short in German). */
+export function formatShortDate(iso?: string): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(t) ? (iso ?? '').slice(0, 10) : new Date(t).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+/** "13 T · 21. Okt." since the last live (offlineLabel): span in T/h/min, then the date, with the
+ *  year when it is not the current one. Empty for an unknown or future date. */
+export function formatOfflineSince(iso?: string, now = Date.now()): string {
+  const end = iso ? Date.parse(iso) : NaN;
+  const diff = (now - end) / 1000;
+  if (Number.isNaN(end) || diff <= 0) return '';
+  const days = Math.floor(diff / 86400), hours = Math.floor(diff / 3600), minutes = Math.floor(diff / 60);
+  const span = days > 0 ? `${days} T` : hours > 0 ? `${hours} h` : `${minutes} min`;
+  const d = new Date(end), sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return `${span} · ${d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })}`;
 }
 
 // IRC
