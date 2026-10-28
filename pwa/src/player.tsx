@@ -1008,8 +1008,10 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const [fast, setFast] = useState(false);
   const [chrome, setChrome] = useState(true);
   const [vod, setVod] = useState<ClipSrc['vod']>();
-  const [frac, setFrac] = useState(0);
-  const [drag, setDrag] = useState<number | null>(null);
+  // Progress line: drawn straight from refs (no feed re-render per frame or per finger move).
+  const [drag, setDrag] = useState(false);
+  const fill = useRef<HTMLDivElement>(null);
+  const scrub = useRef<{ f: number; resume: boolean; busy: boolean; next?: number; t?: ReturnType<typeof setTimeout> }>();
   const [dragX, setDragX] = useState(0);
   const srcs = useRef(new Map<string, Promise<ClipSrc | undefined>>());
   const chromeT = useRef<ReturnType<typeof setTimeout>>();
@@ -1040,7 +1042,7 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const go = (i: number) => { if (clips[i] && i !== cur) setCur(i); else place(0, true); };
 
   useEffect(() => {
-    let alive = true; setPaused(false); setFast(false); setFrac(0);
+    let alive = true; setPaused(false); setFast(false); if (fill.current) fill.current.style.width = '0%';
     const c = clips[cur], el = vids[slot].current!, other = vids[1 - slot].current!;
     other.pause(); other.playbackRate = 1;
     resolve(c).then(p => {
@@ -1075,7 +1077,46 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
     // The other element plays from this tap too, so the next clip may start with sound.
     const o = vids[1 - slot].current; o?.play().then(() => o.pause()).catch(() => {});
   };
-  const scrubTo = (e: PointerEvent) => { const f = localFraction(e.currentTarget as HTMLElement, e); setDrag(f); const el = cv(); if (isFinite(el.duration)) el.currentTime = f * el.duration; };
+  // The line follows the playhead every frame; timeupdate only fires ~4×/s and made it step.
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = vids[slot].current, f = fill.current;
+      if (el && f && !scrub.current && isFinite(el.duration) && el.duration > 0) f.style.width = `${Math.min(100, el.currentTime / el.duration * 100)}%`;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [cur]);
+  // Scrubbing: the line follows the finger at once; only one seek runs at a time and it always
+  // goes to the newest position (fastSeek = nearest keyframe, cheap). Queued seeks were the lag.
+  const seekNext = () => {
+    const s = scrub.current, el = cv(); if (!s || s.busy || s.next == null) return;
+    const t = s.next; s.next = undefined; s.busy = true;
+    const done = () => { el.removeEventListener('seeked', done); clearTimeout(s.t); s.busy = false; seekNext(); };
+    el.addEventListener('seeked', done);
+    s.t = setTimeout(done, 250); // a seek to the same frame may never report
+    if (typeof (el as any).fastSeek === 'function') (el as any).fastSeek(t); else el.currentTime = t;
+  };
+  const scrubMove = (e: PointerEvent) => {
+    const s = scrub.current, el = cv(); if (!s) return;
+    s.f = localFraction(e.currentTarget as HTMLElement, e);
+    if (fill.current) fill.current.style.width = `${s.f * 100}%`;
+    if (isFinite(el.duration)) { s.next = s.f * el.duration; seekNext(); }
+  };
+  const scrubStart = (e: PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const el = cv();
+    // Paused while dragging, like AVPlayer scrubbing: frames come from seeks only.
+    scrub.current = { f: 0, resume: !el.paused, busy: false };
+    el.pause(); setDrag(true); scrubMove(e);
+  };
+  const scrubEnd = () => {
+    const s = scrub.current, el = cv(); if (!s) return;
+    scrub.current = undefined; setDrag(false);
+    if (isFinite(el.duration)) el.currentTime = s.f * el.duration; // exact frame where the finger let go
+    if (s.resume) el.play().catch(() => {});
+  };
 
   // One gesture handler for the whole feed. Buttons and the progress line keep their own touches.
   const own = (e: TouchEvent) => !(e.target as HTMLElement).closest('button, a, .clip-line');
@@ -1153,16 +1194,14 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
             </div>
             <button class="feed-share" onClick={() => navigator.share?.({ url: `https://clips.twitch.tv/${k.slug}` }).catch(() => {})} aria-label="Teilen"><Icon n="share" size={18} /></button>
           </div>
-          <div class={'clip-line' + (drag != null ? ' drag' : '')} onPointerDown={e => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); scrubTo(e); }}
-            onPointerMove={e => { if (drag != null) scrubTo(e); }} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)}>
-            <div style={{ width: `${(drag ?? frac) * 100}%` }} /></div>
+          <div class={'clip-line' + (drag ? ' drag' : '')} onPointerDown={scrubStart} onPointerMove={scrubMove} onPointerUp={scrubEnd} onPointerCancel={scrubEnd}>
+            <div ref={fill} /></div>
         </div>}
       </div>)}
       {vids.map((r, si) => <video key={si} ref={r} class={'feed-video' + (frame[si] && vidAt[si] >= 0 ? ' on' : '')} playsInline preload="auto"
         style={{ top: `${Math.max(0, vidAt[si]) * 100}%` }} disablePictureInPicture {...{ 'x-webkit-airplay': 'deny' }}
         onLoadedData={() => setFrame(f => (f[si] = true, [...f] as [boolean, boolean]))}
-        onEnded={() => si === slot && ended()}
-        onTimeUpdate={e => { if (si === slot && drag == null) { const el = e.currentTarget as HTMLVideoElement; if (isFinite(el.duration) && el.duration > 0) setFrac(el.currentTime / el.duration); } }} />)}
+        onEnded={() => si === slot && ended()} />)}
     </div>
     {paused && <div class="feed-pause"><Icon n="play" size={60} /></div>}
     <div class="clipfeed-top">

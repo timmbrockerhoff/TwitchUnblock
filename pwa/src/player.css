@@ -245,7 +245,7 @@
 /* Progress line: 3 px, 8 px while dragged; the 28 px strip is the touch target. */
 .clip-line { position: relative; height: 28px; display: flex; align-items: center; touch-action: none; cursor: pointer; }
 .clip-line::before { content: ''; position: absolute; left: 0; right: 0; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, .3); transition: height .15s ease-out; }
-.clip-line div { position: relative; height: 3px; border-radius: 999px; background: #fff; transition: height .15s ease-out; }
+.clip-line div { position: relative; width: 0; height: 3px; border-radius: 999px; background: #fff; transition: height .15s ease-out; will-change: width; }
 .clip-line.drag::before, .clip-line.drag div { height: 8px; }
 
 /* "Nur Chat": audio keeps playing, the picture and its controls make room for the chat. */
