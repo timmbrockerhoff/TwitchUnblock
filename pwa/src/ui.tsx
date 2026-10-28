@@ -262,8 +262,10 @@ export function VodCard({ v, wide, width, noName, onClick, status, statusError, 
   v: Vod; wide?: boolean; width?: number; noName?: boolean; onClick?: () => void; status?: string; statusError?: boolean; disabled?: boolean;
 }) {
   const p = state.progress[v.id];
+  // Long press like ChannelView's VOD cards: into the multi-live mosaic (plain VODs only, not unlisted ones).
+  const lp = useLongPress(() => onClick ? undefined : [{ label: 'Zum Multi-Live hinzufügen', icon: 'grid', onSelect: () => play({ kind: 'multi', logins: [{ vod: v.id }] }) }]);
   return <button class={'card' + (wide ? ' wide' : '')} style={width ? { width } : undefined} disabled={disabled} aria-busy={status === 'Suche …'}
-    onClick={onClick ?? (() => play({ kind: 'vod', id: v.id }))}>
+    onClick={onClick ?? (() => play({ kind: 'vod', id: v.id }))} {...lp}>
     <div class="thumb"><img loading="lazy" src={v.thumb.includes('404_processing') || !v.thumb ? '' : thumb(v.thumb, 320, 180)} alt="" />
       <span class="badge tr">{formatDuration(v.length)}</span>
       {status && <span class={'badge bl' + (statusError ? ' problem' : '')}>{status}</span>}

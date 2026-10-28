@@ -355,7 +355,7 @@ export function Library() {
 /** LibraryView.row: thumb 116×65 with the watched bar, title, streamer, clock "12min / 3h 10min"; long press = menu. */
 function VodRow({ h }: { h: HistoryEntry }) {
   const lp = useLongPress((): MenuItem[] => [
-    { label: 'Zum Multi-Live hinzufügen', icon: 'grid', onSelect: () => play({ kind: 'multi', logins: [h.login] }) },
+    { label: 'Zum Multi-Live hinzufügen', icon: 'grid', onSelect: () => play({ kind: 'multi', logins: [{ vod: h.id }] }) },
     { label: 'Aus dem Verlauf entfernen', icon: 'trash', danger: true, onSelect: () => removeHistory('vod', h.id) }]);
   const p = state.progress[h.id];
   return <button class="vod-row" onClick={() => play({ kind: 'vod', id: h.id })} {...lp}>
