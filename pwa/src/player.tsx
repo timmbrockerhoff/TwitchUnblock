@@ -623,7 +623,7 @@ function StreamInfo({ kind, info, inArchive, onGoLive, shareURL, clipVod, onOpen
   return <div class="sinfo">
     <h2 class="sinfo-title">{info.title}</h2>
     {(live || info.sub) && <div class="sinfo-detail">
-      {live && info.viewers != null && `${formatViewers(info.viewers)} Zuschauer · `}{uptime && <><span class="dot">● </span>{uptime}</>}{info.sub && `${uptime ? ' · ' : ''}${info.sub}`}</div>}
+      {live && info.viewers != null && `${formatViewers(info.viewers)} Zuschauer · `}{uptime && <><span class="dot live" /> {uptime}</>}{info.sub && `${uptime ? ' · ' : ''}${info.sub}`}</div>}
     <div class="sinfo-ch">
       {info.avatar ? <img class="avatar" src={info.avatar} alt="" onClick={open} /> : <span class="avatar" onClick={open}><Icon n="person" size={40} /></span>}
       <span class="sinfo-name" onClick={open}>{info.name ?? info.login}</span>
@@ -716,7 +716,7 @@ function Controls({ video, kind, info, inArchive, archive, liveTotal, landscape,
         <button class="bare" onClick={() => minimizePlayer()} aria-label="Minimieren"><Icon n="down" size={18} /></button>
         {landscape && info.name && <button class="ctl-title" onClick={() => info.login && openChannel(info.login)}>
           <b>{info.name}</b>
-          {live && <span>{uptime && <><i class="dot">●</i> {uptime}</>}{info.viewers != null && <> <Icon n="eye" size={11} /> {formatViewers(info.viewers)}</>}</span>}</button>}
+          {live && <span>{uptime && <><i class="dot live" /> {uptime}</>}{info.viewers != null && <> <Icon n="eye" size={11} /> {formatViewers(info.viewers)}</>}</span>}</button>}
         {!landscape && <span class="ctl-spacer" />}
         {onShowChat && <button class="bare" onClick={onShowChat} aria-label="Chat einblenden"><G n="bubbles" size={18} /></button>}
         <button class="bare" onClick={() => v?.webkitShowPlaybackTargetPicker?.()} aria-label="AirPlay"><Icon n="airplay" size={18} /></button>

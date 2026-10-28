@@ -313,7 +313,7 @@ export function MessageRow({ m, onTap, onBadge, onEmote, onOpenChannel, marked }
     {m.system && (m.raider ? <div class="msg-raid"><CI n="people" size={11} /><span>{m.system}</span>
         <button class="btn bordered small" onClick={e => { e.stopPropagation(); onOpenChannel?.(m.raider!); }}>Kanal ansehen</button></div>
       : <div class={'msg-sys' + (m.login ? '' : ' app')}>{m.login && '★ '}{m.system}</div>)}
-    {m.reply && <div class="msg-reply"><CI n="reply" size={9} /><b>@{m.reply.login}</b>: {m.reply.text}</div>}
+    {m.reply && <div class="msg-reply"><CI n="reply" size={9} /><span><b>@{m.reply.login}</b>: {m.reply.text}</span></div>}
     {(m.parts.length > 0 || !m.system) && <div class="msg-line">
       {st.chatTimestamps && <span class="ts">{time(m)}</span>}
       {m.history && <CI n="history" size={st.chatFont - 3} cls="ts" />}

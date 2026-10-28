@@ -36,6 +36,7 @@
 .msg-raid .btn.small { height: 28px; padding: 0 10px; font-size: 11px; font-weight: 700; }
 .msg-reply { display: flex; align-items: center; gap: 5px; margin: 5px 12px 0; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-reply span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .msg-reply b { font-weight: 700; }
 .ts { color: var(--muted); font-size: calc(var(--fs) - 2px); margin-right: 4px; font-variant-numeric: tabular-nums; }
 .badge-img { display: inline-block; height: var(--badge, 16px); width: auto; vertical-align: text-bottom; margin-right: 4px; cursor: pointer; }
