@@ -228,8 +228,9 @@ main.behind { visibility: hidden; height: 0; overflow: hidden; }
 .hint-line { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; padding: 0 16px 10px; }
 /* Suggestions (SearchView.suggestionList): card radius 14, rows 48 px, divider from 56 px */
 .suggest { margin: 0 16px 20px; background: var(--card); border-radius: 14px; overflow: hidden; }
-.suggest-row { display: flex; gap: 12px; align-items: center; height: 48px; padding: 0 12px; width: 100%; text-align: left; }
-.suggest-row + .suggest-row { border-top: .5px solid var(--sep); margin-left: 56px; padding-left: 0; width: calc(100% - 56px); }
+.suggest-row { position: relative; display: flex; gap: 12px; align-items: center; height: 48px; padding: 0 12px; width: 100%; text-align: left; }
+.suggest-row:active { background: var(--fill); }
+.suggest-row + .suggest-row::before { content: ''; position: absolute; top: 0; left: 56px; right: 0; border-top: .5px solid var(--sep); }
 .suggest-row > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .suggest-row .name { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; }
 .suggest-row .name .icon { color: var(--muted); flex: none; }
