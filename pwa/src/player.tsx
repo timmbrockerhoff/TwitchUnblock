@@ -1012,7 +1012,12 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   const [drag, setDrag] = useState(false);
   const fill = useRef<HTMLDivElement>(null);
   const scrub = useRef<{ f: number; resume: boolean; busy: boolean; next?: number; t?: ReturnType<typeof setTimeout> }>();
-  const [dragX, setDragX] = useState(0);
+  const slideX = (x: number, animate = false) => {
+    const el = root.current; if (!el) return;
+    el.style.transition = animate ? 'transform .2s ease-out' : 'none';
+    el.style.transform = x ? `translate3d(${x}px, 0, 0)` : '';
+    if (x && !animate) moving(true); else moving(false, 220);
+  };
   const srcs = useRef(new Map<string, Promise<ClipSrc | undefined>>());
   const chromeT = useRef<ReturnType<typeof setTimeout>>();
   const pressT = useRef<ReturnType<typeof setTimeout>>();
@@ -1032,8 +1037,16 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
   useEffect(() => { showChrome(); return () => { clearTimeout(chromeT.current); clearTimeout(pressT.current); }; }, []);
 
   // The track sits at page `cur`; `dy` follows the finger, `animate` eases into place (0.35 s like iOS).
+  // Blur behind the glass buttons is recomputed every frame while pages move: off during a move.
+  const movingT = useRef<ReturnType<typeof setTimeout>>();
+  const moving = (on: boolean, ms = 0) => {
+    clearTimeout(movingT.current);
+    if (on) root.current?.classList.add('moving');
+    else movingT.current = setTimeout(() => root.current?.classList.remove('moving'), ms);
+  };
   const place = (dy = 0, animate = false) => {
     const el = track.current; if (!el) return;
+    if (animate) { moving(true); moving(false, 380); }
     el.style.transition = animate ? 'transform .35s cubic-bezier(.25, .8, .25, 1)' : 'none';
     el.style.transform = `translate3d(0, calc(${-cur * 100}% + ${dy}px), 0)`;
   };
@@ -1052,16 +1065,22 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       el.playbackRate = 1; el.currentTime = 0; el.muted = muted;
       start(el, () => setMuted(true));
       setVod(p.vod);
-      addHistory({ kind: 'clip', id: c.slug, title: c.title, login: c.login ?? '', name: c.name ?? '', thumb: c.thumb });
     });
+    // After the 0.35 s page animation: the history write re-renders the whole app, and loading
+    // the next neighbour competes with the animation for the decoder.
+    const later = setTimeout(() => {
+      if (!alive) return;
+      addHistory({ kind: 'clip', id: c.slug, title: c.title, login: c.login ?? '', name: c.name ?? '', thumb: c.thumb });
+      preload();
+    }, 450);
     // The neighbour the next swipe most likely goes to: the following clip, else the previous one.
     const ni = clips[cur + 1] ? cur + 1 : cur - 1;
-    if (clips[ni]) resolve(clips[ni]).then(p => {
+    const preload = () => clips[ni] && resolve(clips[ni]).then(p => {
       if (!alive || !p) return;
       if (other.src !== p.url) { setFrame(f => (f[1 - slot] = false, [...f] as [boolean, boolean])); other.src = p.url; other.load(); }
       setVidAt(a => (a[1 - slot] = ni, [...a] as [number, number]));
     });
-    return () => { alive = false; el.pause(); };
+    return () => { alive = false; clearTimeout(later); el.pause(); };
   }, [cur]);
   useEffect(() => () => vids.forEach(r => { r.current?.removeAttribute('src'); r.current?.load(); }), []);
 
@@ -1142,10 +1161,11 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       s.vy = (dy - s.dy) / Math.max(1, now - s.t); s.dy = dy; s.t = now;
       // Rubber band past the first and last clip.
       const end = (dy > 0 && !clips[cur - 1]) || (dy < 0 && !clips[cur + 1]);
+      moving(true);
       place(end ? dy / 3 : dy);
     } else if (s.mode === 'edge') {
       s.vy = (dx - s.dy) / Math.max(1, now - s.t); s.dy = dx; s.t = now;
-      setDragX(Math.max(0, dx));
+      slideX(Math.max(0, dx));
     }
   };
   const onEnd = (e: TouchEvent) => {
@@ -1160,10 +1180,10 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
       else place(0, true);
     } else if (s.mode === 'edge') {
       const w = root.current?.clientWidth ?? innerWidth;
-      if (s.dy > w / 3 || s.vy > 1) { setDragX(w); setTimeout(closePlayer, 200); } else setDragX(0);
+      if (s.dy > w / 3 || s.vy > 1) { slideX(w, true); setTimeout(closePlayer, 200); } else slideX(0, true);
     } else if (!s.mode && Date.now() - s.t0 < 500) tap();
   };
-  const onCancel = () => { const s = g.current; g.current = undefined; clearTimeout(pressT.current); if (s?.fast) setFastOn(false); if (s?.mode === 'page') place(0, true); if (s?.mode === 'edge') setDragX(0); };
+  const onCancel = () => { const s = g.current; g.current = undefined; clearTimeout(pressT.current); if (s?.fast) setFastOn(false); if (s?.mode === 'page') place(0, true); if (s?.mode === 'edge') slideX(0, true); };
   // Mouse wheel and arrow keys page too (desktop, iPad keyboard).
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -1177,13 +1197,12 @@ function ClipFeed({ clips, index }: { clips: tw.Clip[]; index: number }) {
 
   const pages = clips.map((k, i) => ({ k, i })).filter(({ i }) => Math.abs(i - cur) <= 2);
   return <div class={'clipfeed' + (chrome ? ' chrome' : '')} ref={root}
-    style={{ transform: dragX ? `translateX(${dragX}px)` : undefined, transition: g.current?.mode === 'edge' ? 'none' : 'transform .2s' }}
     onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd} onTouchCancel={onCancel} onWheel={onWheel}
     onClick={e => { if (!(e.target as HTMLElement).closest('button, a, .clip-line')) tap(); }}
     onContextMenu={e => e.preventDefault()}>
     <div class="feed-track" ref={track}>
       {pages.map(({ k, i }) => <div class="feed-page" key={k.slug} style={{ top: `${i * 100}%` }}>
-        <img src={k.thumb} alt="" draggable={false} />
+        <img src={k.thumb} alt="" draggable={false} decoding="async" />
         {i === cur && <div class="feed-bottom">
           <div class="feed-row">
             <div class="feed-info">

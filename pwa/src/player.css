@@ -243,6 +243,10 @@
 .feed-pause { position: absolute; z-index: 3; inset: 0; display: grid; place-items: center; color: rgba(255, 255, 255, .85); pointer-events: none; filter: drop-shadow(0 0 8px rgba(0, 0, 0, .5)); }
 .fast-label { display: flex; align-items: center; gap: 4px; padding: 7px 14px; border-radius: 999px; background: rgba(0, 0, 0, .55); font-size: 15px; font-weight: 700; color: #fff; pointer-events: none; }
 /* Progress line: 3 px, 8 px while dragged; the 28 px strip is the touch target. */
+/* While pages move: no live blur (recomputed per frame on iOS), a plain dark fill instead. */
+.clipfeed.moving .feed-btn, .clipfeed.moving .feed-share, .clipfeed.moving .feed-vod { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(30, 30, 30, .7); }
+.clipfeed.moving .feed-info { text-shadow: none; }
+.feed-page { contain: layout paint; }
 .clip-line { position: relative; height: 28px; display: flex; align-items: center; touch-action: none; cursor: pointer; }
 .clip-line::before { content: ''; position: absolute; left: 0; right: 0; height: 3px; border-radius: 999px; background: rgba(255, 255, 255, .3); transition: height .15s ease-out; }
 .clip-line div { position: relative; width: 0; height: 3px; border-radius: 999px; background: #fff; transition: height .15s ease-out; will-change: width; }
