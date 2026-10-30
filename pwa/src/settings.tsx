@@ -473,7 +473,6 @@ function AboutPage({ onLogs }: { onLogs: () => void }) {
     <p class="srow-sub">Twitch-VODs und Livestreams ohne Abo in voller Qualität ansehen. Nichts einzurichten.</p>
     <p class="made-by">Erstellt von <a href="https://github.com/MXFia19" target="_blank" rel="noopener">MXFia19</a> <span class="srow-sub">(MIT-Lizenz)</span></p>
     {link('Quellcode der App', 'https://github.com/timmbrockerhoff/TwitchUnblock')}
-    {link('Was die Web-App nicht kann', 'https://github.com/timmbrockerhoff/TwitchUnblock/blob/pwa/pwa/LIMITATIONS.md')}
     <p class="srow-sub dim">Unabhängiges Projekt, nicht mit Twitch verbunden.</p>
     <button class="srow plain accent" onClick={onLogs}><Icon n="terminal" size={18} /><span class="grow">Systemprotokolle anzeigen</span><span class="count-badge">{logs.length}</span></button>
   </Card>;

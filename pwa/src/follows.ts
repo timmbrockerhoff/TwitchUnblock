@@ -40,7 +40,7 @@ export function refreshFollows(): Promise<ChannelBrief[] | undefined> {
     if (!list) { log.warn('Follows', 'Live-Status nicht lesbar, alte Liste bleibt'); return follows.list; }
     const live = list.filter(c => c.stream);
     log.debug('Follows', `${logins.length} Kanäle, ${live.length} live`, `${Date.now() - t0} ms`);
-    // Live notification while the app runs (no push server: see LIMITATIONS.md). Not on the
+    // Live notification while the app runs (no push server of our own). Not on the
     // first answer: everything already live would fire at once.
     if (follows.list && state.settings.notifyLive && 'Notification' in window && Notification.permission === 'granted') {
       for (const c of live) if (!seenLive.has(c.login))
